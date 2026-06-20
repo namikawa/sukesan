@@ -1,0 +1,96 @@
+<p><a href="/settings">← 設定に戻る</a></p>
+
+<h1>スケジュール同期ツール</h1>
+<p class="lead">Outlook 側にのみ存在するイベントを検知し、選択したものを Google カレンダーへ反映します。</p>
+
+<section class="connections">
+  <div class="conn <%= google_connected? ? 'on' : 'off' %>">
+    <span class="label">Google カレンダー</span>
+    <span class="state"><%= google_connected? ? '連携済み' : '未連携' %></span>
+    <% unless google_connected? %>
+      <a class="btn" href="/settings">設定で連携</a>
+    <% end %>
+  </div>
+  <div class="conn <%= microsoft_connected? ? 'on' : 'off' %>">
+    <span class="label">MS Outlook</span>
+    <span class="state"><%= microsoft_connected? ? '連携済み' : '未連携' %></span>
+    <% unless microsoft_connected? %>
+      <a class="btn" href="/auth/microsoft">Outlook と連携</a>
+    <% end %>
+  </div>
+  <% if microsoft_connected? %>
+    <form method="post" action="/disconnect" class="inline">
+      <input type="hidden" name="authenticity_token" value="<%= csrf_token %>">
+      <button type="submit" class="btn ghost">Outlook 連携を解除</button>
+    </form>
+  <% end %>
+</section>
+
+<% if google_connected? && microsoft_connected? %>
+  <form method="post" action="/check" class="check-form">
+    <input type="hidden" name="authenticity_token" value="<%= csrf_token %>">
+    <button type="submit" class="btn primary">2つのカレンダーをチェック</button>
+  </form>
+<% else %>
+  <p class="note">Google と Outlook の両方を連携するとチェックできます。</p>
+<% end %>
+
+<% if @events.any? %>
+  <form method="post" action="/sync" id="sync-form">
+    <input type="hidden" name="authenticity_token" value="<%= csrf_token %>">
+    <div class="bar">
+      <label class="select-all"><input type="checkbox" id="select-all"> すべて選択</label>
+      <button type="submit" class="btn primary">選択したイベントを Google に同期</button>
+    </div>
+
+    <table>
+      <thead>
+        <tr>
+          <th class="cb"></th>
+          <th>件名</th>
+          <th>開始</th>
+          <th>終了</th>
+          <th>場所</th>
+          <th>ステータス</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% @events.each do |event| %>
+          <% synced = synced_keys.include?(event.match_key) %>
+          <tr class="<%= synced ? 'synced' : '' %>">
+            <td class="cb">
+              <input type="checkbox" name="selected[]" value="<%= event.match_key %>" <%= 'disabled' if synced %>>
+            </td>
+            <td><%= event.title %></td>
+            <td><%= format_dt(event.starts_at, all_day: event.all_day) %></td>
+            <td><%= format_dt(event.ends_at, all_day: event.all_day) %></td>
+            <td><%= event.location %></td>
+            <td>
+              <span class="status <%= synced ? 'done' : 'pending' %>">
+                <%= synced ? '反映済み' : '未反映' %>
+              </span>
+            </td>
+          </tr>
+        <% end %>
+      </tbody>
+    </table>
+
+    <div class="bar">
+      <button type="submit" class="btn primary">選択したイベントを Google に同期</button>
+    </div>
+  </form>
+<% elsif @checked %>
+  <p class="note">Outlook 側にのみ存在するイベントはありませんでした。2つのカレンダーは同期済みです。</p>
+<% elsif google_connected? && microsoft_connected? %>
+  <p class="note">「2つのカレンダーをチェック」を押すと、Outlook 側にのみ存在するイベントが一覧表示されます。</p>
+<% end %>
+
+<script>
+  const all = document.getElementById('select-all');
+  if (all) {
+    all.addEventListener('change', (e) => {
+      document.querySelectorAll('input[name="selected[]"]:not([disabled])')
+        .forEach((cb) => { cb.checked = e.target.checked; });
+    });
+  }
+</script>

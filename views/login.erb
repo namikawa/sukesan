@@ -1,0 +1,16 @@
+<p><a href="/">← トップページに戻る</a></p>
+
+<h1>管理者ログイン</h1>
+<p class="lead">設定や連携の操作には管理者パスワードが必要です。</p>
+
+<% if @flash %>
+  <p class="flash error"><%= @flash %></p>
+<% end %>
+
+<form method="post" action="/settings/login" class="adjust-form">
+  <input type="hidden" name="authenticity_token" value="<%= csrf_token %>">
+  <label>パスワード
+    <input type="password" name="password" required autofocus>
+  </label>
+  <button type="submit" class="btn primary">ログイン</button>
+</form>

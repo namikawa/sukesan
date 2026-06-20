@@ -1,0 +1,28 @@
+AllCops:
+  TargetRubyVersion: 3.4
+  NewCops: enable
+  SuggestExtensions: false
+  Exclude:
+    - "vendor/**/*"
+
+# ドキュメントコメントは必須にしない（KISS）。
+Style/Documentation:
+  Enabled: false
+
+Style/FrozenStringLiteralComment:
+  Enabled: true
+
+# 文字列はダブルクォートで統一する。
+Style/StringLiterals:
+  EnforcedStyle: double_quotes
+
+# 行長は緩めに設定する。
+Layout/LineLength:
+  Max: 120
+
+# Sinatra のルーティングやビュー記述でブロックが長くなるため緩和する。
+Metrics/BlockLength:
+  Enabled: false
+
+Metrics/MethodLength:
+  Max: 25
