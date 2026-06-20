@@ -25,7 +25,7 @@
     </label>
     <button type="submit" class="btn primary">空き時間をチェック</button>
   </form>
-  <p class="note">調整したい期間を選べます（最大 <%= MAX_BUSINESS_DAYS %> 営業日まで表示）。</p>
+  <p class="note">調整したい期間を選べます（最大 <%= AvailabilitySearch::MAX_BUSINESS_DAYS %> 営業日まで表示）。</p>
   <script src="/home.js"></script>
 <% end %>
 
@@ -33,7 +33,7 @@
   <% if @results.any? { |_, slots| slots.any? } %>
     <h2>空き候補（<%= @duration %>分）</h2>
     <% if @capped %>
-      <p class="note">※ 期間が長いため、最初の <%= MAX_BUSINESS_DAYS %> 営業日分のみ表示しています。</p>
+      <p class="note">※ 期間が長いため、最初の <%= AvailabilitySearch::MAX_BUSINESS_DAYS %> 営業日分のみ表示しています。</p>
     <% end %>
     <p class="note">希望の時間帯を選び、依頼者名と予定名を入力して「スケジュール登録する」を押してください。</p>
     <% if @results.any? { |_, slots| slots.any?(&:lunch) } %>
