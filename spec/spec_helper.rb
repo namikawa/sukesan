@@ -1,12 +1,15 @@
 # frozen_string_literal: true
 
 require "time"
+require "fileutils"
 
 # テスト用の環境設定（app / dotenv 読み込みより前に確定させる）。
 ENV["APP_ENV"] ||= "test"
 ENV["TZ"] = "Asia/Tokyo" # スロットの +09:00 と Time.local を一致させ、テストを決定的にする
 ENV["ADMIN_PASSWORD"] = "test-admin-password"
 ENV["SESSION_SECRET"] ||= "test-session-secret-0123456789"
+# チケットの永続先を一時ディレクトリに隔離し、実データ（data/tickets）を汚さない。
+ENV["TICKETS_DIR"] ||= File.expand_path("../tmp/test-tickets", __dir__)
 
 $LOAD_PATH.unshift File.expand_path("../lib", __dir__)
 
@@ -49,8 +52,10 @@ RSpec.configure do |config|
   config.include RequestHelpers, type: :request
 
   # レート制限はプロセス内メモリのため、リクエストスペック間でリセットする。
+  # チケットの永続ファイルもテストごとに消し、状態が漏れないようにする。
   config.before(:each, type: :request) do
     SCHEDULE_LIMITER.reset!
     LOGIN_LIMITER.reset!
+    FileUtils.rm_rf(ENV.fetch("TICKETS_DIR"))
   end
 end

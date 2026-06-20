@@ -1,0 +1,20 @@
+<div class="bar">
+  <h1>SUKESAN (スケジュール管理ツール)</h1>
+</div>
+
+<% if @flash %>
+  <p class="flash"><%= @flash %></p>
+<% end %>
+
+<% if @ticket_status == "used" %>
+  <p class="lead">この URL でのご登録は完了しています。</p>
+  <p class="note">同じ URL で再度登録することはできません。別の予定を調整したい場合は、管理者に新しい URL の発行を依頼してください。</p>
+<% elsif @ticket_status == "expired" %>
+  <p class="lead">この URL は有効期限（発行から 24 時間）が切れています。</p>
+  <p class="note">お手数ですが、管理者に新しい URL の発行を依頼してください。</p>
+<% else %>
+  <p class="lead">この URL は無効です。</p>
+  <p class="note">URL が正しいかご確認のうえ、必要であれば管理者に新しい URL の発行を依頼してください。</p>
+<% end %>
+
+<p><a href="/">← トップページへ</a></p>

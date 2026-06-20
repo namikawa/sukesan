@@ -19,6 +19,7 @@ require_relative "lib/outlook_calendar_client"
 require_relative "lib/free_slot_finder"
 require_relative "lib/settings_store"
 require_relative "lib/token_store"
+require_relative "lib/ticket_store"
 require_relative "lib/rate_limiter"
 
 set :bind, "0.0.0.0"
@@ -122,6 +123,11 @@ MAX_BUSINESS_DAYS = 5
 MAX_TEXT_LENGTH = 100
 MAX_SCAN_DAYS = 366
 
+# 発行済みワンタイム URL の一覧表示に使うステータス文言。
+TICKET_STATUS_LABELS = {
+  "active" => "有効", "used" => "使用済み", "expired" => "期限切れ", "revoked" => "無効化"
+}.freeze
+
 helpers do
   # 本番では APP_BASE_URL を固定値として使い、Host ヘッダ汚染の影響を排除する。
   # 未設定（主に開発）の場合はリクエストから組み立てる。
@@ -131,6 +137,35 @@ helpers do
 
   def google_redirect_uri
     "#{base_url}/auth/google/callback"
+  end
+
+  # 発行したワンタイム URL（依頼者へ渡す調整ページの絶対 URL）。
+  def ticket_url(token)
+    "#{base_url}/t/#{token}"
+  end
+
+  def ticket_status_label(ticket)
+    TICKET_STATUS_LABELS.fetch(TicketStore.status(ticket), "不明")
+  end
+
+  # 保存された ISO8601 文字列を表示用の日時に整える。
+  def format_iso(value)
+    format_dt(Time.iso8601(value.to_s))
+  rescue ArgumentError
+    ""
+  end
+
+  # 予約枠（開始〜終了）の表示。同日なら終了側の日付を省略する。
+  def format_slot_range(start_iso, end_iso)
+    starts = Time.iso8601(start_iso.to_s).getlocal
+    ends = Time.iso8601(end_iso.to_s).getlocal
+    if starts.to_date == ends.to_date
+      "#{format_dt(starts)}〜#{format_time(ends)}"
+    else
+      "#{format_dt(starts)} 〜 #{format_dt(ends)}"
+    end
+  rescue ArgumentError
+    ""
   end
 
   def microsoft_redirect_uri
@@ -143,7 +178,7 @@ helpers do
   end
 
   def require_admin!
-    redirect "/settings" unless admin?
+    redirect "/admin" unless admin?
   end
 
   # レート制限のキーに使うクライアント IP。既定は TCP ピア（REMOTE_ADDR、偽装不可）。
@@ -370,10 +405,27 @@ helpers do
   end
 end
 
-# --- スケジュール調整（トップ画面） ---
+# --- トップ画面（利用案内のみ。調整はワンタイム URL から行う） ---
 get "/" do
-  @settings = SettingsStore.load
   @flash = session.delete(:flash)
+  erb :home
+end
+
+# --- ワンタイム URL の調整画面（発行された token を持つ依頼者だけが利用） ---
+get "/t/:token" do
+  @token = params[:token].to_s
+  @flash = session.delete(:flash)
+  ticket = TicketStore.find(@token)
+
+  # 無効・期限切れ・使用済み・存在しない token は案内ページを表示する。
+  # 410 Gone を返す（404 は not_found ハンドラに横取りされるため使わない）。
+  unless TicketStore.active?(ticket)
+    @ticket_status = ticket ? TicketStore.status(ticket) : "missing"
+    status 410
+    halt erb(:ticket_invalid)
+  end
+
+  @settings = SettingsStore.load
   @start_date = params[:start_date].to_s
   @end_date = params[:end_date].to_s
   @duration = params[:duration].to_s
@@ -387,13 +439,17 @@ get "/" do
   @end_date = default_date if @end_date.empty?
   @duration = "30" if @duration.empty?
 
-  erb :home
+  erb :schedule
 end
 
-# 選択した空き候補を管理者カレンダーへ登録する（公開フォーム）。
+# 選択した空き候補を管理者カレンダーへ登録する（ワンタイム URL からのみ）。
 post "/schedule" do
-  halt 400, "Google の連携が必要です" unless google_connected?
   halt 429, "リクエストが多すぎます。しばらく時間をおいてからお試しください。" unless SCHEDULE_LIMITER.allow?(client_ip)
+
+  token = params[:token].to_s
+  ticket = TicketStore.find(token)
+  halt 403, "この URL は無効か、期限切れです。管理者に新しい URL の発行を依頼してください。" unless TicketStore.active?(ticket)
+  halt 400, "Google の連携が必要です" unless google_connected?
 
   title = params[:title].to_s.strip
   requester = params[:requester].to_s.strip
@@ -404,17 +460,32 @@ post "/schedule" do
   halt 400, "予定名・依頼者名が長すぎます（各 #{MAX_TEXT_LENGTH} 文字以内）" if too_long
   halt 422, "選択した時間帯は予約できません。お手数ですが再度空き時間をチェックしてください。" unless available_slot?(starts_at, ends_at)
 
-  event = Event.new(
-    source: "google",
-    title: "#{title} - #{requester} (from 調整ツール)",
-    starts_at: starts_at,
-    ends_at: ends_at,
-    all_day: false,
-    description: "依頼者: #{requester}"
-  )
-  GoogleCalendarClient.new(google_token).create_event(event)
+  # 二重登録を防ぐため、カレンダー登録より先に token を使用済みにする。
+  # 同時送信で既に使われていれば false（登録は行わない）。
+  consumed = TicketStore.use!(token, attrs: {
+                                "requester" => requester, "title" => title,
+                                "slot_start" => starts_at.iso8601, "slot_end" => ends_at.iso8601
+                              })
+  halt 409, "この URL は既に使用されています。" unless consumed
+
+  begin
+    event = Event.new(
+      source: "google",
+      title: "#{title} - #{requester} (from 調整ツール)",
+      starts_at: starts_at,
+      ends_at: ends_at,
+      all_day: false,
+      description: "依頼者: #{requester}"
+    )
+    GoogleCalendarClient.new(google_token).create_event(event)
+  rescue StandardError
+    # 登録に失敗したときは token を有効へ戻し、再試行できるようにする。
+    TicketStore.reactivate!(token)
+    halt 502, "予定の登録に失敗しました。お手数ですが、もう一度お試しください。"
+  end
+
   session[:flash] = "#{requester} さんの「#{title}」を #{format_dt(event.starts_at)} に登録しました。"
-  redirect "/"
+  redirect "/t/#{token}"
 end
 
 # --- 管理者ログイン ---
@@ -428,13 +499,22 @@ post "/settings/login" do
   else
     session[:flash] = "パスワードが正しくありません。"
   end
-  redirect "/settings"
+  redirect "/admin"
 end
 
 post "/settings/logout" do
   session.clear
   session.options[:drop] = true # ログアウト時はセッションを破棄する
-  redirect "/settings"
+  redirect "/admin"
+end
+
+# --- 管理画面（ワンタイム URL の発行・一覧。認証していなければログイン画面を表示） ---
+get "/admin" do
+  @flash = session.delete(:flash)
+  return erb(:login) unless admin?
+
+  @tickets = TicketStore.all
+  erb :admin
 end
 
 # --- 設定（管理者専用：認証していなければログイン画面を表示） ---
@@ -444,6 +524,22 @@ get "/settings" do
 
   @settings = SettingsStore.load
   erb :settings
+end
+
+# 1回限りのスケジュール調整 URL を発行する（管理者専用）。
+post "/tickets" do
+  require_admin!
+  TicketStore.create
+  session[:flash] = "ワンタイム URL を発行しました。"
+  redirect "/admin"
+end
+
+# 発行済みワンタイム URL を手動で無効化する（管理者専用）。
+post "/tickets/:token/revoke" do
+  require_admin!
+  TicketStore.revoke(params[:token].to_s)
+  session[:flash] = "ワンタイム URL を無効化しました。"
+  redirect "/admin"
 end
 
 post "/settings" do

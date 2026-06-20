@@ -1,0 +1,81 @@
+<div class="bar">
+  <h1>SUKESAN (スケジュール管理ツール)</h1>
+</div>
+<p class="lead">調整したい期間と必要な時間を入力すると、空き時間の候補から希望の枠を選んで予定を登録できます。</p>
+<p class="note">このページは 1 回限りの調整用 URL です。予定を登録すると、この URL は使えなくなります（発行から 24 時間で期限切れ）。</p>
+
+<% if @flash %>
+  <p class="flash"><%= @flash %></p>
+<% end %>
+
+<% unless google_connected? %>
+  <p class="note">現在カレンダーが連携されていないため、スケジュール調整はできません。管理者にお問い合わせください。</p>
+<% end %>
+
+<% if google_connected? %>
+  <form method="get" action="/t/<%= @token %>" class="adjust-form">
+    <label>開始日
+      <input type="date" id="start-date" name="start_date" value="<%= @start_date %>" required>
+    </label>
+    <label>終了日
+      <input type="date" id="end-date" name="end_date" value="<%= @end_date %>" min="<%= @start_date %>" required>
+    </label>
+    <label>必要な時間（分）
+      <input type="number" name="duration" value="<%= @duration %>" min="15" step="15" required>
+    </label>
+    <button type="submit" class="btn primary">空き時間をチェック</button>
+  </form>
+  <p class="note">調整したい期間を選べます（最大 <%= MAX_BUSINESS_DAYS %> 営業日まで表示）。</p>
+  <script src="/home.js"></script>
+<% end %>
+
+<% if @searched %>
+  <% if @results.any? { |_, slots| slots.any? } %>
+    <h2>空き候補（<%= @duration %>分）</h2>
+    <% if @capped %>
+      <p class="note">※ 期間が長いため、最初の <%= MAX_BUSINESS_DAYS %> 営業日分のみ表示しています。</p>
+    <% end %>
+    <p class="note">希望の時間帯を選び、依頼者名と予定名を入力して「スケジュール登録する」を押してください。</p>
+    <% if @results.any? { |_, slots| slots.any?(&:lunch) } %>
+      <p class="note lunch-note">
+        <span class="lunch-tag">（ランチタイム）</span>
+        の枠は昼休憩の確保が難しくなりますので、お急ぎの場合のみご選択いただけますとありがたいです。
+      </p>
+    <% end %>
+    <form method="post" action="/schedule" class="slots-form">
+      <input type="hidden" name="authenticity_token" value="<%= csrf_token %>">
+      <input type="hidden" name="token" value="<%= @token %>">
+      <div class="title-row">
+        <label class="title-field">依頼者名
+          <input type="text" name="requester" placeholder="例: 山田 太郎" required>
+        </label>
+        <label class="title-field">予定名
+          <input type="text" name="title" placeholder="例: 打ち合わせ" required>
+        </label>
+      </div>
+      <% @results.each do |date, slots| %>
+        <% next if slots.empty? %>
+        <div class="day-group">
+          <h3 class="day-head"><%= format_date_label(date) %></h3>
+          <ul class="slots">
+            <% slots.each do |slot| %>
+              <li class="<%= "lunch" if slot.lunch %>">
+                <label>
+                  <input type="radio" name="slot" value="<%= slot.starts_at.iso8601 %>/<%= slot.ends_at.iso8601 %>" required>
+                  <%= format_time(slot.starts_at) %> 〜 <%= format_time(slot.ends_at) %>
+                  <% if slot.lunch %><span class="lunch-tag">（ランチタイム）</span><% end %>
+                </label>
+              </li>
+            <% end %>
+          </ul>
+        </div>
+      <% end %>
+      <button type="submit" class="btn primary">スケジュール登録する</button>
+    </form>
+  <% else %>
+    <p class="note">
+      指定した期間内に <%= @duration %>分 の空きはありませんでした。
+      期間・時間を変えてお試しください。
+    </p>
+  <% end %>
+<% end %>

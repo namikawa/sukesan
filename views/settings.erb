@@ -5,14 +5,14 @@
     <button type="submit" class="btn ghost">ログアウト</button>
   </form>
 </div>
-<p><a href="/">← トップページに戻る</a></p>
+<p><a href="/admin">← 管理画面に戻る</a></p>
 
 <% if @flash %>
   <p class="flash"><%= @flash %></p>
 <% end %>
 
 <h2>Google カレンダー連携</h2>
-<p class="note">公開ページの利用者は、ここで連携した管理者カレンダーに対して予定を登録します。</p>
+<p class="note">ワンタイム URL の利用者は、ここで連携した管理者カレンダーに対して予定を登録します。</p>
 <section class="connections">
   <div class="conn <%= google_connected? ? 'on' : 'off' %>">
     <span class="label">Google カレンダー</span>
