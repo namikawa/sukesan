@@ -59,6 +59,7 @@ RSpec.configure do |config|
   # チケットの永続ファイルもテストごとに消し、状態が漏れないようにする。
   config.before(:each, type: :request) do
     SCHEDULE_LIMITER.reset!
+    SEARCH_LIMITER.reset!
     LOGIN_LIMITER.reset!
     FileUtils.rm_rf(ENV.fetch("TICKETS_DIR"))
   end

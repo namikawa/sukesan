@@ -110,6 +110,9 @@ SYNC_WINDOW_FUTURE = 60
 # 公開フォーム（スケジュール調整）のスパム対策。IP ごとに 60 秒で 5 回まで。
 SCHEDULE_LIMITER = RateLimiter.new(max: 5, window_seconds: 60)
 
+# 空き時間検索（Google API を消費する）の濫用対策。IP ごとに 60 秒で 10 回まで。
+SEARCH_LIMITER = RateLimiter.new(max: 10, window_seconds: 60)
+
 # 管理者ログインのブルートフォース対策。IP ごとに 5 分で 10 回まで。
 LOGIN_LIMITER = RateLimiter.new(max: 10, window_seconds: 300)
 
@@ -443,8 +446,16 @@ get "/t/:token" do
   @end_date = params[:end_date].to_s
   @duration = params[:duration].to_s
 
+  # 検索（Google API 消費）が実際に走る時だけレート制限する。ページ表示だけでは消費しない。
   inputs_present = !@start_date.empty? && !@end_date.empty? && !@duration.empty?
-  compute_results if google_connected? && inputs_present
+  if google_connected? && inputs_present
+    if SEARCH_LIMITER.allow?(client_ip)
+      compute_results
+    else
+      status 429
+      @flash = "空き時間の検索が多すぎます。しばらく時間をおいてから再度お試しください。"
+    end
+  end
 
   # 初回アクセス時のフォーム既定値（翌営業日・30分）。検索はあくまで上の条件でのみ実行する。
   default_date = next_business_day(@settings["business_days"]).strftime("%F")

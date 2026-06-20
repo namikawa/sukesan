@@ -62,6 +62,27 @@ RSpec.describe "ワンタイム URL" do
       expect(last_response.status).to eq(410)
       expect(last_response.body).to include("完了")
     end
+
+    it "空き時間検索が規定回数を超えると 429 を返す" do
+      stub_request(:get, %r{googleapis\.com/calendar/v3/calendars/primary/events})
+        .to_return(status: 200, body: { "items" => [] }.to_json, headers: { "Content-Type" => "application/json" })
+      token = TicketStore.create
+      query = { start_date: "2026-06-22", end_date: "2026-06-22", duration: "30" }
+
+      statuses = Array.new(25) do
+        get "/t/#{token}", query
+        last_response.status
+      end
+
+      expect(statuses.first).to eq(200) # 最初の検索は通る
+      expect(statuses).to include(429)  # 上限超過で 429
+    end
+
+    it "パラメータ無しのページ表示はレート制限を消費しない" do
+      token = TicketStore.create
+      30.times { get "/t/#{token}" }
+      expect(last_response.status).to eq(200)
+    end
   end
 
   describe "無効化 POST /tickets/:token/revoke" do
