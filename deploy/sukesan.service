@@ -1,0 +1,28 @@
+# systemd ユニットの例（Linux）。
+#
+# 使い方:
+#   1. __APP_DIR__ をアプリの絶対パス、__USER__ を実行ユーザー名に置き換える
+#   2. sudo cp deploy/sukesan.service /etc/systemd/system/sukesan.service
+#   3. sudo systemctl daemon-reload
+#   4. sudo systemctl enable --now sukesan
+#   状態確認: systemctl status sukesan / ログ: journalctl -u sukesan -f
+#
+# 注意: rbenv / rvm 等を使う場合、ruby/bundle が PATH に無いと起動に失敗する。
+#       その場合は Environment=PATH=... を追記するか、ExecStart を絶対パスの bundle に変更する。
+
+[Unit]
+Description=SUKESAN scheduling tool
+After=network.target
+
+[Service]
+Type=simple
+User=__USER__
+WorkingDirectory=__APP_DIR__
+Environment=APP_ENV=production
+# .env は dotenv によりアプリ起動時に読み込まれる
+ExecStart=__APP_DIR__/bin/server run
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

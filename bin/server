@@ -1,0 +1,107 @@
+#!/usr/bin/env bash
+# SUKESAN のアプリサーバを制御する。
+#
+#   bin/server start     起動（バックグラウンド）
+#   bin/server stop      停止
+#   bin/server restart   再起動
+#   bin/server status    起動状態の確認
+#   bin/server run       フォアグラウンド実行（systemd / launchd などのサービス管理用）
+#
+# 環境変数で上書き可能:
+#   PORT       待ち受けポート（既定 3000）
+#   PID_FILE   PID ファイルのパス（既定 tmp/pids/server.pid）
+#   LOG_FILE   ログファイルのパス（既定 log/server.log）
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT"
+
+APP_NAME="sukesan"
+PORT="${PORT:-3000}"
+PID_FILE="${PID_FILE:-$ROOT/tmp/pids/server.pid}"
+LOG_FILE="${LOG_FILE:-$ROOT/log/server.log}"
+START_CMD=(bundle exec rackup --host 0.0.0.0 --port "$PORT" config.ru)
+
+current_pid() { cat "$PID_FILE" 2>/dev/null || true; }
+
+is_running() {
+  local pid
+  pid="$(current_pid)"
+  [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null
+}
+
+start() {
+  if is_running; then
+    echo "$APP_NAME は既に起動しています (PID $(current_pid))。"
+    return 0
+  fi
+  rm -f "$PID_FILE" # 古い PID ファイルが残っていれば掃除する
+  mkdir -p "$(dirname "$PID_FILE")" "$(dirname "$LOG_FILE")"
+
+  echo "$APP_NAME を起動します (PORT $PORT) ..."
+  nohup "${START_CMD[@]}" >>"$LOG_FILE" 2>&1 &
+  echo $! >"$PID_FILE"
+
+  sleep 1
+  if is_running; then
+    echo "起動しました (PID $(current_pid))。ログ: $LOG_FILE"
+  else
+    echo "起動に失敗しました。ログを確認してください: $LOG_FILE" >&2
+    rm -f "$PID_FILE"
+    return 1
+  fi
+}
+
+stop() {
+  if ! is_running; then
+    echo "$APP_NAME は起動していません。"
+    rm -f "$PID_FILE"
+    return 0
+  fi
+  local pid
+  pid="$(current_pid)"
+  echo "$APP_NAME を停止します (PID $pid) ..."
+  kill "$pid" 2>/dev/null || true
+
+  for _ in $(seq 1 10); do # 最大 10 秒、graceful な終了を待つ
+    is_running || break
+    sleep 1
+  done
+
+  if is_running; then
+    echo "応答しないため強制終了します (KILL)。"
+    kill -9 "$pid" 2>/dev/null || true
+    sleep 1
+  fi
+  rm -f "$PID_FILE"
+  echo "停止しました。"
+}
+
+status() {
+  if is_running; then
+    echo "$APP_NAME: 起動中 (PID $(current_pid), PORT $PORT)"
+  else
+    echo "$APP_NAME: 停止中"
+    return 1 # サービス管理の慣例に合わせ、停止時は非 0 を返す
+  fi
+}
+
+run() {
+  # フォアグラウンドで実行する（PID 管理はサービス管理側に委ねる）。
+  exec "${START_CMD[@]}"
+}
+
+case "${1:-}" in
+start) start ;;
+stop) stop ;;
+restart)
+  stop
+  start
+  ;;
+status) status ;;
+run) run ;;
+*)
+  echo "使い方: bin/server {start|stop|restart|status|run}" >&2
+  exit 64
+  ;;
+esac

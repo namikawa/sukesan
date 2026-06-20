@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  launchd の例（macOS）。
+  使い方:
+    1. __APP_DIR__ をアプリの絶対パスに置き換える
+    2. cp deploy/com.sukesan.server.plist ~/Library/LaunchAgents/
+       （常時起動のデーモンにする場合は sudo で /Library/LaunchDaemons/ へ）
+    3. launchctl load ~/Library/LaunchAgents/com.sukesan.server.plist
+    状態確認: launchctl list | grep com.sukesan.server
+    停止/解除: launchctl unload ~/Library/LaunchAgents/com.sukesan.server.plist
+
+  注意: rbenv / rvm 等を使う場合、ruby/bundle を見つけられるよう
+        EnvironmentVariables の PATH を環境に合わせて調整する。
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.sukesan.server</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>__APP_DIR__/bin/server</string>
+    <string>run</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>__APP_DIR__</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>APP_ENV</key>
+    <string>production</string>
+    <key>PATH</key>
+    <string>/usr/local/bin:/usr/bin:/bin</string>
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>__APP_DIR__/log/server.log</string>
+  <key>StandardErrorPath</key>
+  <string>__APP_DIR__/log/server.log</string>
+</dict>
+</plist>

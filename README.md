@@ -162,6 +162,31 @@ ruby app.rb
 - **エラー秘匿**: スタックトレースを表示せず汎用メッセージを返す。
 - **HSTS**: `Strict-Transport-Security` を付与。
 
+### サーバの制御（bin/server）
+
+起動・停止・再起動・状態確認をまとめて行える制御スクリプトを用意しています。
+
+```bash
+bin/server start     # 起動（バックグラウンド）
+bin/server stop      # 停止
+bin/server restart   # 再起動
+bin/server status    # 起動状態の確認
+bin/server run       # フォアグラウンド実行（サービス管理から起動する用途）
+```
+
+- PID は `tmp/pids/server.pid`、ログは `log/server.log` に出力します（いずれも `.gitignore` 済み）。
+- ポートは環境変数で変更できます: `PORT=8080 bin/server start`。
+- `PID_FILE` / `LOG_FILE` でファイルパスも上書きできます。
+
+### OS サービスへの登録
+
+`deploy/` にサービス定義のテンプレートを同梱しています。`bin/server run`（フォアグラウンド実行）を起動コマンドとして使う想定です。
+
+- **Linux（systemd）**: `deploy/sukesan.service`
+- **macOS（launchd）**: `deploy/com.sukesan.server.plist`
+
+いずれもファイル内のコメントに沿って `__APP_DIR__` などのプレースホルダを実環境の値に置き換えてから登録してください。
+
 ## 使い方
 
 ### 管理者（初回準備〜URL 発行）
