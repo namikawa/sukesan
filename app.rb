@@ -9,6 +9,7 @@ require "base64"
 require "digest"
 require "net/http"
 require "rack/protection"
+require "bcrypt"
 require "dotenv/load"
 
 require_relative "lib/event"
@@ -179,6 +180,18 @@ helpers do
 
   def require_admin!
     redirect "/admin" unless admin?
+  end
+
+  # 入力されたパスワードを、ENV の bcrypt ダイジェスト（ADMIN_PASSWORD_DIGEST）と照合する。
+  # ダイジェスト未設定・不正な形式の場合はログイン不可（false）。
+  # BCrypt::Password#is_password? は定数時間で比較する。
+  def admin_password_valid?(password)
+    digest = ENV.fetch("ADMIN_PASSWORD_DIGEST", "")
+    return false if digest.empty?
+
+    BCrypt::Password.new(digest).is_password?(password)
+  rescue BCrypt::Errors::InvalidHash
+    false
   end
 
   # レート制限のキーに使うクライアント IP。既定は TCP ピア（REMOTE_ADDR、偽装不可）。
@@ -492,8 +505,7 @@ end
 post "/settings/login" do
   halt 429, "ログイン試行が多すぎます。しばらく時間をおいてからお試しください。" unless LOGIN_LIMITER.allow?(client_ip)
 
-  expected = ENV.fetch("ADMIN_PASSWORD", "")
-  if !expected.empty? && Rack::Utils.secure_compare(expected, params[:password].to_s)
+  if admin_password_valid?(params[:password].to_s)
     session.options[:renew] = true # セッション固定対策: ログイン時に session id を再生成
     session[:admin] = true
   else

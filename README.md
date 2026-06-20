@@ -24,7 +24,7 @@
 | `GET /sync` ほか同期系 | 管理者 | Outlook → Google の同期ツール |
 | `/auth/google`, `/auth/microsoft` | 管理者 | カレンダー連携（OAuth） |
 
-- **公開** = 認証不要。**トークン** = 管理者が発行した有効なワンタイム URL（トークン）が必要だが、管理者ログインは不要。**管理者** = `ADMIN_PASSWORD` によるログインが必要。
+- **公開** = 認証不要。**トークン** = 管理者が発行した有効なワンタイム URL（トークン）が必要だが、管理者ログインは不要。**管理者** = 管理者パスワード（`ADMIN_PASSWORD_DIGEST`）によるログインが必要。
 - 未認証で管理者ページにアクセスすると、ログイン画面（`/admin`）へ誘導されます。ログイン・ログアウト後はいずれも `/admin` に戻ります。
 - Google のトークンはサーバ側（`data/google_token.json`）で共有保存され、ワンタイム URL の利用者全員が「管理者が連携した1つの Google カレンダー（`primary`）」を参照します。
 - Microsoft（Outlook）のトークンは管理者のセッションにのみ保持され、Outlook 同期でのみ使用します。
@@ -135,17 +135,15 @@ GOOGLE_CLIENT_SECRET=...
 MS_CLIENT_ID=...
 MS_CLIENT_SECRET=...
 MS_TENANT_ID=common
-ADMIN_PASSWORD=...
+ADMIN_PASSWORD_DIGEST='$2a$12$....'
 SESSION_SECRET=...
 ```
 
-- `ADMIN_PASSWORD` は設定画面・カレンダー連携・Outlook 同期を保護する管理者パスワードです。**未設定（空）の場合はログインできません。**
+- `ADMIN_PASSWORD_DIGEST` は設定画面・カレンダー連携・Outlook 同期を保護する管理者パスワードの **bcrypt ダイジェスト**です（平文は保存しません）。**未設定（空）の場合はログインできません。**
+  - 生成: `bin/admin_password_digest` を実行し、プロンプトにパスワードを入力（エコーされません）。出力された行を `.env` に貼り付けます。
+  - 値に `$` を含むため、**必ずシングルクォートで囲んでください**（`dotenv` の変数展開で値が壊れるのを防ぐため）。
 - `SESSION_SECRET` はセッション Cookie の署名鍵です。**本番（`APP_ENV=production`）では必須**で、未設定だと起動に失敗します。開発時は未設定でも一時鍵が自動生成されます（再起動で無効化）。生成例: `ruby -rsecurerandom -e 'puts SecureRandom.hex(64)'`
-- パスワードに `#` や空白などが含まれる場合は、必ず引用符で囲んでください（`dotenv` が `#` 以降をコメントとして無視するため）。
-
-  ```
-  ADMIN_PASSWORD='my#pass word'
-  ```
+- `.env` 自体のファイル権限は `chmod 600 .env` で本人のみ読めるようにしておくことを推奨します。
 
 ### 4. 起動
 
@@ -168,7 +166,7 @@ ruby app.rb
 
 ### 管理者（初回準備〜URL 発行）
 
-1. <http://localhost:3000/admin> を開き、`ADMIN_PASSWORD` でログイン
+1. <http://localhost:3000/admin> を開き、管理者パスワードでログイン
 2. 「設定画面へ」から設定画面（`/settings`）を開き、「Google と連携」でカレンダーを接続（以降、ワンタイム URL の利用者全員がこの連携を使用）
 3. 設定画面で「調整可能な時間帯・曜日・昼休憩」を設定して保存
 4. （任意）Outlook 同期を使う場合は `/sync` で Outlook を連携
