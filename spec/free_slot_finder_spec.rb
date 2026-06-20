@@ -110,5 +110,27 @@ RSpec.describe FreeSlotFinder do
 
       expect(slots.map(&:lunch)).to all(be(false))
     end
+
+    it "休憩の時間帯・分数は設定で変更できる" do
+      # 休憩 12:00〜13:00 に連続60分を確保。営業も 12:00〜13:00 のみ。
+      finder = described_class.new(
+        business_start: "12:00", business_end: "13:00",
+        lunch_start: "12:00", lunch_end: "13:00", lunch_minutes: 60
+      )
+      slots = finder.find(date: date, duration_minutes: 60, busy_events: [])
+
+      # 唯一の枠 12:00-13:00 を入れると休憩 60 分が残らないため警告
+      expect(slots.map { |s| s.starts_at.strftime("%H:%M") }).to eq(["12:00"])
+      expect(slots.first.lunch).to be(true)
+    end
+
+    it "休憩時間が0分なら lunch フラグを立てない" do
+      finder = described_class.new(
+        business_start: "11:00", business_end: "14:00", lunch_minutes: 0
+      )
+      slots = finder.find(date: date, duration_minutes: 60, busy_events: [busy(11, 0, 13, 0)])
+
+      expect(slots.map(&:lunch)).to all(be(false))
+    end
   end
 end

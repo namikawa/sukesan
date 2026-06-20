@@ -3,7 +3,10 @@
 RSpec.describe "予定作成 /schedule" do
   let(:token_hash) { { "access_token" => "fake", "expires_at" => 4_102_444_800 } }
   let(:settings) do
-    { "business_start" => "09:00", "business_end" => "18:00", "business_days" => [1, 2, 3, 4, 5] }
+    {
+      "business_start" => "09:00", "business_end" => "18:00", "business_days" => [1, 2, 3, 4, 5],
+      "lunch_start" => "11:00", "lunch_end" => "14:00", "lunch_minutes" => 60
+    }
   end
   # 2026-06-22 は月曜（営業日）。
   let(:valid_slot) { "2026-06-22T09:00:00+09:00/2026-06-22T09:30:00+09:00" }

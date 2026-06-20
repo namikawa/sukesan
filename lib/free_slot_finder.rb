@@ -5,20 +5,21 @@ require "time"
 # 指定日の営業時間内で、指定した所要時間ぶんの空き時間候補を算出する。
 # 既存の予定（busy_events）と重ならない開始時刻を step_minutes 刻みで列挙する。
 #
-# あわせて、昼休憩（LUNCH_START〜LUNCH_END の間に連続1時間）を確保するため、
-# 「その枠を入れると昼休憩用の連続空きが1時間未満になる」候補には lunch フラグを立てる。
+# あわせて、昼休憩（lunch_start〜lunch_end の間に連続 lunch_minutes 分）を確保するため、
+# 「その枠を入れると休憩用の連続空きが lunch_minutes 分未満になる」候補には lunch フラグを立てる。
 # 候補自体は残す（急ぎの予定のために選択できる）が、UI 側で控えめに表示する想定。
+# 休憩時間帯・必要分数は設定から変更できる（lunch_minutes が 0 以下なら警告しない）。
 class FreeSlotFinder
   Slot = Struct.new(:starts_at, :ends_at, :lunch, keyword_init: true)
 
-  LUNCH_START = "11:00"
-  LUNCH_END = "14:00"
-  LUNCH_MIN_SECONDS = 60 * 60
-
-  def initialize(business_start:, business_end:, business_days: (0..6).to_a, step_minutes: 30)
+  def initialize(business_start:, business_end:, business_days: (0..6).to_a,
+                 lunch_start: "11:00", lunch_end: "14:00", lunch_minutes: 60, step_minutes: 30)
     @business_start = business_start
     @business_end = business_end
     @business_days = business_days
+    @lunch_start = lunch_start
+    @lunch_end = lunch_end
+    @lunch_minutes = lunch_minutes.to_i
     @step_minutes = step_minutes
   end
 
@@ -50,16 +51,29 @@ class FreeSlotFinder
     slots
   end
 
-  # 昼休憩の連続1時間を確保できなくなる候補に lunch フラグを立てる。
+  # 休憩の連続確保ができなくなる候補に lunch フラグを立てる。
+  # 設定が無効（分数 0 以下・時間帯未設定・開始>=終了）なら何もしない。
   def flag_lunch(slots, date, busy)
-    lunch_start = at(date, LUNCH_START)
-    lunch_end = at(date, LUNCH_END)
+    return unless lunch_enabled?
 
+    lunch_start = at(date, @lunch_start)
+    lunch_end = at(date, @lunch_end)
+    return if lunch_end <= lunch_start
+
+    mark_lunch(slots, lunch_start, lunch_end, busy)
+  end
+
+  def lunch_enabled?
+    @lunch_minutes.positive? && !@lunch_start.nil? && !@lunch_end.nil?
+  end
+
+  def mark_lunch(slots, lunch_start, lunch_end, busy)
+    lunch_seconds = @lunch_minutes * 60
     slots.each do |slot|
       next unless slot.starts_at < lunch_end && lunch_start < slot.ends_at
 
       with_slot = busy + [[slot.starts_at, slot.ends_at]]
-      slot.lunch = max_free_seconds(lunch_start, lunch_end, with_slot) < LUNCH_MIN_SECONDS
+      slot.lunch = max_free_seconds(lunch_start, lunch_end, with_slot) < lunch_seconds
     end
   end
 

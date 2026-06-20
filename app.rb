@@ -250,6 +250,30 @@ helpers do
     value.to_s.match?(/\A([01]\d|2[0-3]):[0-5]\d\z/)
   end
 
+  # 設定フォームの入力を SettingsStore.save の引数形に整える。
+  def settings_params
+    {
+      business_start: params[:business_start].to_s,
+      business_end: params[:business_end].to_s,
+      business_days: business_days_param,
+      lunch_start: params[:lunch_start].to_s,
+      lunch_end: params[:lunch_end].to_s,
+      lunch_minutes: params[:lunch_minutes].to_i
+    }
+  end
+
+  def business_days_param
+    Array(params[:business_days]).map(&:to_i).grep(0..6).uniq.sort
+  end
+
+  def settings_valid?(values)
+    valid_hhmm?(values[:business_start]) && valid_hhmm?(values[:business_end]) &&
+      values[:business_start] < values[:business_end] &&
+      valid_hhmm?(values[:lunch_start]) && valid_hhmm?(values[:lunch_end]) &&
+      values[:lunch_start] < values[:lunch_end] &&
+      values[:lunch_minutes] >= 0
+  end
+
   # 翌日以降で、調整可能な曜日（business_days）に該当する最初の日付。
   # 曜日が未設定なら単純に翌日を返す。
   def next_business_day(business_days)
@@ -299,7 +323,10 @@ helpers do
     FreeSlotFinder.new(
       business_start: settings["business_start"],
       business_end: settings["business_end"],
-      business_days: settings["business_days"]
+      business_days: settings["business_days"],
+      lunch_start: settings["lunch_start"],
+      lunch_end: settings["lunch_end"],
+      lunch_minutes: settings["lunch_minutes"]
     )
   end
 
@@ -421,15 +448,12 @@ end
 
 post "/settings" do
   require_admin!
-  start = params[:business_start].to_s
-  finish = params[:business_end].to_s
-  days = Array(params[:business_days]).map(&:to_i).grep(0..6).uniq.sort
-
-  if valid_hhmm?(start) && valid_hhmm?(finish) && start < finish
-    SettingsStore.save(business_start: start, business_end: finish, business_days: days)
+  values = settings_params
+  if settings_valid?(values)
+    SettingsStore.save(**values)
     session[:flash] = "設定を保存しました。"
   else
-    session[:flash] = "時間の形式が正しくありません（開始 < 終了 の HH:MM で入力してください）。"
+    session[:flash] = "入力内容が正しくありません（時間は HH:MM・開始 < 終了、休憩は 0 分以上で入力してください）。"
   end
   redirect "/settings"
 end

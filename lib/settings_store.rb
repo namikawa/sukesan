@@ -10,10 +10,14 @@ module SettingsStore
 
   PATH = File.expand_path("../data/settings.json", __dir__)
   # business_days は調整可能な曜日（Ruby の wday: 0=日〜6=土）。既定は平日（月〜金）。
+  # lunch_* は昼休憩を確保する時間帯と必要分数（既定 11:00〜14:00 / 60 分）。
   DEFAULT = {
     "business_start" => "09:00",
     "business_end" => "18:00",
-    "business_days" => [1, 2, 3, 4, 5]
+    "business_days" => [1, 2, 3, 4, 5],
+    "lunch_start" => "11:00",
+    "lunch_end" => "14:00",
+    "lunch_minutes" => 60
   }.freeze
 
   def load
@@ -24,11 +28,14 @@ module SettingsStore
     DEFAULT.dup
   end
 
-  def save(business_start:, business_end:, business_days:)
+  def save(business_start:, business_end:, business_days:, lunch_start:, lunch_end:, lunch_minutes:)
     data = {
       "business_start" => business_start,
       "business_end" => business_end,
-      "business_days" => business_days
+      "business_days" => business_days,
+      "lunch_start" => lunch_start,
+      "lunch_end" => lunch_end,
+      "lunch_minutes" => lunch_minutes
     }
     FileUtils.mkdir_p(File.dirname(PATH))
     File.write(PATH, JSON.generate(data))

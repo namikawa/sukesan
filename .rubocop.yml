@@ -26,3 +26,7 @@ Metrics/BlockLength:
 
 Metrics/MethodLength:
   Max: 25
+
+# キーワード引数は順序依存が無く自己記述的なため、パラメータ数のカウント対象外にする。
+Metrics/ParameterLists:
+  CountKeywordArgs: false

@@ -28,26 +28,51 @@
   <% end %>
 </section>
 
-<h2>調整可能な時間帯・曜日</h2>
-<p class="note">指定した曜日・時間帯の範囲でのみ空き候補を表示します。</p>
-<form method="post" action="/settings" class="adjust-form">
+<h2>スケジュール設定</h2>
+<form method="post" action="/settings" class="settings-form">
   <input type="hidden" name="authenticity_token" value="<%= csrf_token %>">
-  <label>開始時刻
-    <input type="time" name="business_start" value="<%= @settings["business_start"] %>" required>
-  </label>
-  <label>終了時刻
-    <input type="time" name="business_end" value="<%= @settings["business_end"] %>" required>
-  </label>
-  <fieldset class="weekdays">
-    <legend>調整可能な曜日</legend>
-    <% WEEKDAY_ORDER.each do |wday| %>
-      <label class="weekday">
-        <input type="checkbox" name="business_days[]" value="<%= wday %>"
-               <%= "checked" if @settings["business_days"].include?(wday) %>>
-        <%= WEEKDAY_LABELS[wday] %>
+
+  <fieldset class="settings-group">
+    <legend>MTG 調整可能な時間・曜日</legend>
+    <p class="note">この曜日・時間帯の範囲でのみ空き候補を表示します。</p>
+    <div class="field-row">
+      <label>開始時刻
+        <input type="time" name="business_start" value="<%= @settings["business_start"] %>" required>
       </label>
-    <% end %>
+      <label>終了時刻
+        <input type="time" name="business_end" value="<%= @settings["business_end"] %>" required>
+      </label>
+    </div>
+    <div class="field-row">
+      <span class="field-label">調整可能な曜日</span>
+      <div class="weekdays">
+        <% WEEKDAY_ORDER.each do |wday| %>
+          <label class="weekday">
+            <input type="checkbox" name="business_days[]" value="<%= wday %>"
+                   <%= "checked" if @settings["business_days"].include?(wday) %>>
+            <%= WEEKDAY_LABELS[wday] %>
+          </label>
+        <% end %>
+      </div>
+    </div>
   </fieldset>
+
+  <fieldset class="settings-group">
+    <legend>昼休憩の確保</legend>
+    <p class="note">この時間帯に連続した休憩（分）を確保できなくなる候補に「（ランチタイム）」を表示します。0 分で無効化できます。</p>
+    <div class="field-row">
+      <label>時間帯（開始）
+        <input type="time" name="lunch_start" value="<%= @settings["lunch_start"] %>" required>
+      </label>
+      <label>時間帯（終了）
+        <input type="time" name="lunch_end" value="<%= @settings["lunch_end"] %>" required>
+      </label>
+      <label>休憩時間（分）
+        <input type="number" name="lunch_minutes" value="<%= @settings["lunch_minutes"] %>" min="0" step="5" required>
+      </label>
+    </div>
+  </fieldset>
+
   <button type="submit" class="btn primary">保存</button>
 </form>
 
