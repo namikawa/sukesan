@@ -72,9 +72,24 @@ before do
   redirect request.url.sub(%r{\Ahttp://}, "https://"), 308 if settings.production? && !request.secure?
 end
 
-# 共通でコンテンツタイプ推測を無効化し、本番では HSTS を付与する。
+# Content-Security-Policy。スクリプト/スタイルは同一オリジンのみ（インライン不可）。
+CSP_POLICY = [
+  "default-src 'self'",
+  "script-src 'self'",
+  "style-src 'self'",
+  "img-src 'self' data:",
+  "form-action 'self'",
+  "base-uri 'none'",
+  "frame-ancestors 'none'",
+  "object-src 'none'"
+].join("; ")
+
+# 共通のセキュリティヘッダを付与する。HSTS は本番（HTTPS 前提）のみ。
 after do
+  headers["Content-Security-Policy"] = CSP_POLICY
   headers["X-Content-Type-Options"] = "nosniff"
+  headers["X-Frame-Options"] = "DENY"
+  headers["Referrer-Policy"] = "no-referrer"
   headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains" if settings.production?
 end
 

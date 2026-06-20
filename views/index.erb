@@ -85,12 +85,4 @@
   <p class="note">「2つのカレンダーをチェック」を押すと、Outlook 側にのみ存在するイベントが一覧表示されます。</p>
 <% end %>
 
-<script>
-  const all = document.getElementById('select-all');
-  if (all) {
-    all.addEventListener('change', (e) => {
-      document.querySelectorAll('input[name="selected[]"]:not([disabled])')
-        .forEach((cb) => { cb.checked = e.target.checked; });
-    });
-  }
-</script>
+<script src="/sync.js"></script>
