@@ -4,6 +4,7 @@ require "json"
 require "fileutils"
 require "securerandom"
 require "time"
+require_relative "cross_process_lock"
 
 # 1回限りのスケジュール調整 URL（チケット）を永続化するストア。
 #
@@ -17,7 +18,10 @@ module TicketStore
   TTL_SECONDS = 24 * 60 * 60
   RETENTION_DAYS = 30
   KEEP_WEEKS = 6 # 30日をカバーするため、保持・走査する週ファイル数
-  MUTEX = Mutex.new
+
+  # 読み出し→更新→書き込みをスレッド／プロセス間で直列化する。書き込み自体は
+  # アトミック（tmp→rename）なので、読み取り（find/all）はロック不要。
+  LOCK = CrossProcessLock.new(-> { File.join(dir, ".lock") })
 
   def dir
     ENV.fetch("TICKETS_DIR") { File.expand_path("../data/tickets", __dir__) }
@@ -26,7 +30,7 @@ module TicketStore
   # 新しいワンタイム URL を発行し、トークンを返す。
   def create(now: Time.now)
     token = SecureRandom.urlsafe_base64(32)
-    MUTEX.synchronize do
+    LOCK.synchronize do
       key = bucket_key(now)
       data = load_bucket(key)
       data[token] = { "token" => token, "created_at" => now.iso8601, "status" => "active" }
@@ -108,7 +112,7 @@ module TicketStore
   # --- 内部ヘルパ ---
 
   def update(token, now:)
-    MUTEX.synchronize do
+    LOCK.synchronize do
       recent_bucket_keys(now, 2).each do |key|
         data = load_bucket(key)
         next unless data.key?(token.to_s)

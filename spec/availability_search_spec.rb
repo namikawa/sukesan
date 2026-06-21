@@ -50,5 +50,16 @@ RSpec.describe AvailabilitySearch do
       t = Time.iso8601("2026-06-22T09:00:00+09:00")
       expect(search.slot_available?(t, t)).to be(false)
     end
+
+    it "カレンダーが既に埋まっている枠は false（先行予約を検知）" do
+      busy = Event.new(
+        source: "google", title: "予定",
+        starts_at: Time.local(2026, 6, 22, 9, 0), ends_at: Time.local(2026, 6, 22, 9, 30), all_day: false
+      )
+      booked = described_class.new(settings: settings, calendar_client: double(list_events: [busy]))
+      starts = Time.iso8601("2026-06-22T09:00:00+09:00")
+      ends = Time.iso8601("2026-06-22T09:30:00+09:00")
+      expect(booked.slot_available?(starts, ends)).to be(false)
+    end
   end
 end

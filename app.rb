@@ -23,6 +23,7 @@ require_relative "lib/token_store"
 require_relative "lib/ticket_store"
 require_relative "lib/rate_limiter"
 require_relative "lib/availability_search"
+require_relative "lib/cross_process_lock"
 
 require_relative "helpers/auth_helpers"
 require_relative "helpers/oauth_helpers"
@@ -130,6 +131,10 @@ SEARCH_LIMITER = RateLimiter.new(max: 10, window_seconds: 60)
 # 管理者ログインのブルートフォース対策。IP ごとに 5 分で 10 回まで。
 LOGIN_LIMITER = RateLimiter.new(max: 10, window_seconds: 300)
 
+# 予約の臨界区間（空き再確認〜カレンダー登録）を直列化し、別トークン同士による
+# 同一枠の二重予約を防ぐロック。チケット保存先と同じディレクトリにロックファイルを置く。
+BOOKING_LOCK = CrossProcessLock.new(-> { File.join(TicketStore.dir, ".booking.lock") })
+
 # 曜日の表示順とラベル（Ruby の wday: 0=日〜6=土）。月曜始まりで表示する。
 WEEKDAY_LABELS = { 0 => "日", 1 => "月", 2 => "火", 3 => "水", 4 => "木", 5 => "金", 6 => "土" }.freeze
 WEEKDAY_ORDER = [1, 2, 3, 4, 5, 6, 0].freeze
@@ -211,32 +216,39 @@ post "/schedule" do
   halt 400, "依頼者名・予定名・希望の時間帯を入力してください" if title.empty? || requester.empty? || starts_at.nil?
   too_long = title.length > MAX_TEXT_LENGTH || requester.length > MAX_TEXT_LENGTH
   halt 400, "予定名・依頼者名が長すぎます（各 #{MAX_TEXT_LENGTH} 文字以内）" if too_long
-  unless availability_search(SettingsStore.load).slot_available?(starts_at, ends_at)
-    halt 422, "選択した時間帯は予約できません。お手数ですが再度空き時間をチェックしてください。"
-  end
 
-  # 二重登録を防ぐため、カレンダー登録より先に token を使用済みにする。
-  # 同時送信で既に使われていれば false（登録は行わない）。
-  consumed = TicketStore.use!(token, attrs: {
-                                "requester" => requester, "title" => title,
-                                "slot_start" => starts_at.iso8601, "slot_end" => ends_at.iso8601
-                              })
-  halt 409, "この URL は既に使用されています。" unless consumed
+  # 予約は 1 件ずつ直列化する。別トークン同士が同じ枠をほぼ同時に予約しても、
+  # 後続はロック内の再確認で先行予約を検知して弾ける（同一枠の二重予約を防ぐ）。
+  event = nil
+  BOOKING_LOCK.synchronize do
+    # ロック内で最新の空き状況を取り直して再検証する（依頼者が見た古い結果は信用しない）。
+    unless availability_search(SettingsStore.load).slot_available?(starts_at, ends_at)
+      halt 422, "選択した時間帯は予約できません。お手数ですが再度空き時間をチェックしてください。"
+    end
 
-  begin
-    event = Event.new(
-      source: "google",
-      title: "#{title} - #{requester} (from 調整ツール)",
-      starts_at: starts_at,
-      ends_at: ends_at,
-      all_day: false,
-      description: "依頼者: #{requester}"
-    )
-    GoogleCalendarClient.new(google_token).create_event(event)
-  rescue StandardError
-    # 登録に失敗したときは token を有効へ戻し、再試行できるようにする。
-    TicketStore.reactivate!(token)
-    halt 502, "予定の登録に失敗しました。お手数ですが、もう一度お試しください。"
+    # 二重登録を防ぐため、カレンダー登録より先に token を使用済みにする。
+    # 同時送信で既に使われていれば false（登録は行わない）。
+    consumed = TicketStore.use!(token, attrs: {
+                                  "requester" => requester, "title" => title,
+                                  "slot_start" => starts_at.iso8601, "slot_end" => ends_at.iso8601
+                                })
+    halt 409, "この URL は既に使用されています。" unless consumed
+
+    begin
+      event = Event.new(
+        source: "google",
+        title: "#{title} - #{requester} (from 調整ツール)",
+        starts_at: starts_at,
+        ends_at: ends_at,
+        all_day: false,
+        description: "依頼者: #{requester}"
+      )
+      GoogleCalendarClient.new(google_token).create_event(event)
+    rescue StandardError
+      # 登録に失敗したときは token を有効へ戻し、再試行できるようにする。
+      TicketStore.reactivate!(token)
+      halt 502, "予定の登録に失敗しました。お手数ですが、もう一度お試しください。"
+    end
   end
 
   session[:flash] = "#{requester} さんの「#{title}」を #{format_dt(event.starts_at)} に登録しました。"
