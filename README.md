@@ -26,7 +26,7 @@ SUKESAN（スケジュール管理ツール）は、Google カレンダーと連
 トークンの保存場所:
 
 - Google トークンは `data/google_token.json` に共有保存し、全利用者が管理者の 1 カレンダー（`primary`）を参照する。
-- Microsoft トークンは管理者セッションのみに保持する（Outlook 同期専用）。
+- Microsoft トークンは `data/microsoft_token.json` に暗号化保存する（Outlook 同期専用。再起動後も保持）。
 
 ## 仕組み
 
@@ -65,7 +65,7 @@ cp .env.example .env
 
 - `ADMIN_PASSWORD_DIGEST`: 管理者パスワードの bcrypt ダイジェスト（平文は保存しない）。`bin/admin_password_digest` で生成し、出力行を `.env` に貼り付ける。値に `$` を含むためシングルクォートで囲む。未設定だとログイン不可。
 - `SESSION_SECRET`: セッション Cookie の署名鍵。本番（`APP_ENV=production`）は必須、開発は未設定なら一時生成。生成例 `ruby -rsecurerandom -e 'puts SecureRandom.hex(64)'`。
-- `TOKEN_ENCRYPTION_KEY`: 保存する Google トークンの暗号化鍵。本番は必須、開発は未設定なら `SESSION_SECRET` から導出。
+- `TOKEN_ENCRYPTION_KEY`: 保存する OAuth トークン（Google / Microsoft）の暗号化鍵。本番は必須、開発は未設定なら `SESSION_SECRET` から導出。
 - `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` と、Outlook 用の `MS_CLIENT_ID` / `MS_CLIENT_SECRET` / `MS_TENANT_ID`。
 - `APP_TIMEZONE`: タイムゾーン（既定 `Asia/Tokyo`、tz database 名）。
 - `APP_BASE_URL`: 公開 URL（本番推奨）。OAuth の redirect_uri 等の生成に使い、Host ヘッダ汚染を排除する。未設定時はリクエストから組み立てる。
@@ -99,11 +99,12 @@ bundle exec rubocop        # Lint（-a で自動修正）
 
 - `data/settings.json`: 調整時間などの設定。
 - `data/google_token.json`: Google OAuth トークン（refresh token を含む）。
+- `data/microsoft_token.json`: Microsoft OAuth トークン（Outlook 同期用、refresh token を含む）。
 - `data/tickets/`: 発行済みワンタイム URL の状態と登録内容。
 
 ## 注意・制約
 
-- Microsoft トークンと管理者ログイン状態はメモリ保持で、再起動すると失われる（Google トークンとチケットはファイル保存）。
+- OAuth トークン（Google / Microsoft）とチケットはファイルに暗号化保存され、再起動後も保持される。
 - ワンタイム URL を知る人は期限内・未使用なら登録できるため、共有先に注意する。
 - 反映先は Google の `primary` カレンダー。
 - 本番は HTTPS 必須。OAuth リダイレクト URI は本番ドメインに合わせて登録する。

@@ -410,13 +410,13 @@ get "/auth/microsoft/callback" do
   token = OAuthClients.microsoft.auth_code.get_token(
     params[:code], redirect_uri: microsoft_redirect_uri, code_verifier: verifier
   )
-  session[:microsoft_token] = token.to_hash
+  TokenStore.save(token.to_hash, :microsoft)
   redirect "/sync"
 end
 
 post "/disconnect" do
   require_admin!
-  session.delete(:microsoft_token)
+  TokenStore.clear(:microsoft)
   session.delete(:outlook_only)
   session.delete(:synced_keys)
   redirect "/sync"

@@ -81,19 +81,19 @@ module OAuthHelpers
     nil
   end
 
-  # Microsoft トークンは Outlook 同期（管理者専用）でのみ使うためセッション保持。
+  # Microsoft トークン（Outlook 同期用）も暗号化ファイルに保存し、再起動後も保持する。
   def microsoft_connected?
-    !session[:microsoft_token].nil?
+    !TokenStore.load(:microsoft).nil?
   end
 
   def microsoft_token
-    hash = session[:microsoft_token]
+    hash = TokenStore.load(:microsoft)
     return nil if hash.nil?
 
     token = OAuth2::AccessToken.from_hash(OAuthClients.microsoft, hash)
     if token.expired? && token.refresh_token
       token = token.refresh!
-      session[:microsoft_token] = token.to_hash
+      TokenStore.save(token.to_hash, :microsoft)
     end
     token
   end
