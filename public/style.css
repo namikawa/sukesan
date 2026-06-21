@@ -119,25 +119,58 @@ tr.synced { background: #f0fdf4; color: #6b7280; }
   padding: 16px;
   margin: 16px 0;
 }
-.adjust-form label,
-.slots-form label.title-field {
+.adjust-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 14px;
+  color: #52606d;
+  flex: 1 1 180px; /* 各項目を等幅にし、ラベル長に依らず入力欄を揃える */
+}
+.adjust-form input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border: 1px solid #d2d6dc;
+  border-radius: 6px;
+  font-size: 15px;
+}
+
+/* ログインフォームはパスワード欄を短めにする（検索フォームの等幅・全幅を打ち消す）。 */
+.login-form label { flex: 0 0 auto; }
+.login-form input { width: 220px; max-width: 100%; }
+
+.slots-form { flex-direction: column; align-items: stretch; }
+.slots-form .btn { align-self: flex-start; }
+
+/* 登録フォームの入力欄は全項目を縦並び・全幅・同一スタイルに統一する。 */
+.slots-form .field {
   display: flex;
   flex-direction: column;
   gap: 4px;
   font-size: 14px;
   color: #52606d;
 }
-.adjust-form input,
-.slots-form input[type="text"] {
-  padding: 8px 10px;
+.slots-form .field input,
+.slots-form .field textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
   border: 1px solid #d2d6dc;
   border-radius: 6px;
-  font-size: 14px;
+  font-size: 15px;
+  font-family: inherit;
 }
-
-.slots-form { flex-direction: column; align-items: stretch; }
-.slots-form .btn { align-self: flex-start; }
-.title-row { display: flex; flex-wrap: wrap; gap: 16px; }
+.slots-form .field textarea { resize: vertical; min-height: 88px; }
+.slots-form .field-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: #52606d;
+}
+.slots-form .field-check input { width: auto; }
+.optional { font-size: 12px; color: #9aa5b1; font-weight: normal; }
 .day-group { width: 100%; }
 .day-head {
   font-size: 15px;

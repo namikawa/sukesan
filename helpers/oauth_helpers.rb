@@ -61,9 +61,24 @@ module OAuthHelpers
     token = OAuth2::AccessToken.from_hash(OAuthClients.google, hash)
     if token.expired? && token.refresh_token
       token = token.refresh!
-      TokenStore.save(token.to_hash)
+      # リフレッシュ後も連携時に取得した管理者メールを保持する。
+      TokenStore.save(token.to_hash.merge("admin_email" => hash["admin_email"]))
     end
     token
+  end
+
+  # 連携時に保存した管理者（主催者）のメールアドレス。未保存なら nil。
+  def google_admin_email
+    (TokenStore.load || {})["admin_email"]
+  end
+
+  # userinfo エンドポイントから連携アカウントのメールアドレスを取得する（userinfo.email スコープが必要）。
+  # 取得に失敗した場合は nil。
+  def fetch_google_email(access_token)
+    response = access_token.get("https://www.googleapis.com/oauth2/v2/userinfo")
+    JSON.parse(response.body)["email"]
+  rescue StandardError
+    nil
   end
 
   # Microsoft トークンは Outlook 同期（管理者専用）でのみ使うためセッション保持。

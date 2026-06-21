@@ -143,6 +143,10 @@ WEEKDAY_ORDER = [1, 2, 3, 4, 5, 6, 0].freeze
 # 営業日表示数・探索上限（MAX_BUSINESS_DAYS / MAX_SCAN_DAYS）は AvailabilitySearch に持つ。
 MAX_TEXT_LENGTH = 100
 
+# 参加者メールアドレスの最大件数と、ビデオ会議 URL の最大長（DoS・誤入力対策）。
+MAX_ATTENDEES = 50
+MAX_URL_LENGTH = 2048
+
 # 発行済みワンタイム URL の一覧表示に使うステータス文言。
 TICKET_STATUS_LABELS = {
   "active" => "有効", "used" => "使用済み", "expired" => "期限切れ", "revoked" => "無効化"
@@ -165,6 +169,7 @@ get "/t/:token" do
   # 無効・期限切れ・使用済み・存在しない token は案内ページを表示する。
   # 410 Gone を返す（404 は not_found ハンドラに横取りされるため使わない）。
   unless TicketStore.active?(ticket)
+    @ticket = ticket
     @ticket_status = ticket ? TicketStore.status(ticket) : "missing"
     status 410
     halt erb(:ticket_invalid)
@@ -217,6 +222,31 @@ post "/schedule" do
   too_long = title.length > MAX_TEXT_LENGTH || requester.length > MAX_TEXT_LENGTH
   halt 400, "予定名・依頼者名が長すぎます（各 #{MAX_TEXT_LENGTH} 文字以内）" if too_long
 
+  # 任意項目: 参加者メールアドレス・ビデオ会議 URL・Google Meet 発行。
+  attendees = parse_attendees(params[:attendees])
+  video_url = params[:video_url].to_s.strip
+  request_meet = params[:request_meet].to_s == "1"
+
+  halt 400, "参加者は最大 #{MAX_ATTENDEES} 件までです" if attendees.size > MAX_ATTENDEES
+  halt 400, "参加者メールアドレスの形式が正しくありません" unless attendees.all? { |email| valid_email?(email) }
+  halt 400, "ビデオ会議 URL の形式が正しくありません（http/https の URL）" unless video_url.empty? || valid_http_url?(video_url)
+  halt 400, "ビデオ会議 URL の指定と Google Meet の発行は同時に指定できません" if request_meet && !video_url.empty?
+
+  description = "依頼者: #{requester}"
+  description += "\nビデオ会議: #{video_url}" unless video_url.empty?
+
+  # 主催者（管理者自身）も参加者に含める。連携時に取得・保存したメールを使う
+  # （取得できていなければ依頼者入力分のみ）。
+  event_attendees = ([google_admin_email.to_s] + attendees).reject(&:empty?).uniq(&:downcase)
+
+  # use! に保存する属性（任意項目は入力があるときだけ持たせる）。
+  ticket_attrs = {
+    "requester" => requester, "title" => title,
+    "slot_start" => starts_at.iso8601, "slot_end" => ends_at.iso8601
+  }
+  ticket_attrs["attendees"] = attendees unless attendees.empty?
+  ticket_attrs["video_url"] = video_url unless video_url.empty?
+
   # 予約は 1 件ずつ直列化する。別トークン同士が同じ枠をほぼ同時に予約しても、
   # 後続はロック内の再確認で先行予約を検知して弾ける（同一枠の二重予約を防ぐ）。
   event = nil
@@ -228,11 +258,7 @@ post "/schedule" do
 
     # 二重登録を防ぐため、カレンダー登録より先に token を使用済みにする。
     # 同時送信で既に使われていれば false（登録は行わない）。
-    consumed = TicketStore.use!(token, attrs: {
-                                  "requester" => requester, "title" => title,
-                                  "slot_start" => starts_at.iso8601, "slot_end" => ends_at.iso8601
-                                })
-    halt 409, "この URL は既に使用されています。" unless consumed
+    halt 409, "この URL は既に使用されています。" unless TicketStore.use!(token, attrs: ticket_attrs)
 
     begin
       event = Event.new(
@@ -241,9 +267,12 @@ post "/schedule" do
         starts_at: starts_at,
         ends_at: ends_at,
         all_day: false,
-        description: "依頼者: #{requester}"
+        description: description
       )
-      GoogleCalendarClient.new(google_token).create_event(event)
+      response = GoogleCalendarClient.new(google_token)
+                                     .create_event(event, attendees: event_attendees, request_meet: request_meet)
+      meet_link = GoogleCalendarClient.meet_link(response) if request_meet
+      TicketStore.attach!(token, attrs: { "meet_link" => meet_link }) if meet_link
     rescue StandardError
       # 登録に失敗したときは token を有効へ戻し、再試行できるようにする。
       TicketStore.reactivate!(token)
@@ -340,8 +369,9 @@ end
 get "/auth/google" do
   require_admin!
   redirect OAuthClients.google.auth_code.authorize_url(
+    # calendar.events に加え、主催者メール取得のため userinfo.email を要求する。
     redirect_uri: google_redirect_uri,
-    scope: "https://www.googleapis.com/auth/calendar.events",
+    scope: "https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/userinfo.email",
     access_type: "offline",
     prompt: "consent",
     **begin_oauth!
@@ -356,7 +386,8 @@ get "/auth/google/callback" do
   token = OAuthClients.google.auth_code.get_token(
     params[:code], redirect_uri: google_redirect_uri, code_verifier: verifier
   )
-  TokenStore.save(token.to_hash)
+  # 連携時に主催者（管理者）のメールを取得し、トークンと一緒に保存する。
+  TokenStore.save(token.to_hash.merge("admin_email" => fetch_google_email(token)))
   session[:flash] = "Google と連携しました。"
   redirect "/settings"
 end

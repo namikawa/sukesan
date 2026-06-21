@@ -46,14 +46,22 @@
     <form method="post" action="/schedule" class="slots-form">
       <input type="hidden" name="authenticity_token" value="<%= csrf_token %>">
       <input type="hidden" name="token" value="<%= @token %>">
-      <div class="title-row">
-        <label class="title-field">依頼者名
-          <input type="text" name="requester" placeholder="例: 山田 太郎" required>
-        </label>
-        <label class="title-field">予定名
-          <input type="text" name="title" placeholder="例: 打ち合わせ" required>
-        </label>
-      </div>
+      <label class="field">依頼者名
+        <input type="text" name="requester" placeholder="例: 山田 太郎" required>
+      </label>
+      <label class="field">予定名
+        <input type="text" name="title" placeholder="例: 打ち合わせ" required>
+      </label>
+      <label class="field"><span class="field-text">参加者メールアドレス<span class="optional">（任意）</span></span>
+        <textarea name="attendees" rows="3" placeholder="複数可。改行・カンマ・スペース区切りで入力できます"></textarea>
+      </label>
+      <label class="field"><span class="field-text">ビデオ会議用URLのご指定があればご記入ください<span class="optional">（任意）</span></span>
+        <input type="url" name="video_url" placeholder="例: https://zoom.us/j/...">
+      </label>
+      <label class="field-check">
+        <input type="checkbox" name="request_meet" value="1">
+        Google Meet のリンクを発行する<span class="optional">（任意・ビデオ会議用 URL とは併用できません）</span>
+      </label>
       <% @results.each do |date, slots| %>
         <% next if slots.empty? %>
         <div class="day-group">

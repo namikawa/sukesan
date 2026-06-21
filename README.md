@@ -2,7 +2,7 @@
 
 SUKESAN（スケジュール管理ツール）は、Google カレンダーと連携したスケジュール調整ツールです。管理者が発行する 1 回限り・24 時間有効のワンタイム URL から、依頼者が空き時間を選んで予定を登録できます。補助機能として、Outlook 側にのみある予定を Google へ反映する Outlook 同期（管理者専用）があります。
 
-トップページ（`/`）は利用案内のみ。ワンタイム URL の発行・一覧・無効化は管理画面（`/admin`）、カレンダー連携や各種設定は設定画面（`/settings`）で行います。管理系はパスワードで保護され、動線はトップ → 管理画面 → 設定画面です。
+トップページ（`/`）は利用案内のみ。ワンタイム URL の発行・一覧・無効化は管理画面（`/admin`）、カレンダー連携や各種設定は設定画面（`/settings`）で行います。
 
 ## 画面と権限
 
@@ -32,6 +32,7 @@ SUKESAN（スケジュール管理ツール）は、Google カレンダーと連
 
 - ワンタイム URL: 管理画面で発行（要 Google 連携）。発行から 24 時間有効・1 回登録で使用済み。一覧でステータス（有効 / 使用済み / 期限切れ / 無効化）と登録内容を確認でき、有効な URL はコピー・手動無効化が可能。無効な URL へのアクセスは HTTP 410 を返す。保存先は `data/tickets/`（ISO 週ごとに分割し、約 30 日で自動削除）。
 - 調整フロー: 依頼者が期間と必要時間を入力 → 営業時間・曜日・昼休憩の設定に基づき 30 分刻みの空き候補を日付ごとに表示 → 枠と依頼者名・予定名を入力して登録。登録予定名は `[予定名] - [依頼者名] (from 調整ツール)`。検索だけでは URL は無効化されない。一度に表示するのは最大 5 営業日。
+- 登録時の任意項目: 参加者メールアドレス（改行・カンマ・スペース区切りで複数可。イベントの参加者に登録するが招待メールは送らない）、ビデオ会議 URL（説明欄に記載）、Google Meet リンクの発行（発行時は完了画面にリンクを表示）。ビデオ会議 URL と Meet 発行は併用不可。主催者（連携した Google アカウント）も参加者として自動追加される。
 - 設定（`/settings`）: 営業時間、調整可能な曜日、昼休憩（時間帯と確保分数。0 分で無効）を指定し、`data/settings.json` に永続化する。
 - タイムゾーン: `APP_TIMEZONE`（既定 `Asia/Tokyo`）で固定し、画面にも表示する。
 - アクセス制御・スパム対策: トークンの有効性と空き枠はサーバ側で再検証する。二重登録を防ぐため登録前にトークンを消費し、失敗時のみ復帰させる。レート制限は同一 IP につき登録 5 回/分・空き時間検索 10 回/分（超過は 429。プロセス内メモリのため再起動でリセット、複数プロセスでは非共有）。
@@ -53,7 +54,7 @@ bundle install
 
 OAuth クライアント:
 
-- Google（必須）: Google Cloud Console で Calendar API を有効化し、OAuth クライアント ID（ウェブ）を作成。リダイレクト URI に `http://localhost:3000/auth/google/callback` を登録。スコープは `https://www.googleapis.com/auth/calendar.events`。
+- Google（必須）: Google Cloud Console で Calendar API を有効化し、OAuth クライアント ID（ウェブ）を作成。リダイレクト URI に `http://localhost:3000/auth/google/callback` を登録。スコープは `https://www.googleapis.com/auth/calendar.events`（予定の読み書き）と `https://www.googleapis.com/auth/userinfo.email`（主催者メールの取得）で、OAuth 同意画面にも両スコープを追加する。
 - Microsoft（Outlook 同期を使う場合のみ）: Azure でアプリ登録し、リダイレクト URI `http://localhost:3000/auth/microsoft/callback` を登録。委任アクセス許可 `Calendars.Read` と `offline_access` を付与。
 
 環境変数（`.env.example` をコピーして設定）:
@@ -68,7 +69,7 @@ cp .env.example .env
 - `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` と、Outlook 用の `MS_CLIENT_ID` / `MS_CLIENT_SECRET` / `MS_TENANT_ID`。
 - `APP_TIMEZONE`: タイムゾーン（既定 `Asia/Tokyo`、tz database 名）。
 - `APP_BASE_URL`: 公開 URL（本番推奨）。OAuth の redirect_uri 等の生成に使い、Host ヘッダ汚染を排除する。未設定時はリクエストから組み立てる。
-- `.env` は `chmod 600` 推奨。コミット禁止。
+- `.env` は `chmod 600` 推奨。
 
 ## 起動・運用
 

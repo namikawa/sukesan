@@ -8,6 +8,11 @@
 
 <% if @ticket_status == "used" %>
   <p class="lead">この URL でのご登録は完了しています。</p>
+  <% if @ticket && @ticket["meet_link"] %>
+    <p class="note">Google Meet: <a href="<%= @ticket["meet_link"] %>"><%= @ticket["meet_link"] %></a></p>
+  <% elsif @ticket && @ticket["video_url"] %>
+    <p class="note">ビデオ会議: <a href="<%= @ticket["video_url"] %>"><%= @ticket["video_url"] %></a></p>
+  <% end %>
   <p class="note">同じ URL で再度登録することはできません。別の予定を調整したい場合は、管理者に新しい URL の発行を依頼してください。</p>
 <% elsif @ticket_status == "expired" %>
   <p class="lead">この URL は有効期限（発行から 24 時間）が切れています。</p>

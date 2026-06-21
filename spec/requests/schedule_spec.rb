@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 RSpec.describe "予定作成 /schedule" do
-  let(:token_hash) { { "access_token" => "fake", "expires_at" => 4_102_444_800 } }
+  let(:token_hash) { { "access_token" => "fake", "expires_at" => 4_102_444_800, "admin_email" => "admin@example.com" } }
   let(:settings) do
     {
       "business_start" => "09:00", "business_end" => "18:00", "business_days" => [1, 2, 3, 4, 5],
@@ -65,5 +65,71 @@ RSpec.describe "予定作成 /schedule" do
     post "/schedule", authenticity_token: csrf_token, token: token,
                       title: "打合せ2", requester: "佐藤", slot: valid_slot
     expect(last_response.status).to eq(403)
+  end
+
+  it "参加者（改行・カンマ・スペース区切り）と主催者を attendees に登録する" do
+    create = stub_request(:post, "https://www.googleapis.com/calendar/v3/calendars/primary/events")
+             .with(body: hash_including(
+               "attendees" => [
+                 { "email" => "admin@example.com" }, { "email" => "a@example.com" },
+                 { "email" => "b@example.com" }, { "email" => "c@example.com" }
+               ]
+             ))
+             .to_return(status: 200, body: "{}", headers: { "Content-Type" => "application/json" })
+    post "/schedule", authenticity_token: csrf_token, token: token, title: "打合せ", requester: "山田",
+                      slot: valid_slot, attendees: "a@example.com, b@example.com\nc@example.com"
+    expect(last_response.status).to eq(302)
+    expect(create).to have_been_requested
+  end
+
+  it "参加者未入力でも主催者（自分）が attendees に含まれる" do
+    create = stub_request(:post, "https://www.googleapis.com/calendar/v3/calendars/primary/events")
+             .with(body: hash_including("attendees" => [{ "email" => "admin@example.com" }]))
+             .to_return(status: 200, body: "{}", headers: { "Content-Type" => "application/json" })
+    post "/schedule", authenticity_token: csrf_token, token: token, title: "打合せ", requester: "山田",
+                      slot: valid_slot
+    expect(last_response.status).to eq(302)
+    expect(create).to have_been_requested
+  end
+
+  it "不正なメールアドレスは 400" do
+    post "/schedule", authenticity_token: csrf_token, token: token, title: "t", requester: "r",
+                      slot: valid_slot, attendees: "not-an-email"
+    expect(last_response.status).to eq(400)
+  end
+
+  it "ビデオ会議 URL を説明欄に登録する" do
+    create = stub_request(:post, "https://www.googleapis.com/calendar/v3/calendars/primary/events")
+             .with(body: hash_including("description" => "依頼者: 山田\nビデオ会議: https://zoom.us/j/1"))
+             .to_return(status: 200, body: "{}", headers: { "Content-Type" => "application/json" })
+    post "/schedule", authenticity_token: csrf_token, token: token, title: "打合せ", requester: "山田",
+                      slot: valid_slot, video_url: "https://zoom.us/j/1"
+    expect(last_response.status).to eq(302)
+    expect(create).to have_been_requested
+  end
+
+  it "http/https でないビデオ会議 URL は 400" do
+    post "/schedule", authenticity_token: csrf_token, token: token, title: "t", requester: "r",
+                      slot: valid_slot, video_url: "javascript:alert(1)"
+    expect(last_response.status).to eq(400)
+  end
+
+  it "ビデオ会議 URL と Meet 発行の同時指定は 400" do
+    post "/schedule", authenticity_token: csrf_token, token: token, title: "t", requester: "r",
+                      slot: valid_slot, video_url: "https://zoom.us/j/1", request_meet: "1"
+    expect(last_response.status).to eq(400)
+  end
+
+  it "Meet 発行時はリンクを発行し、完了画面に表示する" do
+    stub_request(:post, "https://www.googleapis.com/calendar/v3/calendars/primary/events")
+      .with(query: { "conferenceDataVersion" => "1" })
+      .to_return(status: 200, body: { "hangoutLink" => "https://meet.google.com/abc-defg-hij" }.to_json,
+                 headers: { "Content-Type" => "application/json" })
+    post "/schedule", authenticity_token: csrf_token, token: token, title: "打合せ", requester: "山田",
+                      slot: valid_slot, request_meet: "1"
+    expect(last_response.status).to eq(302)
+
+    get "/t/#{token}"
+    expect(last_response.body).to include("https://meet.google.com/abc-defg-hij")
   end
 end

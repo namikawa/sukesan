@@ -7,7 +7,7 @@
   <p class="flash error"><%= @flash %></p>
 <% end %>
 
-<form method="post" action="/settings/login" class="adjust-form">
+<form method="post" action="/settings/login" class="adjust-form login-form">
   <input type="hidden" name="authenticity_token" value="<%= csrf_token %>">
   <label>パスワード
     <input type="password" name="password" required autofocus>

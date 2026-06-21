@@ -2,9 +2,26 @@
 
 # スケジュール調整フォームの入力解釈・既定値まわりのヘルパ。
 module ScheduleHelpers
+  # 簡易メールアドレス判定（厳密な RFC 準拠ではなく形式の妥当性のみ）。
+  EMAIL_PATTERN = /\A[^@\s]+@[^@\s]+\.[^@\s]+\z/
+
   # 空き時間検索サービスを、管理者の Google カレンダーに接続して組み立てる。
   def availability_search(settings)
     AvailabilitySearch.new(settings: settings, calendar_client: GoogleCalendarClient.new(google_token))
+  end
+
+  # テキストエリアの入力を参加者メールアドレスの配列に分解する。
+  # 改行・カンマ・スペース（タブ等の空白）を区切りとして扱い、空要素と重複を除く。
+  def parse_attendees(raw)
+    raw.to_s.split(/[\s,]+/).reject(&:empty?).uniq
+  end
+
+  def valid_email?(value)
+    value.match?(EMAIL_PATTERN)
+  end
+
+  def valid_http_url?(value)
+    value.length <= MAX_URL_LENGTH && value.match?(%r{\Ahttps?://[^\s]+\z})
   end
 
   # 翌日以降で、調整可能な曜日（business_days）に該当する最初の日付。
