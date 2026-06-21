@@ -29,6 +29,7 @@
 </section>
 
 <h2>スケジュール設定</h2>
+<p class="note">※ 営業時間・昼休憩などの時刻はすべて <strong><%= APP_TIMEZONE %></strong> として扱われます。</p>
 <form method="post" action="/settings" class="settings-form">
   <input type="hidden" name="authenticity_token" value="<%= csrf_token %>">
 

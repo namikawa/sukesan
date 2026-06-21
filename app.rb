@@ -31,6 +31,12 @@ require_relative "helpers/settings_params_helpers"
 require_relative "helpers/sync_helpers"
 require_relative "helpers/schedule_helpers"
 
+# タイムゾーンを固定する（特定地域での運用前提。グローバル運用は想定しない）。
+# APP_TIMEZONE（既定 Asia/Tokyo）をプロセスの TZ に適用し、サーバ OS の設定に依存させない。
+# 以降の Time.now / Time.local / getlocal はすべてこのタイムゾーンで解釈・表示される。
+APP_TIMEZONE = ENV.fetch("APP_TIMEZONE", "Asia/Tokyo")
+ENV["TZ"] = APP_TIMEZONE
+
 set :bind, "0.0.0.0"
 set :port, ENV.fetch("PORT", "3000").to_i
 

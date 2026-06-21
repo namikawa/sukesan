@@ -47,6 +47,7 @@ RSpec.describe "ワンタイム URL" do
       expect(last_response.status).to eq(200)
       expect(last_response.body).to include("action=\"/t/#{token}\"")
       expect(last_response.body).to include("空き時間をチェック")
+      expect(last_response.body).to include(APP_TIMEZONE) # タイムゾーン注記
     end
 
     it "存在しないトークンは 410 で案内を表示する" do
