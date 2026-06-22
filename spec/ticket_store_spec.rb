@@ -26,6 +26,12 @@ RSpec.describe TicketStore do
     it "存在しないトークンは nil" do
       expect(described_class.find("nope", now: now)).to be_nil
     end
+
+    it "保存ファイルの権限は 0600（本人のみ読み書き可）" do
+      described_class.create(now: now)
+      file = Dir.glob(File.join(ENV.fetch("TICKETS_DIR"), "tickets-*.json")).first
+      expect(format("%o", File.stat(file).mode & 0o777)).to eq("600")
+    end
   end
 
   describe ".use!" do

@@ -2,6 +2,7 @@
 
 require "json"
 require "fileutils"
+require "securerandom"
 
 # 管理者が設定する「スケジュール調整可能な時間帯（営業時間）」を
 # JSON ファイルに永続化する。セッションと違い、サーバ再起動後も保持される。
@@ -32,10 +33,15 @@ module SettingsStore
 
   # 指定した項目だけを既存設定にマージして保存する（未指定の項目は保持する）。
   # 設定の編集 UI が複数画面（/settings・/sync）に分かれても互いの値を消さない。
+  # 0600・原子的書き込みで保存する（他のデータファイルと権限方針を揃える）。
   def save(attrs)
     data = load.merge(attrs.transform_keys(&:to_s))
-    FileUtils.mkdir_p(File.dirname(PATH))
-    File.write(PATH, JSON.generate(data))
+    dir = File.dirname(PATH)
+    FileUtils.mkdir_p(dir, mode: 0o700)
+    tmp = File.join(dir, ".settings.#{SecureRandom.hex(8)}.tmp")
+    File.write(tmp, JSON.generate(data))
+    File.chmod(0o600, tmp)
+    File.rename(tmp, PATH) # 同一ファイルシステム内での rename は原子的
     data
   end
 end

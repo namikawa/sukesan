@@ -156,10 +156,11 @@ module TicketStore
   end
 
   def write_bucket(key, data)
-    FileUtils.mkdir_p(dir)
+    FileUtils.mkdir_p(dir, mode: 0o700)
     path = File.join(dir, "tickets-#{key}.json")
     tmp = "#{path}.#{SecureRandom.hex(8)}.tmp"
     File.write(tmp, JSON.generate(data))
-    File.rename(tmp, path)
+    File.chmod(0o600, tmp) # 準個人情報を含むため本人のみ読み書き可に絞る
+    File.rename(tmp, path) # 同一ファイルシステム内での rename は原子的
   end
 end
