@@ -14,10 +14,10 @@
 
 <% if @ticket_status == "used" %>
   <p class="lead">この URL でのご登録は完了しています。</p>
-  <% if @ticket && @ticket["meet_link"] %>
-    <p class="note">Google Meet: <a href="<%= @ticket["meet_link"] %>"><%= @ticket["meet_link"] %></a></p>
-  <% elsif @ticket && @ticket["video_url"] %>
-    <p class="note">ビデオ会議: <a href="<%= @ticket["video_url"] %>"><%= @ticket["video_url"] %></a></p>
+  <% if @completion && @completion["meet_link"] %>
+    <p class="note">Google Meet: <a href="<%= @completion["meet_link"] %>"><%= @completion["meet_link"] %></a></p>
+  <% elsif @completion && @completion["video_url"] && !@completion["video_url"].empty? %>
+    <p class="note">ビデオ会議: <a href="<%= @completion["video_url"] %>"><%= @completion["video_url"] %></a></p>
   <% end %>
   <p class="note">同じ URL で再度登録することはできません。別の予定を調整したい場合は、管理者に新しい URL の発行を依頼してください。</p>
 <% elsif @ticket_status == "expired" %>

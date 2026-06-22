@@ -170,8 +170,10 @@ get "/t/:token" do
   # 無効・期限切れ・使用済み・存在しない token は案内ページを表示する。
   # 410 Gone を返す（404 は not_found ハンドラに横取りされるため使わない）。
   unless TicketStore.active?(ticket)
-    @ticket = ticket
     @ticket_status = ticket ? TicketStore.status(ticket) : "missing"
+    # 会議情報は「登録直後・本人セッション・当該 token」のときだけ表示する。
+    completion = session[:completion]
+    @completion = completion if completion && completion["token"] == @token
     status 410
     halt erb(:ticket_invalid)
   end
@@ -241,16 +243,17 @@ post "/schedule" do
   event_attendees = ([google_admin_email.to_s] + attendees).reject(&:empty?).uniq(&:downcase)
 
   # use! に保存する属性（任意項目は入力があるときだけ持たせる）。
+  # 会議 URL（video_url / meet_link）はチケットに永続化しない（漏えい URL からの再露出を避ける）。
   ticket_attrs = {
     "requester" => requester, "title" => title,
     "slot_start" => starts_at.iso8601, "slot_end" => ends_at.iso8601
   }
   ticket_attrs["attendees"] = attendees unless attendees.empty?
-  ticket_attrs["video_url"] = video_url unless video_url.empty?
 
   # 予約は 1 件ずつ直列化する。別トークン同士が同じ枠をほぼ同時に予約しても、
   # 後続はロック内の再確認で先行予約を検知して弾ける（同一枠の二重予約を防ぐ）。
   event = nil
+  meet_link = nil
   BOOKING_LOCK.synchronize do
     # ロック内で最新の空き状況を取り直して再検証する（依頼者が見た古い結果は信用しない）。
     unless availability_search(SettingsStore.load).slot_available?(starts_at, ends_at)
@@ -273,7 +276,6 @@ post "/schedule" do
       response = GoogleCalendarClient.new(google_token)
                                      .create_event(event, attendees: event_attendees, request_meet: request_meet)
       meet_link = GoogleCalendarClient.meet_link(response) if request_meet
-      TicketStore.attach!(token, attrs: { "meet_link" => meet_link }) if meet_link
     rescue StandardError
       # 登録に失敗したときは token を有効へ戻し、再試行できるようにする。
       TicketStore.reactivate!(token)
@@ -281,6 +283,8 @@ post "/schedule" do
     end
   end
 
+  # 会議情報は登録直後の本人セッションでだけ完了画面に表示する（チケットには残さない）。
+  session[:completion] = { "token" => token, "meet_link" => meet_link, "video_url" => video_url }
   session[:flash] = "#{requester} さんの「#{title}」を #{format_dt(event.starts_at)} に登録しました。"
   redirect "/t/#{token}"
 end

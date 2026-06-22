@@ -91,16 +91,10 @@ module TicketStore
     end
   end
 
-  # 既存チケットに属性を追記する（登録後に確定する Meet リンク等の保存に使う）。
-  def attach!(token, attrs:, now: Time.now)
-    update(token, now: now) { |ticket| ticket.merge(attrs) }
-  end
-
   # 登録に失敗したときなど、使用可能状態へ戻す。
   def reactivate!(token, now: Time.now)
     update(token, now: now) do |ticket|
-      ticket.except("status", "used_at", "requester", "title", "slot_start", "slot_end",
-                    "attendees", "video_url", "meet_link")
+      ticket.except("status", "used_at", "requester", "title", "slot_start", "slot_end", "attendees")
             .merge("status" => "active")
     end
   end

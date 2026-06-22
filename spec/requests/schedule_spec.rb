@@ -126,7 +126,7 @@ RSpec.describe "予定作成 /schedule" do
     expect(last_response.status).to eq(400)
   end
 
-  it "Meet 発行時はリンクを発行し、完了画面に表示する" do
+  it "Meet 発行時はリンクを発行し、完了画面（本人セッション）に表示する" do
     stub_request(:post, "https://www.googleapis.com/calendar/v3/calendars/primary/events")
       .with(query: { "conferenceDataVersion" => "1" })
       .to_return(status: 200, body: { "hangoutLink" => "https://meet.google.com/abc-defg-hij" }.to_json,
@@ -137,5 +137,21 @@ RSpec.describe "予定作成 /schedule" do
 
     get "/t/#{token}"
     expect(last_response.body).to include("https://meet.google.com/abc-defg-hij")
+  end
+
+  it "別セッション（漏えいURL想定）では使用済み URL に会議リンクを再表示しない" do
+    stub_request(:post, "https://www.googleapis.com/calendar/v3/calendars/primary/events")
+      .with(query: { "conferenceDataVersion" => "1" })
+      .to_return(status: 200, body: { "hangoutLink" => "https://meet.google.com/abc-defg-hij" }.to_json,
+                 headers: { "Content-Type" => "application/json" })
+    post "/schedule", authenticity_token: csrf_token, token: token, title: "打合せ", requester: "山田",
+                      slot: valid_slot, request_meet: "1"
+    expect(last_response.status).to eq(302)
+
+    clear_cookies # 登録者とは別のセッション（URL だけ知っている第三者）を模す
+    get "/t/#{token}"
+    expect(last_response.status).to eq(410)
+    expect(last_response.body).to include("完了")
+    expect(last_response.body).not_to include("meet.google.com")
   end
 end
