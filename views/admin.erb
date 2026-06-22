@@ -24,7 +24,7 @@
 <p class="note">調整したい相手に渡す「1 回限り・24 時間有効」の URL を発行します。1 度予定が登録されると、その URL は使えなくなります。</p>
 <form method="post" action="/tickets" class="inline">
   <input type="hidden" name="authenticity_token" value="<%= csrf_token %>">
-  <button type="submit" class="btn primary"<%= " disabled" unless google_connected? %>>新しい URL を発行</button>
+  <button type="submit" class="btn primary"<%= " disabled" unless google_connected? %>>新しいワンタイム URL を発行</button>
 </form>
 <% unless google_connected? %>
   <p class="note">※ URL を発行するには、先に <a href="/settings">設定画面</a>で Google カレンダーと連携してください。</p>

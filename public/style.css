@@ -297,6 +297,6 @@ tr.synced { background: #f0fdf4; color: #6b7280; }
 }
 .ticket-detail { font-size: 13px; color: #3e4c59; }
 .row-actions { display: flex; gap: 6px; align-items: center; }
-.btn.small { padding: 4px 10px; font-size: 13px; }
+.btn.small { padding: 4px 10px; font-size: 12px; }
 .copy-btn { white-space: nowrap; }
 .nav-links { display: flex; gap: 16px; }
