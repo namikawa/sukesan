@@ -97,7 +97,7 @@ bundle exec rubocop        # Lint（-a で自動修正）
 
 ## データと機微情報
 
-`data/` 配下のファイルは本人のみ読み書き可（0600）・原子的に書き込む。トークンは加えて暗号化保存する。
+`data/` 配下のファイルは本人のみ読み書き可（0600）・原子的に書き込む。OAuth トークンとチケットは加えて暗号化保存する（設定ファイルは権限のみ）。
 
 - `data/settings.json`: 調整時間などの設定。
 - `data/google_token.json`: Google OAuth トークン（refresh token を含む）。

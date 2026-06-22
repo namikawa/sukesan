@@ -27,9 +27,9 @@ Metrics/BlockLength:
 Metrics/MethodLength:
   Max: 25
 
-# ストア系モジュール（週次ファイルの読み書きヘルパ等）はやや長くなるため緩和する。
+# ストア系モジュール（週次ファイルの読み書き・暗号化ヘルパ等）はやや長くなるため緩和する。
 Metrics/ModuleLength:
-  Max: 120
+  Max: 130
 
 # キーワード引数は順序依存が無く自己記述的なため、パラメータ数のカウント対象外にする。
 Metrics/ParameterLists:

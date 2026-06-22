@@ -69,7 +69,9 @@ if token_key.empty?
 
   token_key = SESSION_SECRET
 end
-TokenStore.configure(Digest::SHA256.digest(token_key))
+token_cipher_key = Digest::SHA256.digest(token_key)
+TokenStore.configure(token_cipher_key)
+TicketStore.configure(token_cipher_key) # チケット（トークン・PII を含む）も同じ鍵で暗号化保存する
 
 # セッションはサーバ側（メモリ）に保持する。Cookie 属性を強化し、Secure は本番のみ有効化。
 use Rack::Session::Pool,

@@ -32,6 +32,24 @@ RSpec.describe TicketStore do
       file = Dir.glob(File.join(ENV.fetch("TICKETS_DIR"), "tickets-*.json")).first
       expect(format("%o", File.stat(file).mode & 0o777)).to eq("600")
     end
+
+    it "保存ファイルは暗号化され、トークンも平文 JSON も露出しない" do
+      token = described_class.create(now: now)
+      raw = File.read(Dir.glob(File.join(ENV.fetch("TICKETS_DIR"), "tickets-*.json")).first)
+
+      expect(raw).not_to include(token)
+      expect { JSON.parse(raw) }.to raise_error(JSON::ParserError)
+    end
+
+    it "旧・平文ファイルも読める（移行フォールバック）" do
+      token = "legacy-token"
+      legacy = { token => { "token" => token, "created_at" => now.iso8601, "status" => "active" } }
+      FileUtils.mkdir_p(ENV.fetch("TICKETS_DIR"))
+      File.write(File.join(ENV.fetch("TICKETS_DIR"), "tickets-#{now.strftime('%G-W%V')}.json"),
+                 JSON.generate(legacy))
+
+      expect(described_class.find(token, now: now)["token"]).to eq(token)
+    end
   end
 
   describe ".use!" do

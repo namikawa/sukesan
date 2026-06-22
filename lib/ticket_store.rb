@@ -5,6 +5,7 @@ require "fileutils"
 require "securerandom"
 require "time"
 require_relative "cross_process_lock"
+require_relative "token_cipher"
 
 # 1回限りのスケジュール調整 URL（チケット）を永続化するストア。
 #
@@ -12,12 +13,18 @@ require_relative "cross_process_lock"
 # - 発行から TTL_SECONDS（24時間）経過、または登録（使用）で無効になる。管理者は手動失効も可能。
 # - 有効なチケットは最大 24 時間なので、検索は「今週・先週」の 2 ファイルのみ見れば十分。
 # - 一覧（管理画面）は直近 RETENTION_DAYS（30日）分のみを対象とし、古い週ファイルは自動削除する。
+# - 保存内容（トークン・依頼者名・予定名・参加者など）は TokenCipher で暗号化し、0600 で保存する。
 module TicketStore
   module_function
 
   TTL_SECONDS = 24 * 60 * 60
   RETENTION_DAYS = 30
   KEEP_WEEKS = 6 # 30日をカバーするため、保持・走査する週ファイル数
+
+  # 起動時に暗号鍵（32 バイト）を設定する（TokenStore と同じ鍵を渡す）。
+  def configure(key)
+    @cipher = TokenCipher.new(key)
+  end
 
   # 読み出し→更新→書き込みをスレッド／プロセス間で直列化する。書き込み自体は
   # アトミック（tmp→rename）なので、読み取り（find/all）はロック不要。
@@ -150,16 +157,23 @@ module TicketStore
     path = File.join(dir, "tickets-#{key}.json")
     return {} unless File.exist?(path)
 
-    JSON.parse(File.read(path))
+    JSON.parse(decrypt_or_plain(File.read(path)))
   rescue JSON::ParserError
     {}
+  end
+
+  # 暗号文を復号する。復号できない場合は旧・平文ファイルとみなしてそのまま返す（移行用）。
+  def decrypt_or_plain(raw)
+    @cipher.decrypt(raw)
+  rescue StandardError
+    raw
   end
 
   def write_bucket(key, data)
     FileUtils.mkdir_p(dir, mode: 0o700)
     path = File.join(dir, "tickets-#{key}.json")
     tmp = "#{path}.#{SecureRandom.hex(8)}.tmp"
-    File.write(tmp, JSON.generate(data))
+    File.write(tmp, @cipher.encrypt(JSON.generate(data)))
     File.chmod(0o600, tmp) # 準個人情報を含むため本人のみ読み書き可に絞る
     File.rename(tmp, path) # 同一ファイルシステム内での rename は原子的
   end
