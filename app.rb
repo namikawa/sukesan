@@ -118,9 +118,8 @@ not_found do
   "ページが見つかりません。"
 end
 
-# チェック対象として取得するイベントの期間（日数）。
+# 差分チェックで過去側に取得する日数（未来側は設定 sync_window_days で可変）。
 SYNC_WINDOW_PAST = 1
-SYNC_WINDOW_FUTURE = 60
 
 # 公開フォーム（スケジュール調整）のスパム対策。IP ごとに 60 秒で 5 回まで。
 SCHEDULE_LIMITER = RateLimiter.new(max: 5, window_seconds: 60)
@@ -341,7 +340,7 @@ post "/settings" do
   require_admin!
   values = settings_params
   if settings_valid?(values)
-    SettingsStore.save(**values)
+    SettingsStore.save(values)
     session[:flash] = "設定を保存しました。"
   else
     session[:flash] = "入力内容が正しくありません（時間は HH:MM・開始 < 終了、休憩は 0 分以上で入力してください）。"
@@ -360,9 +359,24 @@ end
 # --- Outlook 同期（管理者専用） ---
 get "/sync" do
   require_admin!
+  @flash = session.delete(:flash)
+  @settings = SettingsStore.load
   @events = (session[:outlook_only] || []).map { |h| Event.from_h(h) }
   @checked = session.key?(:outlook_only)
   erb :index
+end
+
+# 同期の取得期間（Google・Outlook 共通の日先日数）を保存する（管理者専用）。
+post "/sync/settings" do
+  require_admin!
+  days = params[:sync_window_days].to_i
+  if sync_window_days_valid?(days)
+    SettingsStore.save(sync_window_days: days)
+    session[:flash] = "同期の取得期間を保存しました。"
+  else
+    session[:flash] = "取得日数は 1〜365 で入力してください。"
+  end
+  redirect "/sync"
 end
 
 # --- Google OAuth（連携は管理者のみ。トークンは共有保存する） ---

@@ -10,24 +10,24 @@ require_relative "event"
 class GoogleCalendarClient
   CALENDAR_ID = "primary"
   BASE = "https://www.googleapis.com/calendar/v3"
+  PAGE_SIZE = 2500
+  MAX_PAGES = 50 # 暴走防止の backstop（現実的なデータでは到達前に完了する）
 
   def initialize(access_token)
     @token = access_token
   end
 
   # 指定期間のイベント一覧を取得する。繰り返し予定は singleEvents で展開する。
+  # nextPageToken を辿って全ページを取得する。
   def list_events(time_min:, time_max:)
-    response = @token.get(
-      "#{BASE}/calendars/#{CALENDAR_ID}/events",
-      params: {
-        timeMin: time_min.utc.iso8601,
-        timeMax: time_max.utc.iso8601,
-        singleEvents: true,
-        orderBy: "startTime",
-        maxResults: 2500
-      }
-    )
-    items = JSON.parse(response.body)["items"] || []
+    items = []
+    page_token = nil
+    MAX_PAGES.times do
+      body = fetch_events_page(time_min, time_max, page_token)
+      items.concat(body["items"] || [])
+      page_token = body["nextPageToken"]
+      break if page_token.nil? || page_token.empty?
+    end
     items.map { |item| build_event(item) }
   end
 
@@ -58,6 +58,18 @@ class GoogleCalendarClient
   end
 
   private
+
+  def fetch_events_page(time_min, time_max, page_token)
+    params = {
+      timeMin: time_min.utc.iso8601,
+      timeMax: time_max.utc.iso8601,
+      singleEvents: true,
+      orderBy: "startTime",
+      maxResults: PAGE_SIZE
+    }
+    params[:pageToken] = page_token if page_token
+    JSON.parse(@token.get("#{BASE}/calendars/#{CALENDAR_ID}/events", params: params).body)
+  end
 
   def meet_create_request
     { createRequest: { requestId: SecureRandom.uuid, conferenceSolutionKey: { type: "hangoutsMeet" } } }

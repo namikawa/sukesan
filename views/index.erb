@@ -3,6 +3,20 @@
 <h1>スケジュール同期ツール</h1>
 <p class="lead">Outlook 側にのみ存在するイベントを検知し、選択したものを Google カレンダーへ反映します。</p>
 
+<% if @flash %>
+  <p class="flash"><%= @flash %></p>
+<% end %>
+
+<form method="post" action="/sync/settings" class="adjust-form">
+  <input type="hidden" name="authenticity_token" value="<%= csrf_token %>">
+  <label>同期の取得期間（日先・Google / Outlook 共通）
+    <input type="number" name="sync_window_days" value="<%= @settings["sync_window_days"] %>"
+           min="1" max="365" step="1" required>
+  </label>
+  <button type="submit" class="btn">保存</button>
+</form>
+<p class="note">差分チェック時に Google・Outlook の両方から、今日〜指定日数先までの予定を取得して照合します（1〜365 日）。</p>
+
 <section class="connections">
   <div class="conn <%= google_connected? ? 'on' : 'off' %>">
     <span class="label">Google カレンダー</span>

@@ -4,7 +4,8 @@
 module SyncHelpers
   def time_window
     now = Time.now
-    [now - (SYNC_WINDOW_PAST * 86_400), now + (SYNC_WINDOW_FUTURE * 86_400)]
+    future_days = SettingsStore.load["sync_window_days"]
+    [now - (SYNC_WINDOW_PAST * 86_400), now + (future_days * 86_400)]
   end
 
   def synced_keys
