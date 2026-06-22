@@ -28,7 +28,9 @@
       <input type="date" id="end-date" name="end_date" value="<%= @end_date %>" min="<%= @start_date %>" required>
     </label>
     <label>必要な時間（分）
-      <input type="number" name="duration" value="<%= @duration %>" min="15" step="15" required>
+      <input type="number" name="duration" value="<%= @duration %>"
+             min="<%= AvailabilitySearch::DURATION_STEP_MINUTES %>"
+             step="<%= AvailabilitySearch::DURATION_STEP_MINUTES %>" required>
     </label>
     <button type="submit" class="btn primary">空き時間をチェック</button>
   </form>

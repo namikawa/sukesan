@@ -26,6 +26,18 @@ RSpec.describe AvailabilitySearch do
       expect(result.days).to eq([])
     end
 
+    it "ISO8601 でない日付（例: 2026/06/22）は空の結果を返す" do
+      result = search.search(start_date: "2026/06/22", end_date: "2026/06/22", duration_minutes: 30)
+      expect(result.searched).to be(true)
+      expect(result.days).to eq([])
+    end
+
+    it "15 の倍数でない所要時間は空の結果を返す" do
+      result = search.search(start_date: "2026-06-22", end_date: "2026-06-22", duration_minutes: 20)
+      expect(result.searched).to be(true)
+      expect(result.days).to eq([])
+    end
+
     it "MAX_BUSINESS_DAYS を超える期間は capped=true で打ち切る" do
       result = search.search(start_date: "2026-06-22", end_date: "2026-12-31", duration_minutes: 30)
       expect(result.capped).to be(true)
@@ -49,6 +61,12 @@ RSpec.describe AvailabilitySearch do
     it "開始 >= 終了は false" do
       t = Time.iso8601("2026-06-22T09:00:00+09:00")
       expect(search.slot_available?(t, t)).to be(false)
+    end
+
+    it "15 の倍数でない長さ（例: 1分）は false" do
+      starts = Time.iso8601("2026-06-22T09:00:00+09:00")
+      ends = Time.iso8601("2026-06-22T09:01:00+09:00")
+      expect(search.slot_available?(starts, ends)).to be(false)
     end
 
     it "カレンダーが既に埋まっている枠は false（先行予約を検知）" do

@@ -40,6 +40,12 @@ RSpec.describe "予定作成 /schedule" do
     expect(last_response.status).to eq(400)
   end
 
+  it "15 の倍数でない長さ（UI 迂回の1分枠）は 422" do
+    post "/schedule", authenticity_token: csrf_token, token: token, title: "t", requester: "r",
+                      slot: "2026-06-22T09:00:00+09:00/2026-06-22T09:01:00+09:00"
+    expect(last_response.status).to eq(422)
+  end
+
   it "候補に無い時間帯（営業時間外）は 422" do
     post "/schedule", authenticity_token: csrf_token, token: token, title: "t", requester: "r",
                       slot: "2026-06-22T03:00:00+09:00/2026-06-22T04:00:00+09:00"

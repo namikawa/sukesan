@@ -14,6 +14,8 @@ class AvailabilitySearch
   MAX_BUSINESS_DAYS = 5
   # 営業日探索の最大走査日数（DoS 防止）。
   MAX_SCAN_DAYS = 366
+  # 所要時間の刻み（分）。許可するのは「正の値かつこの倍数」のみ（UI の min/step と一致）。
+  DURATION_STEP_MINUTES = 15
 
   # 検索結果。days = [[Date, [slots]], ...]
   Result = Struct.new(:searched, :capped, :days, keyword_init: true)
@@ -25,28 +27,42 @@ class AvailabilitySearch
   end
 
   # 期間（YYYY-MM-DD 文字列）と必要分数から、日付ごとの空き候補を返す。
-  # 日付が不正な場合は空の結果（searched: true）を返す。
+  # 日付が不正（非 ISO8601）・所要時間が不正な場合は空の結果（searched: true）を返す。
   def search(start_date:, end_date:, duration_minutes:)
-    dates, capped = business_dates_in_range(Date.parse(start_date.to_s), Date.parse(end_date.to_s))
+    return empty_result unless valid_duration?(duration_minutes)
+
+    dates, capped = business_dates_in_range(Date.iso8601(start_date.to_s), Date.iso8601(end_date.to_s))
     days = dates.empty? ? [] : slots_by_date(dates, duration_minutes)
     Result.new(searched: true, capped: capped, days: days)
   rescue ArgumentError
-    Result.new(searched: true, capped: false, days: [])
+    empty_result
   end
 
   # 送信された時間帯が、サーバ側で再計算した当日の空き候補に実在するか。
-  # クライアント値を信用せず、営業時間・曜日・空き・刻みの整合をここで担保する。
+  # クライアント値を信用せず、営業時間・曜日・空き・刻み・所要時間の整合をここで担保する。
   def slot_available?(starts_at, ends_at)
     return false if ends_at <= starts_at
 
-    date = starts_at.getlocal.to_date
     minutes = ((ends_at - starts_at) / 60).to_i
+    return false unless valid_duration?(minutes)
+
+    date = starts_at.getlocal.to_date
     candidate_slots(date, minutes).any? do |slot|
       slot.starts_at.to_i == starts_at.to_i && slot.ends_at.to_i == ends_at.to_i
     end
   end
 
   private
+
+  # 所要時間（分）が許可ポリシー内か。正かつ DURATION_STEP_MINUTES の倍数のみ許可。
+  # 過大な長さは営業時間内に候補が存在しないため自然に弾かれる。
+  def valid_duration?(minutes)
+    minutes.is_a?(Integer) && minutes.positive? && (minutes % DURATION_STEP_MINUTES).zero?
+  end
+
+  def empty_result
+    Result.new(searched: true, capped: false, days: [])
+  end
 
   # 開始日から営業日を最大 MAX_BUSINESS_DAYS 件まで集める。
   # 全範囲を走査せず、上限件数 +1 を見つけた時点で打ち切る（DoS 防止）。
