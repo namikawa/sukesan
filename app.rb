@@ -230,6 +230,8 @@ post "/schedule" do
   halt 400, "依頼者名・予定名・希望の時間帯を入力してください" if title.empty? || requester.empty? || starts_at.nil?
   too_long = title.length > MAX_TEXT_LENGTH || requester.length > MAX_TEXT_LENGTH
   halt 400, "予定名・依頼者名が長すぎます（各 #{MAX_TEXT_LENGTH} 文字以内）" if too_long
+  # 過去・直前すぎる時間帯は、空き再計算（Google 取得）の前に明示的に弾く。
+  halt 422, "過去の時間帯は予約できません。お手数ですが再度空き時間をチェックしてください。" if AvailabilitySearch.too_soon?(starts_at)
 
   # 任意項目: 参加者メールアドレス・ビデオ会議 URL・Google Meet 発行。
   attendees = parse_attendees(params[:attendees])

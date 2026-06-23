@@ -16,9 +16,16 @@ class AvailabilitySearch
   MAX_SCAN_DAYS = 366
   # 所要時間の刻み（分）。許可するのは「正の値かつこの倍数」のみ（UI の min/step と一致）。
   DURATION_STEP_MINUTES = 15
+  # 予約の最低リードタイム（分）。これより手前の開始時刻は過去/直前として弾く。
+  MIN_LEAD_MINUTES = 5
 
   # 検索結果。days = [[Date, [slots]], ...]
   Result = Struct.new(:searched, :capped, :days, keyword_init: true)
+
+  # 開始時刻が現在＋リードタイムより手前か（過去・直前すぎる予約か）。表示・予約の両方で弾く。
+  def self.too_soon?(starts_at, now: Time.now)
+    starts_at < now + (MIN_LEAD_MINUTES * 60)
+  end
 
   # calendar_client は list_events(time_min:, time_max:) に応答するもの（例: GoogleCalendarClient）。
   def initialize(settings:, calendar_client:)
@@ -28,31 +35,34 @@ class AvailabilitySearch
 
   # 期間（YYYY-MM-DD 文字列）と必要分数から、日付ごとの空き候補を返す。
   # 日付が不正（非 ISO8601）・所要時間が不正な場合は空の結果（searched: true）を返す。
-  def search(start_date:, end_date:, duration_minutes:)
+  def search(start_date:, end_date:, duration_minutes:, now: Time.now)
     return empty_result unless valid_duration?(duration_minutes)
 
     dates, capped = business_dates_in_range(Date.iso8601(start_date.to_s), Date.iso8601(end_date.to_s))
-    days = dates.empty? ? [] : slots_by_date(dates, duration_minutes)
+    days = dates.empty? ? [] : slots_by_date(dates, duration_minutes, now)
     Result.new(searched: true, capped: capped, days: days)
   rescue ArgumentError
     empty_result
   end
 
   # 送信された時間帯が、サーバ側で再計算した当日の空き候補に実在するか。
-  # クライアント値を信用せず、営業時間・曜日・空き・刻み・所要時間の整合をここで担保する。
-  def slot_available?(starts_at, ends_at)
-    return false if ends_at <= starts_at
+  # クライアント値を信用せず、営業時間・曜日・空き・刻み・所要時間・リードタイムの整合をここで担保する。
+  def slot_available?(starts_at, ends_at, now: Time.now)
+    return false if ends_at <= starts_at || self.class.too_soon?(starts_at, now: now)
 
     minutes = ((ends_at - starts_at) / 60).to_i
-    return false unless valid_duration?(minutes)
+    valid_duration?(minutes) && matches_candidate?(starts_at, ends_at, minutes)
+  end
 
+  private
+
+  # 送信枠が、サーバ側で再計算した当日の候補に（開始・終了が一致する形で）実在するか。
+  def matches_candidate?(starts_at, ends_at, minutes)
     date = starts_at.getlocal.to_date
     candidate_slots(date, minutes).any? do |slot|
       slot.starts_at.to_i == starts_at.to_i && slot.ends_at.to_i == ends_at.to_i
     end
   end
-
-  private
 
   # 所要時間（分）が許可ポリシー内か。正かつ DURATION_STEP_MINUTES の倍数のみ許可。
   # 過大な長さは営業時間内に候補が存在しないため自然に弾かれる。
@@ -81,9 +91,13 @@ class AvailabilitySearch
   end
 
   # 範囲全体のイベントを 1 回で取得し、各日の空き候補を算出する（日ごとの API 呼び出しを避ける）。
-  def slots_by_date(dates, duration_minutes)
+  # 過去・直前すぎる枠（now + リードタイムより手前）は表示候補から除外する。
+  def slots_by_date(dates, duration_minutes, now)
     events = fetch_events(dates.first, dates.last)
-    dates.map { |d| [d, finder.find(date: d, duration_minutes: duration_minutes, busy_events: events)] }
+    dates.map do |d|
+      slots = finder.find(date: d, duration_minutes: duration_minutes, busy_events: events)
+      [d, slots.reject { |slot| self.class.too_soon?(slot.starts_at, now: now) }]
+    end
   end
 
   def candidate_slots(date, duration_minutes)

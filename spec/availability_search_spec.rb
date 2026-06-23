@@ -9,11 +9,13 @@ RSpec.describe AvailabilitySearch do
   end
   # list_events(time_min:, time_max:) に空イベントで応答するスタブ（外部 API を呼ばない）。
   let(:calendar_client) { double(list_events: []) }
+  # 2026-06-22（月）の営業開始前を「現在時刻」として注入し、テストを決定的にする。
+  let(:now) { Time.iso8601("2026-06-22T08:00:00+09:00") }
   subject(:search) { described_class.new(settings: settings, calendar_client: calendar_client) }
 
   describe "#search" do
     it "営業日ごとに空き候補を返す（2026-06-22 は月曜）" do
-      result = search.search(start_date: "2026-06-22", end_date: "2026-06-22", duration_minutes: 30)
+      result = search.search(start_date: "2026-06-22", end_date: "2026-06-22", duration_minutes: 30, now: now)
       expect(result.searched).to be(true)
       expect(result.capped).to be(false)
       expect(result.days.map(&:first)).to eq([Date.new(2026, 6, 22)])
@@ -21,27 +23,35 @@ RSpec.describe AvailabilitySearch do
     end
 
     it "不正な日付は空の結果を返す" do
-      result = search.search(start_date: "bad", end_date: "x", duration_minutes: 30)
+      result = search.search(start_date: "bad", end_date: "x", duration_minutes: 30, now: now)
       expect(result.searched).to be(true)
       expect(result.days).to eq([])
     end
 
     it "ISO8601 でない日付（例: 2026/06/22）は空の結果を返す" do
-      result = search.search(start_date: "2026/06/22", end_date: "2026/06/22", duration_minutes: 30)
+      result = search.search(start_date: "2026/06/22", end_date: "2026/06/22", duration_minutes: 30, now: now)
       expect(result.searched).to be(true)
       expect(result.days).to eq([])
     end
 
     it "15 の倍数でない所要時間は空の結果を返す" do
-      result = search.search(start_date: "2026-06-22", end_date: "2026-06-22", duration_minutes: 20)
+      result = search.search(start_date: "2026-06-22", end_date: "2026-06-22", duration_minutes: 20, now: now)
       expect(result.searched).to be(true)
       expect(result.days).to eq([])
     end
 
     it "MAX_BUSINESS_DAYS を超える期間は capped=true で打ち切る" do
-      result = search.search(start_date: "2026-06-22", end_date: "2026-12-31", duration_minutes: 30)
+      result = search.search(start_date: "2026-06-22", end_date: "2026-12-31", duration_minutes: 30, now: now)
       expect(result.capped).to be(true)
       expect(result.days.size).to eq(described_class::MAX_BUSINESS_DAYS)
+    end
+
+    it "過去・直前すぎる枠（now + リードタイムより前）は候補から除外する" do
+      midday = Time.iso8601("2026-06-22T10:00:00+09:00")
+      result = search.search(start_date: "2026-06-22", end_date: "2026-06-22", duration_minutes: 30, now: midday)
+      starts = result.days.first.last.map(&:starts_at)
+      expect(starts).not_to be_empty
+      expect(starts.min).to be >= midday + (described_class::MIN_LEAD_MINUTES * 60)
     end
   end
 
@@ -49,24 +59,31 @@ RSpec.describe AvailabilitySearch do
     it "候補に存在する枠は true" do
       starts = Time.iso8601("2026-06-22T09:00:00+09:00")
       ends = Time.iso8601("2026-06-22T09:30:00+09:00")
-      expect(search.slot_available?(starts, ends)).to be(true)
+      expect(search.slot_available?(starts, ends, now: now)).to be(true)
     end
 
     it "候補に無い枠（営業時間外）は false" do
       starts = Time.iso8601("2026-06-22T03:00:00+09:00")
       ends = Time.iso8601("2026-06-22T04:00:00+09:00")
-      expect(search.slot_available?(starts, ends)).to be(false)
+      expect(search.slot_available?(starts, ends, now: now)).to be(false)
     end
 
     it "開始 >= 終了は false" do
       t = Time.iso8601("2026-06-22T09:00:00+09:00")
-      expect(search.slot_available?(t, t)).to be(false)
+      expect(search.slot_available?(t, t, now: now)).to be(false)
     end
 
     it "15 の倍数でない長さ（例: 1分）は false" do
       starts = Time.iso8601("2026-06-22T09:00:00+09:00")
       ends = Time.iso8601("2026-06-22T09:01:00+09:00")
-      expect(search.slot_available?(starts, ends)).to be(false)
+      expect(search.slot_available?(starts, ends, now: now)).to be(false)
+    end
+
+    it "過去（now より前）の枠は false" do
+      starts = Time.iso8601("2026-06-22T09:00:00+09:00")
+      ends = Time.iso8601("2026-06-22T09:30:00+09:00")
+      after = Time.iso8601("2026-06-22T10:00:00+09:00")
+      expect(search.slot_available?(starts, ends, now: after)).to be(false)
     end
 
     it "カレンダーが既に埋まっている枠は false（先行予約を検知）" do
@@ -77,7 +94,19 @@ RSpec.describe AvailabilitySearch do
       booked = described_class.new(settings: settings, calendar_client: double(list_events: [busy]))
       starts = Time.iso8601("2026-06-22T09:00:00+09:00")
       ends = Time.iso8601("2026-06-22T09:30:00+09:00")
-      expect(booked.slot_available?(starts, ends)).to be(false)
+      expect(booked.slot_available?(starts, ends, now: now)).to be(false)
+    end
+  end
+
+  describe ".too_soon?" do
+    let(:current) { Time.iso8601("2026-06-22T10:00:00+09:00") }
+
+    it "現在＋リードタイムより前は true" do
+      expect(described_class.too_soon?(current - 60, now: current)).to be(true)
+    end
+
+    it "十分先なら false" do
+      expect(described_class.too_soon?(current + (60 * 60), now: current)).to be(false)
     end
   end
 end

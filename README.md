@@ -68,7 +68,7 @@ cp .env.example .env
 - `TOKEN_ENCRYPTION_KEY`: 保存する OAuth トークン（Google / Microsoft）の暗号化鍵。本番は必須、開発は未設定なら `SESSION_SECRET` から導出。
 - `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` と、Outlook 用の `MS_CLIENT_ID` / `MS_CLIENT_SECRET` / `MS_TENANT_ID`。
 - `APP_TIMEZONE`: タイムゾーン（既定 `Asia/Tokyo`、tz database 名）。
-- `APP_BASE_URL`: 公開 URL。OAuth の redirect_uri やチケット URL の生成に使い、Host ヘッダ汚染を排除する。**本番（`APP_ENV=production`）では必須**で、未設定だと起動に失敗する。開発は未設定ならリクエストから組み立てる。
+- `APP_BASE_URL`: 公開 URL。OAuth の redirect_uri やチケット URL の生成に使い、Host ヘッダ汚染を排除する。本番（`APP_ENV=production`）では必須で、未設定だと起動に失敗する。開発は未設定ならリクエストから組み立てる。
 - `.env` は `chmod 600` 推奨。
 
 ## 起動・運用

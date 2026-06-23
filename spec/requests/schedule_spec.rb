@@ -8,8 +8,21 @@ RSpec.describe "予定作成 /schedule" do
       "lunch_start" => "11:00", "lunch_end" => "14:00", "lunch_minutes" => 60
     }
   end
-  # 2026-06-22 は月曜（営業日）。
-  let(:valid_slot) { "2026-06-22T09:00:00+09:00/2026-06-22T09:30:00+09:00" }
+  # 過去・直前拒否（リードタイム）に掛からないよう、十分先の営業日（平日）を使う。
+  def future_weekday
+    d = Date.today + 7
+    d += 1 until (1..5).cover?(d.wday)
+    d
+  end
+
+  def past_weekday
+    d = Date.today - 7
+    d -= 1 until (1..5).cover?(d.wday)
+    d
+  end
+
+  let(:slot_date) { future_weekday }
+  let(:valid_slot) { "#{slot_date}T09:00:00+09:00/#{slot_date}T09:30:00+09:00" }
   # 登録には有効なワンタイム URL（token）が必須。
   let(:token) { TicketStore.create }
 
@@ -42,13 +55,20 @@ RSpec.describe "予定作成 /schedule" do
 
   it "15 の倍数でない長さ（UI 迂回の1分枠）は 422" do
     post "/schedule", authenticity_token: csrf_token, token: token, title: "t", requester: "r",
-                      slot: "2026-06-22T09:00:00+09:00/2026-06-22T09:01:00+09:00"
+                      slot: "#{slot_date}T09:00:00+09:00/#{slot_date}T09:01:00+09:00"
     expect(last_response.status).to eq(422)
   end
 
   it "候補に無い時間帯（営業時間外）は 422" do
     post "/schedule", authenticity_token: csrf_token, token: token, title: "t", requester: "r",
-                      slot: "2026-06-22T03:00:00+09:00/2026-06-22T04:00:00+09:00"
+                      slot: "#{slot_date}T03:00:00+09:00/#{slot_date}T04:00:00+09:00"
+    expect(last_response.status).to eq(422)
+  end
+
+  it "過去の時間帯は 422" do
+    past = past_weekday
+    post "/schedule", authenticity_token: csrf_token, token: token, title: "t", requester: "r",
+                      slot: "#{past}T09:00:00+09:00/#{past}T09:30:00+09:00"
     expect(last_response.status).to eq(422)
   end
 
