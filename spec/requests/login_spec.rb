@@ -18,12 +18,20 @@ RSpec.describe "管理者ログイン" do
     expect(last_response.body).to include("<h1>設定</h1>")
   end
 
-  it "規定回数を超えると 429 を返す" do
+  it "失敗が規定回数を超えると 429 を返す" do
     token = csrf_token
     statuses = Array.new(12) do
       post "/settings/login", authenticity_token: token, password: "wrong"
       last_response.status
     end
     expect(statuses).to include(429)
+  end
+
+  it "成功ログインはレート制限を消費しない（連続成功でも 429 にならない）" do
+    statuses = Array.new(12) do
+      login_admin!
+      last_response.status
+    end
+    expect(statuses).not_to include(429)
   end
 end

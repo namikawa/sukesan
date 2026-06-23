@@ -135,7 +135,7 @@ SCHEDULE_LIMITER = RateLimiter.new(max: 5, window_seconds: 60)
 # 空き時間検索（Google API を消費する）の濫用対策。IP ごとに 60 秒で 10 回まで。
 SEARCH_LIMITER = RateLimiter.new(max: 10, window_seconds: 60)
 
-# 管理者ログインのブルートフォース対策。IP ごとに 5 分で 10 回まで。
+# 管理者ログインのブルートフォース対策。IP ごとに「失敗」5 分で 10 回まで（成功は消費しない）。
 LOGIN_LIMITER = RateLimiter.new(max: 10, window_seconds: 300)
 
 # 予約の臨界区間（空き再確認〜カレンダー登録）を直列化し、別トークン同士による
@@ -297,12 +297,14 @@ end
 
 # --- 管理者ログイン ---
 post "/settings/login" do
-  halt 429, "ログイン試行が多すぎます。しばらく時間をおいてからお試しください。" unless LOGIN_LIMITER.allow?(client_ip)
+  # 失敗回数だけを数える。bcrypt 計算の前に弾くことで CPU 消耗型の総当たりも防ぐ。
+  halt 429, "ログイン試行が多すぎます。しばらく時間をおいてからお試しください。" if LOGIN_LIMITER.exceeded?(client_ip)
 
   if admin_password_valid?(params[:password].to_s)
     session.options[:renew] = true # セッション固定対策: ログイン時に session id を再生成
     session[:admin] = true
   else
+    LOGIN_LIMITER.record(client_ip) # 失敗時のみ記録（成功ログインは制限を消費しない）
     session[:flash] = "パスワードが正しくありません。"
   end
   redirect "/admin"
