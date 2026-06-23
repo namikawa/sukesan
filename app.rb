@@ -73,6 +73,12 @@ token_cipher_key = Digest::SHA256.digest(token_key)
 TokenStore.configure(token_cipher_key)
 TicketStore.configure(token_cipher_key) # チケット（トークン・PII を含む）も同じ鍵で暗号化保存する
 
+# 公開 URL。本番は必須（未設定だと OAuth redirect_uri やチケット URL が Host ヘッダ依存になり危険）。
+# 開発・テストは未設定ならリクエストから組み立てる（base_url ヘルパ参照）。
+if settings.production? && ENV["APP_BASE_URL"].to_s.strip.empty?
+  raise "APP_BASE_URL must be set when APP_ENV/RACK_ENV=production"
+end
+
 # セッションはサーバ側（メモリ）に保持する。Cookie 属性を強化し、Secure は本番のみ有効化。
 use Rack::Session::Pool,
     key: "sukesan.session",
