@@ -1,9 +1,11 @@
 # frozen_string_literal: true
 
+require "uri"
+
 # スケジュール調整フォームの入力解釈・既定値まわりのヘルパ。
 module ScheduleHelpers
-  # 簡易メールアドレス判定（厳密な RFC 準拠ではなく形式の妥当性のみ）。
-  EMAIL_PATTERN = /\A[^@\s]+@[^@\s]+\.[^@\s]+\z/
+  # メールアドレス判定は標準の正規表現を使う（アンカー付きで制御文字・空白・不正形式を拒否）。
+  EMAIL_PATTERN = URI::MailTo::EMAIL_REGEXP
 
   # 空き時間検索サービスを、管理者の Google カレンダーに接続して組み立てる。
   def availability_search(settings)

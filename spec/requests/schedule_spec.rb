@@ -104,6 +104,12 @@ RSpec.describe "予定作成 /schedule" do
     expect(last_response.status).to eq(400)
   end
 
+  it "制御文字を含むメールアドレスは 400" do
+    post "/schedule", authenticity_token: csrf_token, token: token, title: "t", requester: "r",
+                      slot: valid_slot, attendees: "a\u0000b@example.com"
+    expect(last_response.status).to eq(400)
+  end
+
   it "ビデオ会議 URL を説明欄に登録する" do
     create = stub_request(:post, "https://www.googleapis.com/calendar/v3/calendars/primary/events")
              .with(body: hash_including("description" => "依頼者: 山田\nビデオ会議: https://zoom.us/j/1"))
