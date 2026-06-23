@@ -4,6 +4,7 @@ require "json"
 require "fileutils"
 require "securerandom"
 require_relative "token_cipher"
+require_relative "cross_process_lock"
 
 # OAuth トークンをサーバ側（ファイル）で暗号化保存する保管庫。
 #
@@ -21,9 +22,18 @@ module TokenStore
     microsoft: File.expand_path("../data/microsoft_token.json", __dir__)
   }.freeze
 
+  # プロバイダ別ロック。トークン更新（load→refresh→save）を直列化し、並行 refresh や
+  # 保存競合（refresh token ローテーション時の取りこぼし）を防ぐために使う。
+  LOCKS = PATHS.transform_values { |path| CrossProcessLock.new("#{path}.lock") }.freeze
+
   # 起動時に暗号鍵（32 バイト）を設定する。
   def configure(key)
     @cipher = TokenCipher.new(key)
+  end
+
+  # 指定プロバイダのトークン更新を直列化する（呼び出し側で load→refresh→save を包む）。
+  def with_lock(provider, &)
+    LOCKS.fetch(provider).synchronize(&)
   end
 
   def load(provider = :google)

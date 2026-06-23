@@ -55,16 +55,7 @@ module OAuthHelpers
   end
 
   def google_token
-    hash = TokenStore.load
-    return nil if hash.nil?
-
-    token = OAuth2::AccessToken.from_hash(OAuthClients.google, hash)
-    if token.expired? && token.refresh_token
-      token = token.refresh!
-      # リフレッシュ後も連携時に取得した管理者メールを保持する。
-      TokenStore.save(token.to_hash.merge("admin_email" => hash["admin_email"]))
-    end
-    token
+    load_oauth_token(:google, OAuthClients.google)
   end
 
   # 連携時に保存した管理者（主催者）のメールアドレス。未保存なら nil。
@@ -87,14 +78,30 @@ module OAuthHelpers
   end
 
   def microsoft_token
-    hash = TokenStore.load(:microsoft)
+    load_oauth_token(:microsoft, OAuthClients.microsoft)
+  end
+
+  # 保存済みトークンを読み、期限切れなら refresh して保存し直す。
+  # 期限内ならロックを取らず即返す（ホットパス）。期限切れ時のみプロバイダ別ロック内で
+  # 再読込→再判定→refresh→save を行い、並行 refresh や保存競合を防ぐ（ダブルチェックロック）。
+  # 保存は hash.merge(token.to_hash) で、トークン項目だけ更新し追加キー（admin_email 等）を保つ。
+  def load_oauth_token(provider, client)
+    hash = TokenStore.load(provider)
     return nil if hash.nil?
 
-    token = OAuth2::AccessToken.from_hash(OAuthClients.microsoft, hash)
-    if token.expired? && token.refresh_token
-      token = token.refresh!
-      TokenStore.save(token.to_hash, :microsoft)
+    token = OAuth2::AccessToken.from_hash(client, hash)
+    return token unless token.expired? && token.refresh_token
+
+    TokenStore.with_lock(provider) do
+      hash = TokenStore.load(provider)
+      next nil if hash.nil?
+
+      token = OAuth2::AccessToken.from_hash(client, hash)
+      if token.expired? && token.refresh_token
+        token = token.refresh!
+        TokenStore.save(hash.merge(token.to_hash), provider)
+      end
+      token
     end
-    token
   end
 end
