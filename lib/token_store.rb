@@ -41,7 +41,10 @@ module TokenStore
     return nil unless File.exist?(path)
 
     JSON.parse(@cipher.decrypt(File.read(path)))
-  rescue StandardError
+  rescue StandardError => e
+    # 復号・パース失敗時は未連携として扱う（fail-closed）。鍵ズレ等の調査用に種別とパスだけ残す
+    # （内容・例外メッセージは秘密を含み得るため出さない）。
+    warn "[TokenStore] 読み込み失敗 #{path} (provider=#{provider}): #{e.class}（未連携として扱います）"
     nil
   end
 

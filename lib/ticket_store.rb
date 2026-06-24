@@ -152,7 +152,10 @@ module TicketStore
     return {} unless File.exist?(path)
 
     JSON.parse(decrypt_or_plain(File.read(path)))
-  rescue JSON::ParserError
+  rescue JSON::ParserError => e
+    # 復号・パースに失敗した場合は空として扱う（fail-closed）。原因調査用に種別とパスだけ残す
+    # （内容・例外メッセージは平文・秘密を含み得るため出さない）。
+    warn "[TicketStore] 読み込み失敗 #{path}: #{e.class}（空として扱います）"
     {}
   end
 

@@ -41,6 +41,15 @@ RSpec.describe TicketStore do
       expect { JSON.parse(raw) }.to raise_error(JSON::ParserError)
     end
 
+    it "破損したバケットファイルは空として扱う（fail-closed）" do
+      FileUtils.mkdir_p(ENV.fetch("TICKETS_DIR"))
+      path = File.join(ENV.fetch("TICKETS_DIR"), "tickets-#{now.strftime('%G-W%V')}.json")
+      File.write(path, "corrupted-not-json-not-encrypted")
+
+      expect(described_class.find("anything", now: now)).to be_nil
+      expect(described_class.all(now: now)).to eq([])
+    end
+
     it "旧・平文ファイルも読める（移行フォールバック）" do
       token = "legacy-token"
       legacy = { token => { "token" => token, "created_at" => now.iso8601, "status" => "active" } }
