@@ -17,10 +17,12 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
 APP_NAME="sukesan"
-PORT="${PORT:-3000}"
+export PORT="${PORT:-3000}" # app.rb が ENV から読む（bind/port は app.rb で設定）
 PID_FILE="${PID_FILE:-$ROOT/tmp/pids/server.pid}"
 LOG_FILE="${LOG_FILE:-$ROOT/log/server.log}"
-START_CMD=(bundle exec rackup --host 0.0.0.0 --port "$PORT" config.ru)
+# Sinatra クラシック起動（rackup 既定のミドルウェア＝stderr へのアクセスログを入れないため）。
+# アクセスログは app.rb 内の Rack::CommonLogger が週次ローテーションの log/access.log に出す。
+START_CMD=(bundle exec ruby app.rb)
 
 current_pid() { cat "$PID_FILE" 2>/dev/null || true; }
 

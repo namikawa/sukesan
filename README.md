@@ -82,7 +82,7 @@ bin/server run       # フォアグラウンド（サービス管理用）
 ```
 
 - 直接起動する場合は `bundle exec rackup -p 3000` または `ruby app.rb`。ブラウザで <http://localhost:3000>。
-- PID は `tmp/pids/server.pid`、ログは `log/server.log`。ポートは `PORT` で変更可。
+- PID は `tmp/pids/server.pid`。ログは `log/` 配下: アクセスログは `log/access.log`（週次ローテーション。過去週は `access.log.YYYYMMDD`）、プロセス出力（起動ログ・診断 `warn`）は `log/server.log`。ポートは `PORT` で変更可。
 - OS サービス登録用テンプレートは `deploy/`（systemd: `sukesan.service` / launchd: `com.sukesan.server.plist`）。`bin/server run` を起動コマンドにし、`__APP_DIR__` 等を置換して登録する。
 - `APP_ENV=production` で本番ハードニング（HTTPS 必須リダイレクト・Cookie の Secure 化・エラー秘匿・HSTS）が有効になる。HTTPS は前段プロキシで終端し `X-Forwarded-Proto` を渡す前提。
 
