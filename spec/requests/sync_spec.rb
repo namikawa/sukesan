@@ -88,5 +88,15 @@ RSpec.describe "Outlook 同期 /check・/sync" do
       expect(last_response.status).to eq(302)
       expect(create).not_to have_been_requested
     end
+
+    it "同期済みイベントの再送信では重複作成しない（サーバ側で冪等）" do
+      create = stub_request(:post, "https://www.googleapis.com/calendar/v3/calendars/primary/events")
+               .to_return(status: 200, body: "{}", headers: { "Content-Type" => "application/json" })
+      key = "会議|2026-07-01T01:00:00Z|2026-07-01T02:00:00Z"
+      post "/check", authenticity_token: csrf_token, range_mode: "days", sync_window_days: "30"
+      post "/sync", authenticity_token: csrf_token, selected: [key]
+      post "/sync", authenticity_token: csrf_token, selected: [key]
+      expect(create).to have_been_requested.once
+    end
   end
 end

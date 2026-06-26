@@ -493,8 +493,10 @@ post "/sync" do
   client = GoogleCalendarClient.new(google_token)
 
   events.select { |event| selected.include?(event.match_key) }.each do |event|
+    next if synced_keys.include?(event.match_key) # 既に反映済みはサーバ側でスキップ（UI 依存せず冪等化）
+
     client.create_event(event)
-    synced_keys << event.match_key unless synced_keys.include?(event.match_key)
+    synced_keys << event.match_key
   end
   session[:synced_keys] = synced_keys
   redirect "/sync"
