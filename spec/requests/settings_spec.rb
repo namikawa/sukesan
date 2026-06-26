@@ -23,18 +23,4 @@ RSpec.describe "設定保存" do
       expect(SettingsStore).not_to have_received(:save)
     end
   end
-
-  describe "POST /sync/settings（同期の取得期間）" do
-    it "1〜365 なら保存する" do
-      allow(SettingsStore).to receive(:save)
-      post "/sync/settings", authenticity_token: csrf_token, sync_window_days: "14"
-      expect(SettingsStore).to have_received(:save).with(hash_including(sync_window_days: 14))
-    end
-
-    it "範囲外（0）は保存しない" do
-      allow(SettingsStore).to receive(:save)
-      post "/sync/settings", authenticity_token: csrf_token, sync_window_days: "0"
-      expect(SettingsStore).not_to have_received(:save)
-    end
-  end
 end

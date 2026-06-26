@@ -7,7 +7,7 @@ module SettingsParamsHelpers
   end
 
   # 同期で取得する日数（日先・Google/Outlook 共通）の許容範囲。
-  SYNC_WINDOW_DAYS_RANGE = (1..365)
+  SYNC_WINDOW_DAYS_RANGE = (1..180)
 
   # スケジュール設定フォーム（/settings）の入力を SettingsStore.save の引数形に整える。
   def settings_params

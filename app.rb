@@ -138,8 +138,8 @@ not_found do
   "ページが見つかりません。"
 end
 
-# 差分チェックで過去側に取得する日数（未来側は設定 sync_window_days で可変）。
-SYNC_WINDOW_PAST = 1
+# Outlook 同期の日付範囲指定で許可する最大日数（開始〜終了の差）。日数指定の上限と揃える。
+MAX_SYNC_RANGE_DAYS = 180
 
 # 公開フォーム（スケジュール調整）のスパム対策。IP ごとに 60 秒で 5 回まで。
 SCHEDULE_LIMITER = RateLimiter.new(max: 5, window_seconds: 60)
@@ -389,22 +389,10 @@ get "/sync" do
   require_admin!
   @flash = session.delete(:flash)
   @settings = SettingsStore.load
+  @test_mode = session[:sync_test_mode] == true
   @events = (session[:outlook_only] || []).map { |h| Event.from_h(h) }
   @checked = session.key?(:outlook_only)
   erb :index
-end
-
-# 同期の取得期間（Google・Outlook 共通の日先日数）を保存する（管理者専用）。
-post "/sync/settings" do
-  require_admin!
-  days = params[:sync_window_days].to_i
-  if sync_window_days_valid?(days)
-    SettingsStore.save(sync_window_days: days)
-    session[:flash] = "同期の取得期間を保存しました。"
-  else
-    session[:flash] = "取得日数は 1〜365 で入力してください。"
-  end
-  redirect "/sync"
 end
 
 # --- Google OAuth（連携は管理者のみ。トークンは共有保存する） ---
@@ -465,22 +453,26 @@ post "/disconnect" do
 end
 
 # --- 差分チェック（管理者専用） ---
+# 取得範囲は日数（当日0:00起点）または日付範囲で指定。テストモードは差分表示のみ。
 post "/check" do
   require_admin!
   halt 400, "Google と Outlook の両方の連携が必要です" unless google_connected? && microsoft_connected?
 
-  time_min, time_max = time_window
-  google_events = GoogleCalendarClient.new(google_token)
-                                      .list_events(time_min: time_min, time_max: time_max)
-  outlook_events = OutlookCalendarClient.new(microsoft_token)
-                                        .list_events(time_min: time_min, time_max: time_max)
+  window, error = resolve_sync_window(params)
+  if error
+    session[:flash] = error
+    redirect "/sync"
+  end
 
-  outlook_only = EventDiffer.outlook_only(
+  time_min, time_max = window
+  google_events = GoogleCalendarClient.new(google_token).list_events(time_min: time_min, time_max: time_max)
+  outlook_events = OutlookCalendarClient.new(microsoft_token).list_events(time_min: time_min, time_max: time_max)
+
+  session[:outlook_only] = EventDiffer.outlook_only(
     google_events: google_events, outlook_events: outlook_events
-  )
-
-  session[:outlook_only] = outlook_only.map(&:to_h)
+  ).map(&:to_h)
   session[:synced_keys] = []
+  session[:sync_test_mode] = (params[:test_mode] == "1")
   redirect "/sync"
 end
 
@@ -488,6 +480,11 @@ end
 post "/sync" do
   require_admin!
   halt 400, "Google の連携が必要です" unless google_connected?
+  # テストモードでチェックした直後は反映しない（誤適用防止）。
+  if session[:sync_test_mode]
+    session[:flash] = "テストモードのため反映しません。反映するにはテストモードを外して再チェックしてください。"
+    redirect "/sync"
+  end
 
   selected = Array(params[:selected])
   events = (session[:outlook_only] || []).map { |h| Event.from_h(h) }

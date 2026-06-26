@@ -6,5 +6,4 @@
 .DS_Store
 /data/
 /issue/
-# Claude Code 向けの内部指示（公開不要）
 /CLAUDE.md

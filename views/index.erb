@@ -7,16 +7,6 @@
   <p class="flash"><%= @flash %></p>
 <% end %>
 
-<form method="post" action="/sync/settings" class="adjust-form">
-  <input type="hidden" name="authenticity_token" value="<%= csrf_token %>">
-  <label>同期の取得期間（日先・Google / Outlook 共通）
-    <input type="number" name="sync_window_days" value="<%= @settings["sync_window_days"] %>"
-           min="1" max="365" step="1" required>
-  </label>
-  <button type="submit" class="btn">保存</button>
-</form>
-<p class="note">差分チェック時に Google・Outlook の両方から、今日〜指定日数先までの予定を取得して照合します（1〜365 日）。</p>
-
 <section class="connections">
   <div class="conn <%= google_connected? ? 'on' : 'off' %>">
     <span class="label">Google カレンダー</span>
@@ -41,15 +31,59 @@
 </section>
 
 <% if google_connected? && microsoft_connected? %>
-  <form method="post" action="/check" class="check-form">
+  <form method="post" action="/check" class="sync-form">
     <input type="hidden" name="authenticity_token" value="<%= csrf_token %>">
+    <fieldset class="settings-group">
+      <legend>取得範囲（Google・Outlook 共通）</legend>
+      <p class="note">Google・Outlook の両方から、指定した範囲の予定を取得して差分を照合します。</p>
+
+      <label class="field-check">
+        <input type="radio" name="range_mode" value="days" checked>
+        日数で指定:
+        <input type="number" name="sync_window_days" value="<%= @settings["sync_window_days"] %>"
+               min="1" max="180" step="1" class="days-input">
+        日先まで（当日 0:00 起点・最大 180）
+      </label>
+
+      <label class="field-check">
+        <input type="radio" name="range_mode" value="range">
+        日付範囲で指定:
+        <input type="date" name="start_date">
+        〜
+        <input type="date" name="end_date">
+        （最大 180 日）
+      </label>
+    </fieldset>
+
+    <label class="field-check">
+      <input type="checkbox" name="test_mode" value="1">
+      テストモード（差分の表示のみ・Google には反映しない）
+    </label>
+
     <button type="submit" class="btn primary">2つのカレンダーをチェック</button>
   </form>
 <% else %>
   <p class="note">Google と Outlook の両方を連携するとチェックできます。</p>
 <% end %>
 
-<% if @events.any? %>
+<% if @events.any? && @test_mode %>
+  <p class="flash">テストモード: 以下は差分のプレビューです（Google には反映されません）。反映するにはテストモードを外して再チェックしてください。</p>
+  <table>
+    <thead>
+      <tr><th>件名</th><th>開始</th><th>終了</th><th>場所</th></tr>
+    </thead>
+    <tbody>
+      <% @events.each do |event| %>
+        <tr>
+          <td><%= event.title %></td>
+          <td><%= format_dt(event.starts_at, all_day: event.all_day) %></td>
+          <td><%= format_dt(event.ends_at, all_day: event.all_day) %></td>
+          <td><%= event.location %></td>
+        </tr>
+      <% end %>
+    </tbody>
+  </table>
+<% elsif @events.any? %>
   <form method="post" action="/sync" id="sync-form">
     <input type="hidden" name="authenticity_token" value="<%= csrf_token %>">
     <div class="bar">
@@ -94,9 +128,9 @@
     </div>
   </form>
 <% elsif @checked %>
-  <p class="note">Outlook 側にのみ存在するイベントはありませんでした。2つのカレンダーは同期済みです。</p>
-<% elsif google_connected? && microsoft_connected? %>
-  <p class="note">「2つのカレンダーをチェック」を押すと、Outlook 側にのみ存在するイベントが一覧表示されます。</p>
+  <p class="note">指定範囲で Outlook 側にのみ存在するイベントはありませんでした。</p>
+<% else %>
+  <p class="note">取得範囲を指定して「2つのカレンダーをチェック」を押すと、Outlook 側にのみ存在するイベントが一覧表示されます。</p>
 <% end %>
 
 <script src="/sync.js"></script>
