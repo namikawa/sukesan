@@ -49,16 +49,6 @@ RSpec.describe TicketStore do
       expect(described_class.find("anything", now: now)).to be_nil
       expect(described_class.all(now: now)).to eq([])
     end
-
-    it "旧・平文ファイルも読める（移行フォールバック）" do
-      token = "legacy-token"
-      legacy = { token => { "token" => token, "created_at" => now.iso8601, "status" => "active" } }
-      FileUtils.mkdir_p(ENV.fetch("TICKETS_DIR"))
-      File.write(File.join(ENV.fetch("TICKETS_DIR"), "tickets-#{now.strftime('%G-W%V')}.json"),
-                 JSON.generate(legacy))
-
-      expect(described_class.find(token, now: now)["token"]).to eq(token)
-    end
   end
 
   describe ".use!" do

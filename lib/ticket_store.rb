@@ -151,19 +151,12 @@ module TicketStore
     path = File.join(dir, "tickets-#{key}.json")
     return {} unless File.exist?(path)
 
-    JSON.parse(decrypt_or_plain(File.read(path)))
-  rescue JSON::ParserError => e
-    # 復号・パースに失敗した場合は空として扱う（fail-closed）。原因調査用に種別とパスだけ残す
-    # （内容・例外メッセージは平文・秘密を含み得るため出さない）。
+    JSON.parse(@cipher.decrypt(File.read(path)))
+  rescue JSON::ParserError, OpenSSL::Cipher::CipherError, ArgumentError => e
+    # 復号・パースできないデータ（破損・改ざん・鍵不一致）は空として扱う（fail-closed）。
+    # 原因調査用に種別とパスだけ残す（内容・例外メッセージは秘密を含み得るため出さない）。
     warn "[TicketStore] 読み込み失敗 #{path}: #{e.class}（空として扱います）"
     {}
-  end
-
-  # 暗号文を復号する。復号できない場合は旧・平文ファイルとみなしてそのまま返す（移行用）。
-  def decrypt_or_plain(raw)
-    @cipher.decrypt(raw)
-  rescue StandardError
-    raw
   end
 
   def write_bucket(key, data)
