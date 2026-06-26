@@ -106,7 +106,9 @@ use Rack::Protection::AuthenticityToken
 # 本番では HTTPS を必須にする（開発は HTTP を許容）。
 # 前段プロキシで TLS 終端する場合は X-Forwarded-Proto を設定すること。
 before do
-  redirect request.url.sub(%r{\Ahttp://}, "https://"), 308 if settings.production? && !request.secure?
+  # HTTPS 強制リダイレクト先は Host ヘッダ由来の request.url ではなく、ENV 固定の base_url
+  # （本番では APP_BASE_URL）＋ パス/クエリで組み立て、Host 細工による誘導を防ぐ。
+  redirect "#{base_url}#{request.fullpath}", 308 if settings.production? && !request.secure?
 end
 
 # Content-Security-Policy。スクリプト/スタイルは同一オリジンのみ（インライン不可）。
