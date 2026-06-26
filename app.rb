@@ -25,6 +25,7 @@ require_relative "lib/token_store"
 require_relative "lib/ticket_store"
 require_relative "lib/rate_limiter"
 require_relative "lib/availability_search"
+require_relative "lib/booking_service"
 require_relative "lib/cross_process_lock"
 
 require_relative "helpers/auth_helpers"
@@ -272,41 +273,35 @@ post "/schedule" do
   }
   ticket_attrs["attendees"] = attendees unless attendees.empty?
 
-  # 予約は 1 件ずつ直列化する。別トークン同士が同じ枠をほぼ同時に予約しても、
-  # 後続はロック内の再確認で先行予約を検知して弾ける（同一枠の二重予約を防ぐ）。
-  event = nil
-  meet_link = nil
-  BOOKING_LOCK.synchronize do
-    # ロック内で最新の空き状況を取り直して再検証する（依頼者が見た古い結果は信用しない）。
-    unless availability_search(SettingsStore.load).slot_available?(starts_at, ends_at)
-      halt 422, "選択した時間帯は予約できません。お手数ですが再度空き時間をチェックしてください。"
-    end
+  event = Event.new(
+    source: "google",
+    title: "#{title} - #{requester} (from 調整ツール)",
+    starts_at: starts_at,
+    ends_at: ends_at,
+    all_day: false,
+    description: description
+  )
 
-    # 二重登録を防ぐため、カレンダー登録より先に token を使用済みにする。
-    # 同時送信で既に使われていれば false（登録は行わない）。
-    halt 409, "この URL は既に使用されています。" unless TicketStore.use!(token, attrs: ticket_attrs)
+  # 予約の中核トランザクション（空き再確認→token 消費→Google 登録→失敗時ロールバック）は
+  # BookingService に委譲する。HTTP ステータスへの写像だけルート側で行う。
+  result = BookingService.new(
+    lock: BOOKING_LOCK,
+    availability: availability_search(SettingsStore.load),
+    calendar_client: GoogleCalendarClient.new(google_token)
+  ).call(token: token, event: event, ticket_attrs: ticket_attrs,
+         attendees: event_attendees, request_meet: request_meet)
 
-    begin
-      event = Event.new(
-        source: "google",
-        title: "#{title} - #{requester} (from 調整ツール)",
-        starts_at: starts_at,
-        ends_at: ends_at,
-        all_day: false,
-        description: description
-      )
-      response = GoogleCalendarClient.new(google_token)
-                                     .create_event(event, attendees: event_attendees, request_meet: request_meet)
-      meet_link = GoogleCalendarClient.meet_link(response) if request_meet
-    rescue StandardError
-      # 登録に失敗したときは token を有効へ戻し、再試行できるようにする。
-      TicketStore.reactivate!(token)
-      halt 502, "予定の登録に失敗しました。お手数ですが、もう一度お試しください。"
-    end
+  case result.status
+  when :slot_taken
+    halt 422, "選択した時間帯は予約できません。お手数ですが再度空き時間をチェックしてください。"
+  when :ticket_used
+    halt 409, "この URL は既に使用されています。"
+  when :api_failure
+    halt 502, "予定の登録に失敗しました。お手数ですが、もう一度お試しください。"
   end
 
   # 会議情報は登録直後の本人セッションでだけ完了画面に表示する（チケットには残さない）。
-  session[:completion] = { "token" => token, "meet_link" => meet_link, "video_url" => video_url }
+  session[:completion] = { "token" => token, "meet_link" => result.meet_link, "video_url" => video_url }
   session[:flash] = "#{requester} さんの「#{title}」を #{format_dt(event.starts_at)} に登録しました。"
   redirect "/t/#{token}"
 end
