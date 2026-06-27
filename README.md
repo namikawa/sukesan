@@ -120,7 +120,7 @@ Cloud Run へのデプロイ手順（概略）:
      --set-secrets SESSION_SECRET=SESSION_SECRET:latest,TOKEN_ENCRYPTION_KEY=TOKEN_ENCRYPTION_KEY:latest,ADMIN_PASSWORD_DIGEST=ADMIN_PASSWORD_DIGEST:latest,GOOGLE_CLIENT_ID=GOOGLE_CLIENT_ID:latest,GOOGLE_CLIENT_SECRET=GOOGLE_CLIENT_SECRET:latest
    ```
 
-   `--max-instances 1` は同一スロットの二重予約を防ぐための前提（min は 0 のままでゼロスケール可）。デプロイ中のリビジョン切替で旧新が一瞬重なる窓は残るが、数名利用では実質問題にならない。
+   `--max-instances 1` は同一スロットの二重予約を防ぐための前提（min は 0 のままでゼロスケール可）。デプロイ中のリビジョン切替で旧新が一瞬重なる窓は残るため、厳密な二重予約防止が必要な用途では slot reservation document による排他を実装する。
 
 4. 独自ドメインはロードバランサを使わず Cloud Run のドメインマッピング（または Firebase Hosting）で割り当てる（管理 TLS・自動更新）。`APP_BASE_URL` と OAuth の redirect_uri を本番ドメインに合わせる。
 5. `APP_TRUST_PROXY=true` で `X-Forwarded-Proto`（HTTPS 判定・リダイレクト）と `X-Forwarded-For`（レート制限の IP）を信頼する。
