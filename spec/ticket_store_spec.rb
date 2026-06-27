@@ -72,7 +72,7 @@ RSpec.describe TicketStore do
 
     it "期限切れのトークンは使用できない" do
       token = described_class.create(now: now)
-      later = now + described_class::TTL_SECONDS + 1
+      later = now + TicketStatus::TTL_SECONDS + 1
       expect(described_class.use!(token, attrs: {}, now: later)).to be(false)
     end
   end
@@ -108,14 +108,14 @@ RSpec.describe TicketStore do
     it "TTL を過ぎると expired になる" do
       token = described_class.create(now: now)
       ticket = described_class.find(token, now: now)
-      later = now + described_class::TTL_SECONDS + 1
+      later = now + TicketStatus::TTL_SECONDS + 1
       expect(described_class.status(ticket, now: later)).to eq("expired")
     end
   end
 
   describe ".all" do
     it "新しい順に並び、RETENTION_DAYS より古いものは除外する" do
-      old_token = described_class.create(now: now - ((described_class::RETENTION_DAYS + 1) * 86_400))
+      old_token = described_class.create(now: now - ((FileTicketStore::RETENTION_DAYS + 1) * 86_400))
       older = described_class.create(now: now - 86_400)
       newest = described_class.create(now: now)
 

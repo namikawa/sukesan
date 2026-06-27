@@ -7,8 +7,10 @@ require "date"
 require "securerandom"
 require "base64"
 require "digest"
+require "openssl"
 require "net/http"
 require "rack/protection"
+require "rack/session/cookie"
 require "bcrypt"
 require "logger"
 require "fileutils"
@@ -56,11 +58,14 @@ end
 
 # セッション署名用の秘密鍵。本番は必須（未設定・空なら起動時に失敗）。
 # 開発・テストは未設定なら一時生成（プロセス再起動で無効化される）。
+# Rack::Session::Cookie は 64 文字以上を要求するため、設定値が短い場合も起動失敗させる。
 session_secret = ENV["SESSION_SECRET"].to_s
 if session_secret.empty?
   raise "SESSION_SECRET must be set when APP_ENV/RACK_ENV=production" if settings.production?
 
   session_secret = SecureRandom.hex(64)
+elsif session_secret.length < 64
+  raise "SESSION_SECRET must be at least 64 characters (Rack::Session::Cookie requirement)"
 end
 SESSION_SECRET = session_secret
 
@@ -75,6 +80,10 @@ end
 token_cipher_key = Digest::SHA256.digest(token_key)
 TokenStore.configure(token_cipher_key)
 TicketStore.configure(token_cipher_key) # チケット（トークン・PII を含む）も同じ鍵で暗号化保存する
+
+# 決定的な Google イベント ID を作るための HMAC 鍵（暗号鍵から用途別に派生）。
+# token から ID を決定的に導き、再試行時の重複作成を Google 側の一意制約で防ぐ（BookingService 参照）。
+EVENT_ID_KEY = OpenSSL::HMAC.digest("SHA256", token_cipher_key, "sukesan-event-id")
 
 # 公開 URL。本番は必須（未設定だと OAuth redirect_uri やチケット URL が Host ヘッダ依存になり危険）。
 # 開発・テストは未設定ならリクエストから組み立てる（base_url ヘルパ参照）。
@@ -92,8 +101,10 @@ unless settings.test?
   use Rack::CommonLogger, ACCESS_LOG
 end
 
-# セッションはサーバ側（メモリ）に保持する。Cookie 属性を強化し、Secure は本番のみ有効化。
-use Rack::Session::Pool,
+# セッションは署名 Cookie に保持する（サーバ側状態を持たないため、複数インスタンス＝Cloud Run でも
+# そのまま動く）。rack-session 2.x の既定 coder は JSON で Marshal を使わない。Cookie 属性を強化し、
+# Secure は本番のみ有効化。大きくなり得る同期差分はセッションに載せず、表示・反映時に都度再計算する。
+use Rack::Session::Cookie,
     key: "sukesan.session",
     secret: SESSION_SECRET,
     expire_after: 60 * 60 * 24,
@@ -109,7 +120,7 @@ use Rack::Protection::AuthenticityToken
 before do
   # HTTPS 強制リダイレクト先は Host ヘッダ由来の request.url ではなく、ENV 固定の base_url
   # （本番では APP_BASE_URL）＋ パス/クエリで組み立て、Host 細工による誘導を防ぐ。
-  redirect "#{base_url}#{request.fullpath}", 308 if settings.production? && !request.secure?
+  redirect "#{base_url}#{request.fullpath}", 308 if settings.production? && !request_secure?
 end
 
 # Content-Security-Policy。スクリプト/スタイルは同一オリジンのみ（インライン不可）。
@@ -131,6 +142,11 @@ after do
   headers["X-Frame-Options"] = "DENY"
   headers["Referrer-Policy"] = "no-referrer"
   headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains" if settings.production?
+  # URL・登録内容・会議リンク・管理情報を扱う画面はキャッシュさせない。
+  if no_store?(request.path_info)
+    headers["Cache-Control"] = "no-store"
+    headers["Pragma"] = "no-cache"
+  end
 end
 
 error do
@@ -153,9 +169,9 @@ SEARCH_LIMITER = RateLimiter.new(max: 10, window_seconds: 60)
 # 管理者ログインのブルートフォース対策。IP ごとに「失敗」5 分で 10 回まで（成功は消費しない）。
 LOGIN_LIMITER = RateLimiter.new(max: 10, window_seconds: 300)
 
-# 予約の臨界区間（空き再確認〜カレンダー登録）を直列化し、別トークン同士による
-# 同一枠の二重予約を防ぐロック。チケット保存先と同じディレクトリにロックファイルを置く。
-BOOKING_LOCK = CrossProcessLock.new(-> { File.join(TicketStore.dir, ".booking.lock") })
+# 予約の臨界区間（空き再確認〜カレンダー登録）を直列化し、別トークン同士による同一枠の二重予約を防ぐロック。
+# 実体は backend が用意する（file=flock のロックファイル / firestore=プロセス内 Mutex）。
+BOOKING_LOCK = TicketStore.booking_lock
 
 # 曜日の表示順とラベル（Ruby の wday: 0=日〜6=土）。月曜始まりで表示する。
 WEEKDAY_LABELS = { 0 => "日", 1 => "月", 2 => "火", 3 => "水", 4 => "木", 5 => "金", 6 => "土" }.freeze
@@ -287,7 +303,8 @@ post "/schedule" do
   result = BookingService.new(
     lock: BOOKING_LOCK,
     availability: availability_search(SettingsStore.load),
-    calendar_client: GoogleCalendarClient.new(google_token)
+    calendar_client: GoogleCalendarClient.new(google_token),
+    event_id_key: EVENT_ID_KEY
   ).call(token: token, event: event, ticket_attrs: ticket_attrs,
          attendees: event_attendees, request_meet: request_meet)
 
@@ -386,9 +403,15 @@ get "/sync" do
   require_admin!
   @flash = session.delete(:flash)
   @settings = SettingsStore.load
-  @test_mode = session[:sync_test_mode] == true
-  @events = (session[:outlook_only] || []).map { |h| Event.from_h(h) }
-  @checked = session.key?(:outlook_only)
+  @test_mode = sync_test_mode?
+  window = current_sync_window
+  @checked = !window.nil?
+  # 差分はキャッシュせず、取得範囲から都度再計算する（常に最新）。
+  @events = if window && google_connected? && microsoft_connected?
+              compute_outlook_only(window)
+            else
+              []
+            end
   erb :index
 end
 
@@ -444,8 +467,7 @@ end
 post "/disconnect" do
   require_admin!
   TokenStore.clear(:microsoft)
-  session.delete(:outlook_only)
-  session.delete(:synced_keys)
+  clear_sync_window
   redirect "/sync"
 end
 
@@ -461,38 +483,34 @@ post "/check" do
     redirect "/sync"
   end
 
-  time_min, time_max = window
-  google_events = GoogleCalendarClient.new(google_token).list_events(time_min: time_min, time_max: time_max)
-  outlook_events = OutlookCalendarClient.new(microsoft_token).list_events(time_min: time_min, time_max: time_max)
-
-  session[:outlook_only] = EventDiffer.outlook_only(
-    google_events: google_events, outlook_events: outlook_events
-  ).map(&:to_h)
-  session[:synced_keys] = []
-  session[:sync_test_mode] = (params[:test_mode] == "1")
+  # 差分はここでは取得せず、取得範囲とテストモードだけ保存する（表示時に再計算）。
+  store_sync_window(window, test_mode: params[:test_mode] == "1")
   redirect "/sync"
 end
 
 # --- 同期（選択したイベントのみ Google へ反映。管理者専用） ---
 post "/sync" do
   require_admin!
-  halt 400, "Google の連携が必要です" unless google_connected?
+  halt 400, "Google と Outlook の両方の連携が必要です" unless google_connected? && microsoft_connected?
   # テストモードでチェックした直後は反映しない（誤適用防止）。
-  if session[:sync_test_mode]
+  if sync_test_mode?
     session[:flash] = "テストモードのため反映しません。反映するにはテストモードを外して再チェックしてください。"
     redirect "/sync"
   end
 
-  selected = Array(params[:selected])
-  events = (session[:outlook_only] || []).map { |h| Event.from_h(h) }
-  client = GoogleCalendarClient.new(google_token)
-
-  events.select { |event| selected.include?(event.match_key) }.each do |event|
-    next if synced_keys.include?(event.match_key) # 既に反映済みはサーバ側でスキップ（UI 依存せず冪等化）
-
-    client.create_event(event)
-    synced_keys << event.match_key
+  window = current_sync_window
+  unless window
+    session[:flash] = "取得範囲が見つかりません。もう一度チェックしてください。"
+    redirect "/sync"
   end
-  session[:synced_keys] = synced_keys
+
+  # 反映直前に差分を取り直し、選択のうち「今も Outlook 側にのみ存在する」ものだけ登録する。
+  # 既に Google にあるもの（前回反映済み含む）は差分から外れるため、二重作成にならない。
+  # 選択は一意な external_id で照合する（同一件名・同一時刻の重複イベントを取り違えないため）。
+  selected = Array(params[:selected])
+  client = GoogleCalendarClient.new(google_token)
+  compute_outlook_only(window).select { |event| selected.include?(event.external_id) }
+                              .each { |event| client.create_event(event) }
+  session[:flash] = "選択したイベントを Google に同期しました。"
   redirect "/sync"
 end

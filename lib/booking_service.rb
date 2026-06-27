@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require "openssl"
 require_relative "ticket_store"
 require_relative "google_calendar_client"
 
@@ -12,10 +13,11 @@ class BookingService
   # status: :ok / :slot_taken / :ticket_used / :api_failure
   Result = Struct.new(:status, :meet_link, keyword_init: true)
 
-  def initialize(lock:, availability:, calendar_client:)
+  def initialize(lock:, availability:, calendar_client:, event_id_key:)
     @lock = lock
     @availability = availability
     @calendar_client = calendar_client
+    @event_id_key = event_id_key
   end
 
   # token を消費し、event を Google カレンダーへ登録する。予約は 1 件ずつ直列化し、別トークン同士が
@@ -36,12 +38,23 @@ class BookingService
   private
 
   def register(token, event, attendees, request_meet)
-    response = @calendar_client.create_event(event, attendees: attendees, request_meet: request_meet)
+    response = @calendar_client.create_event(event, attendees: attendees, request_meet: request_meet,
+                                                    id: event_id_for(token))
     meet_link = request_meet ? GoogleCalendarClient.meet_link(response) : nil
     Result.new(status: :ok, meet_link: meet_link)
+  rescue GoogleCalendarClient::Conflict
+    # 同じ token の決定的 ID が既に存在する＝前回の試行で作成済み。重複させず成功扱いにする
+    # （HTTP タイムアウト等で「Google 側は成功・アプリ側は例外」になった後の再試行を冪等にする）。
+    Result.new(status: :ok, meet_link: nil)
   rescue StandardError
     # 登録に失敗したときは token を有効へ戻し、再試行できるようにする。
     TicketStore.reactivate!(token)
     Result.new(status: :api_failure)
+  end
+
+  # token から決定的に導く Google イベント ID。再試行で同じ ID になり、Google 側の一意制約（409）で
+  # 重複作成を防ぐ。token は直接使わず HMAC で隠す（hex は base32hex の部分集合で ID 制約を満たす）。
+  def event_id_for(token)
+    "sukesan#{OpenSSL::HMAC.hexdigest('SHA256', @event_id_key, token.to_s)[0, 40]}"
   end
 end

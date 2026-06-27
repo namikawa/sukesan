@@ -8,13 +8,16 @@ require "bcrypt"
 ENV["APP_ENV"] ||= "test"
 ENV["TZ"] = "Asia/Tokyo" # スロットの +09:00 と Time.local を一致させ、テストを決定的にする
 ENV["ADMIN_PASSWORD"] = "test-admin-password" # テストでログインに送信する平文
-# Microsoft OAuth クライアントを生成可能にする（HTTP は WebMock でスタブするため値はダミーで可）。
+# OAuth クライアントを生成可能にする（HTTP は WebMock でスタブするため値はダミーで可）。
+# .env に依存せず CI でも自己完結させるため、未設定ならダミーを入れる。
+ENV["GOOGLE_CLIENT_ID"] ||= "test-google-client-id"
+ENV["GOOGLE_CLIENT_SECRET"] ||= "test-google-client-secret"
 ENV["MS_CLIENT_ID"] ||= "test-ms-client-id"
 ENV["MS_CLIENT_SECRET"] ||= "test-ms-client-secret"
 # bcrypt のコストを最小化してテストを高速化し、平文からダイジェストを生成して app に渡す。
 BCrypt::Engine.cost = BCrypt::Engine::MIN_COST
 ENV["ADMIN_PASSWORD_DIGEST"] = BCrypt::Password.create(ENV.fetch("ADMIN_PASSWORD"))
-ENV["SESSION_SECRET"] ||= "test-session-secret-0123456789"
+ENV["SESSION_SECRET"] ||= "0123456789abcdef" * 4 # Rack::Session::Cookie は 64 文字以上必須
 # チケットの永続先を一時ディレクトリに隔離し、実データ（data/tickets）を汚さない。
 ENV["TICKETS_DIR"] ||= File.expand_path("../tmp/test-tickets", __dir__)
 
@@ -57,6 +60,9 @@ RSpec.configure do |config|
     meta[:type] = :request
   end
   config.include RequestHelpers, type: :request
+
+  # Firestore アダプタのテストはエミュレータ（FIRESTORE_EMULATOR_HOST）がある時だけ実行する。
+  config.filter_run_excluding(:firestore) unless ENV["FIRESTORE_EMULATOR_HOST"]
 
   # レート制限はプロセス内メモリのため、リクエストスペック間でリセットする。
   # チケットの永続ファイルもテストごとに消し、状態が漏れないようにする。

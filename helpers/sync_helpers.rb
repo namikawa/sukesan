@@ -45,7 +45,36 @@ module SyncHelpers
     Time.local(date.year, date.month, date.day, 0, 0)
   end
 
-  def synced_keys
-    session[:synced_keys] ||= []
+  # チェック結果（差分そのもの）はセッションに載せない。取得範囲とテストモードだけを
+  # 署名 Cookie に収まる最小限の形で保存し、差分は表示・反映時に都度再計算する（常に最新・ステールなし）。
+  def store_sync_window(window, test_mode:)
+    min, max = window
+    session[:sync_window] = { "min" => min.iso8601, "max" => max.iso8601, "test" => test_mode }
+  end
+
+  # セッションに保存した取得範囲を [time_min, time_max] で返す（無効・未保存なら nil）。
+  def current_sync_window
+    saved = session[:sync_window]
+    return nil unless saved
+
+    [Time.iso8601(saved["min"]), Time.iso8601(saved["max"])]
+  rescue ArgumentError
+    nil
+  end
+
+  def sync_test_mode?
+    session.dig(:sync_window, "test") == true
+  end
+
+  def clear_sync_window
+    session.delete(:sync_window)
+  end
+
+  # 取得範囲について Google・Outlook を取得し、Outlook 側にのみ存在するイベント（同期候補）を返す。
+  def compute_outlook_only(window)
+    time_min, time_max = window
+    google_events = GoogleCalendarClient.new(google_token).list_events(time_min: time_min, time_max: time_max)
+    outlook_events = OutlookCalendarClient.new(microsoft_token).list_events(time_min: time_min, time_max: time_max)
+    EventDiffer.outlook_only(google_events: google_events, outlook_events: outlook_events)
   end
 end

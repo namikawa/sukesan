@@ -12,7 +12,10 @@ RSpec.describe BookingService do
   end
   let(:ticket_attrs) { { "requester" => "山田", "title" => "打合せ" } }
 
-  subject(:service) { described_class.new(lock: lock, availability: availability, calendar_client: calendar_client) }
+  subject(:service) do
+    described_class.new(lock: lock, availability: availability, calendar_client: calendar_client,
+                        event_id_key: "test-event-id-key")
+  end
 
   before do
     # ロックはそのままブロックを実行する（直列化の検証は対象外）。
@@ -26,10 +29,29 @@ RSpec.describe BookingService do
     service.call(token: "tok", event: event, ticket_attrs: ticket_attrs)
   end
 
-  it "空きあり・チケット有効なら登録して :ok を返す" do
+  it "空きあり・チケット有効なら登録して :ok を返す（決定的 event id を付ける）" do
     expect(calendar_client).to receive(:create_event)
-      .with(event, attendees: [], request_meet: false).and_return({})
+      .with(event, attendees: [], request_meet: false, id: a_string_matching(/\Asukesan[0-9a-f]{40}\z/))
+      .and_return({})
     expect(TicketStore).to receive(:use!).with("tok", attrs: ticket_attrs).and_return(true)
+
+    expect(call.status).to eq(:ok)
+  end
+
+  it "同じ token は同じ event id を生成する（再試行の冪等性）" do
+    ids = []
+    allow(calendar_client).to receive(:create_event) do |*, id:, **|
+      ids << id
+      {}
+    end
+    call
+    call
+    expect(ids.uniq.size).to eq(1)
+  end
+
+  it "Google が 409（既存）を返したら重複作成せず :ok（reactivate しない）" do
+    allow(calendar_client).to receive(:create_event).and_raise(GoogleCalendarClient::Conflict)
+    expect(TicketStore).not_to receive(:reactivate!)
 
     expect(call.status).to eq(:ok)
   end
@@ -59,7 +81,7 @@ RSpec.describe BookingService do
   it "request_meet 時は応答から Meet リンクを取り出して返す" do
     response = { "hangoutLink" => "https://meet.google.com/abc-defg-hij" }
     allow(calendar_client).to receive(:create_event)
-      .with(event, attendees: [], request_meet: true).and_return(response)
+      .with(event, attendees: [], request_meet: true, id: anything).and_return(response)
 
     result = service.call(token: "tok", event: event, ticket_attrs: ticket_attrs, request_meet: true)
     expect(result.status).to eq(:ok)

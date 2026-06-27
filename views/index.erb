@@ -99,25 +99,18 @@
           <th>開始</th>
           <th>終了</th>
           <th>場所</th>
-          <th>ステータス</th>
         </tr>
       </thead>
       <tbody>
         <% @events.each do |event| %>
-          <% synced = synced_keys.include?(event.match_key) %>
-          <tr class="<%= synced ? 'synced' : '' %>">
+          <tr>
             <td class="cb">
-              <input type="checkbox" name="selected[]" value="<%= event.match_key %>" <%= 'disabled' if synced %>>
+              <input type="checkbox" name="selected[]" value="<%= event.external_id %>">
             </td>
             <td><%= event.title %></td>
             <td><%= format_dt(event.starts_at, all_day: event.all_day) %></td>
             <td><%= format_dt(event.ends_at, all_day: event.all_day) %></td>
             <td><%= event.location %></td>
-            <td>
-              <span class="status <%= synced ? 'done' : 'pending' %>">
-                <%= synced ? '反映済み' : '未反映' %>
-              </span>
-            </td>
           </tr>
         <% end %>
       </tbody>

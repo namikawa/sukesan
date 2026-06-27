@@ -5,7 +5,8 @@ module EventDiffer
   module_function
 
   def outlook_only(google_events:, outlook_events:)
-    google_keys = google_events.to_set(&:match_key)
-    outlook_events.reject { |event| google_keys.include?(event.match_key) }
+    # Google 側の突き合わせキー集合を Hash で持ち（O(1) 参照）、Outlook 側で存在しないものを残す。
+    google_keys = google_events.to_h { |event| [event.match_key, true] }
+    outlook_events.reject { |event| google_keys.key?(event.match_key) }
   end
 end
