@@ -1,0 +1,4 @@
+# 履歴上の誤検知を抑制する（fingerprint 指定）。
+# docker-compose.yml の開発用ダミー SESSION_SECRET（本物のシークレットではない）。
+# 現行コミットでは低エントロピーのプレースホルダ＋ gitleaks:allow に変更済み。
+86cf2f2935b99d529f4ba9ee15a1023fbbc83ee4:docker-compose.yml:generic-api-key:28
