@@ -25,8 +25,10 @@ class FirestoreTicketStore
     @col = firestore.col(COLLECTION)
   end
 
-  # 予約処理の臨界区間用ロック。Firestore では use! 自体がトランザクションで Atomic なため、
-  # プロセス内 Mutex（best-effort）で足りる（複数インスタンス間の直列化は行わない）。
+  # 予約処理の臨界区間（空き再確認〜登録）用ロック。プロセス内 Mutex なので同一インスタンス内のみ直列化する。
+  # 同一チケットの二重使用は use! のトランザクションで防げるが、別チケットによる同一スロットの二重予約防止は
+  # この直列化に依存するため、単一インスタンス運用（Cloud Run は max-instances=1）が前提。複数インスタンスで
+  # スケールする場合はスロット予約 document（slot_reservations）等による分散排他が別途必要。
   def booking_lock = (@booking_lock ||= Mutex.new)
 
   def create(now: Time.now)

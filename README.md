@@ -90,7 +90,7 @@ bin/server run       # フォアグラウンド（サービス管理用）
 `STORE_BACKEND` で永続化の実装を切り替える（設定・OAuth トークン・チケット）。
 
 - `file`（既定）: `data/` 配下のローカルファイル。flock で直列化するため単一ホスト前提（単一インスタンス＋永続ディスク）。開発や VM 運用向け。
-- `firestore`: Google Cloud Firestore。read-modify-write はトランザクション／条件付き書き込みで処理するためロックファイル不要で、複数インスタンス・サーバレス（Cloud Run）でも一貫する。チケットの物理削除は `purge_at` フィールドの TTL ポリシーに委ねる。
+- `firestore`: Google Cloud Firestore。各ストアの read-modify-write とチケットの一回限り消費（`use!`）はトランザクション／条件付き書き込みで処理するためロックファイル不要で、複数インスタンスでも一貫する。チケットの物理削除は `purge_at` フィールドの TTL ポリシーに委ねる。ただし「別チケットによる同一スロットの二重予約」防止はプロセス内ロックに依存するため、単一インスタンス運用（`max-instances=1`）が前提（複数インスタンスでスケールする場合はスロット予約 document による排他が別途必要）。
 
 どちらの実装でも、OAuth トークンとチケットの機微情報は `TOKEN_ENCRYPTION_KEY` で暗号化して保存する（Firestore では制御・クエリ用の最小限のフィールドのみ平文）。
 
@@ -115,9 +115,12 @@ Cloud Run へのデプロイ手順（概略）:
      --source . \
      --region asia-northeast1 \
      --allow-unauthenticated \
+     --max-instances 1 \
      --set-env-vars APP_ENV=production,STORE_BACKEND=firestore,APP_TRUST_PROXY=true,APP_BASE_URL=https://YOUR_DOMAIN,APP_TIMEZONE=Asia/Tokyo \
      --set-secrets SESSION_SECRET=SESSION_SECRET:latest,TOKEN_ENCRYPTION_KEY=TOKEN_ENCRYPTION_KEY:latest,ADMIN_PASSWORD_DIGEST=ADMIN_PASSWORD_DIGEST:latest,GOOGLE_CLIENT_ID=GOOGLE_CLIENT_ID:latest,GOOGLE_CLIENT_SECRET=GOOGLE_CLIENT_SECRET:latest
    ```
+
+   `--max-instances 1` は同一スロットの二重予約を防ぐための前提（min は 0 のままでゼロスケール可）。デプロイ中のリビジョン切替で旧新が一瞬重なる窓は残るが、数名利用では実質問題にならない。
 
 4. 独自ドメインはロードバランサを使わず Cloud Run のドメインマッピング（または Firebase Hosting）で割り当てる（管理 TLS・自動更新）。`APP_BASE_URL` と OAuth の redirect_uri を本番ドメインに合わせる。
 5. `APP_TRUST_PROXY=true` で `X-Forwarded-Proto`（HTTPS 判定・リダイレクト）と `X-Forwarded-For`（レート制限の IP）を信頼する。
