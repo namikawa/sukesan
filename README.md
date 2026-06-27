@@ -90,6 +90,45 @@ bin/server run       # フォアグラウンド（サービス管理用）
 - OS サービス登録用テンプレートは `deploy/`（systemd: `sukesan.service` / launchd: `com.sukesan.server.plist`）。`bin/server run` を起動コマンドにし、`__APP_DIR__` 等を置換して登録する。
 - `APP_ENV=production` で本番ハードニング（HTTPS 必須リダイレクト・Cookie の Secure 化・エラー秘匿・HSTS）が有効になる。HTTPS は前段プロキシで終端し `X-Forwarded-Proto` を渡す前提。
 
+## データストア（file / firestore）
+
+`STORE_BACKEND` で永続化の実装を切り替える（設定・OAuth トークン・チケット）。
+
+- `file`（既定）: `data/` 配下のローカルファイル。flock で直列化するため単一ホスト前提（単一インスタンス＋永続ディスク）。開発や VM 運用向け。
+- `firestore`: Google Cloud Firestore。read-modify-write はトランザクション／条件付き書き込みで処理するためロックファイル不要で、複数インスタンス・サーバレス（Cloud Run）でも一貫する。チケットの物理削除は `purge_at` フィールドの TTL ポリシーに委ねる。
+
+どちらの実装でも、OAuth トークンとチケットの機微情報は `TOKEN_ENCRYPTION_KEY` で暗号化して保存する（Firestore では制御・クエリ用の最小限のフィールドのみ平文）。
+
+## コンテナ / Cloud Run デプロイ
+
+コンテナはプレーン HTTP で `$PORT`（Cloud Run は既定 8080）を listen し、TLS はプラットフォームが終端する前提（`nginx` 等は同梱しない）。
+
+ローカルで本番相当（Firestore バックエンド）を動かす:
+
+```bash
+docker compose up --build   # アプリ + Firestore エミュレータ。http://localhost:3000
+```
+
+Cloud Run へのデプロイ手順（概略）:
+
+1. Firestore（Native モード）を有効化し、`tickets` コレクションの `purge_at` フィールドに TTL ポリシーを設定する（期限切れチケットの自動削除）。`created_at_ts` は一覧の並べ替えに使う（単一フィールドインデックスで足りる）。
+2. 秘密情報を Secret Manager に登録: `SESSION_SECRET`（64 文字以上）/ `TOKEN_ENCRYPTION_KEY` / `ADMIN_PASSWORD_DIGEST` / `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` /（Outlook 同期を使うなら）`MS_CLIENT_ID` / `MS_CLIENT_SECRET` / `MS_TENANT_ID`。`TOKEN_ENCRYPTION_KEY` はデプロイをまたいで固定し、別途バックアップする（変更・紛失で既存トークン・チケットが復号不能になる）。
+3. ビルドしてデプロイ（Cloud Run は x86_64）:
+
+   ```bash
+   gcloud run deploy sukesan \
+     --source . \
+     --region asia-northeast1 \
+     --allow-unauthenticated \
+     --set-env-vars APP_ENV=production,STORE_BACKEND=firestore,APP_TRUST_PROXY=true,APP_BASE_URL=https://YOUR_DOMAIN,APP_TIMEZONE=Asia/Tokyo \
+     --set-secrets SESSION_SECRET=SESSION_SECRET:latest,TOKEN_ENCRYPTION_KEY=TOKEN_ENCRYPTION_KEY:latest,ADMIN_PASSWORD_DIGEST=ADMIN_PASSWORD_DIGEST:latest,GOOGLE_CLIENT_ID=GOOGLE_CLIENT_ID:latest,GOOGLE_CLIENT_SECRET=GOOGLE_CLIENT_SECRET:latest
+   ```
+
+4. 独自ドメインはロードバランサを使わず Cloud Run のドメインマッピング（または Firebase Hosting）で割り当てる（管理 TLS・自動更新）。`APP_BASE_URL` と OAuth の redirect_uri を本番ドメインに合わせる。
+5. `APP_TRUST_PROXY=true` で `X-Forwarded-Proto`（HTTPS 判定・リダイレクト）と `X-Forwarded-For`（レート制限の IP）を信頼する。
+
+備考: Cloud Run はリクエストログを自動収集するため、アプリ側のアクセスログ（`log/access.log`）は基本的に不要（コンテナの揮発 FS に出力される）。レート制限はインスタンス内メモリのため、複数インスタンス間では共有されない。
+
 ## 開発
 
 ```bash

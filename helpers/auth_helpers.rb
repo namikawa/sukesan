@@ -31,6 +31,17 @@ module AuthHelpers
     request.env["REMOTE_ADDR"].to_s
   end
 
+  # HTTPS で受けているか。前段プロキシ（Cloud Run 等）で TLS 終端しコンテナへは HTTP で届く構成では、
+  # APP_TRUST_PROXY=true のとき X-Forwarded-Proto を信頼して判定する（Rack の forwarded 信頼設定に依存せず、
+  # 本番の HTTPS 強制リダイレクトがループしないようにする）。偽装防止のため信頼はオプトイン。
+  def request_secure?
+    return true if request.secure?
+    return false unless ENV["APP_TRUST_PROXY"] == "true"
+
+    forwarded = request.get_header("HTTP_X_FORWARDED_PROTO").to_s.split(",").first
+    forwarded&.strip&.downcase == "https"
+  end
+
   # フォームに埋め込む CSRF トークン（Rack::Protection::AuthenticityToken と対応）。
   def csrf_token
     Rack::Protection::AuthenticityToken.token(session)

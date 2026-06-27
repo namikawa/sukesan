@@ -59,7 +59,13 @@ GEM
     google-protobuf (4.35.1)
       bigdecimal
       rake (~> 13.3)
+    google-protobuf (4.35.1-aarch64-linux-gnu)
+      bigdecimal
+      rake (~> 13.3)
     google-protobuf (4.35.1-arm64-darwin)
+      bigdecimal
+      rake (~> 13.3)
+    google-protobuf (4.35.1-x86_64-linux-gnu)
       bigdecimal
       rake (~> 13.3)
     googleapis-common-protos (1.10.0)
@@ -79,7 +85,13 @@ GEM
     grpc (1.81.1)
       google-protobuf (>= 3.25, < 5.0)
       googleapis-common-protos-types (~> 1.0)
+    grpc (1.81.1-aarch64-linux-gnu)
+      google-protobuf (>= 3.25, < 5.0)
+      googleapis-common-protos-types (~> 1.0)
     grpc (1.81.1-arm64-darwin)
+      google-protobuf (>= 3.25, < 5.0)
+      googleapis-common-protos-types (~> 1.0)
+    grpc (1.81.1-x86_64-linux-gnu)
       google-protobuf (>= 3.25, < 5.0)
       googleapis-common-protos-types (~> 1.0)
     hashdiff (1.2.1)
@@ -189,8 +201,10 @@ GEM
       hashdiff (>= 0.4.0, < 2.0.0)
 
 PLATFORMS
+  aarch64-linux
   arm64-darwin-24
   ruby
+  x86_64-linux
 
 DEPENDENCIES
   bcrypt
@@ -232,12 +246,16 @@ CHECKSUMS
   google-cloud-location (1.5.0) sha256=336f94609b1fb18fce1929048fac964f4d5a87d27c1e5444bfed3605469c7532
   google-logging-utils (0.2.0) sha256=675462b4ea5affa825a3442694ca2d75d0069455a1d0956127207498fca3df7b
   google-protobuf (4.35.1) sha256=a3a6471331d918f58dfa4d014a8f6286f0af2cf4840216bde52fcf2ea3fe3726
+  google-protobuf (4.35.1-aarch64-linux-gnu) sha256=50ca44d0eeff3f8475e630a1accdd974256f3510694d574e2c9d6119ea8bc9e1
   google-protobuf (4.35.1-arm64-darwin) sha256=d9c957df04fa89c749fa9a72a7b383eb4296efc9b2303dc6fd6fbe39c698ad6b
+  google-protobuf (4.35.1-x86_64-linux-gnu) sha256=c786439087512a3fbd199e9897d265b855f951d4027e218ea55e858d45969edd
   googleapis-common-protos (1.10.0) sha256=13e47ad0ce85d3d30065c03863efd302a82b0e08ba576f2a9b9dbbfeecb57ee0
   googleapis-common-protos-types (1.23.0) sha256=992e740a523794d9fc5f29a504465d8fc737aaa16c930fe7228e3346860faf0a
   googleauth (1.17.1) sha256=0f7e6fc70e204cee1b2d71f1e1de2d3b349d432404197fe68ebf7fa23d0821b9
   grpc (1.81.1) sha256=9e5772153fe13a389654e9d397a90400f0077307fb4369f79f941d96c72e89cb
+  grpc (1.81.1-aarch64-linux-gnu) sha256=aa24d7253a2b15d2c3570265a2f58bb8aca0ecd2e1116b7a259d633ebf582445
   grpc (1.81.1-arm64-darwin) sha256=6def610da088597e1a94bafbb36a92f19c456cb7df7bbe9618aeb63e8805ae9a
+  grpc (1.81.1-x86_64-linux-gnu) sha256=cf1053a594d026d2ec560457111258cd207bc67847aab24f96e04e2fbeddc4dd
   hashdiff (1.2.1) sha256=9c079dbc513dfc8833ab59c0c2d8f230fa28499cc5efb4b8dd276cf931457cd1
   hashie (5.1.0) sha256=c266471896f323c446ea8207f8ffac985d2718df0a0ba98651a3057096ca3870
   json (2.19.9) sha256=9b9025b7cdddafa38d316eca0b2358488e42d417045c1b90d216a9fefe46b79a

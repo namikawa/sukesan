@@ -1,0 +1,31 @@
+# ローカルで本番相当（Firestore バックエンド）を再現するための構成。
+# 普段の開発は `STORE_BACKEND=file` のネイティブ起動（bin/server）で十分。本番経路（firestore）を
+# まとめて動かしたいときに `docker compose up` で使う。
+#
+# 注意: これは開発用。OAuth を試す場合は .env に GOOGLE_/MS_ のクレデンシャルと
+# ADMIN_PASSWORD_DIGEST を設定する（env_file で読み込む。無くても起動はする）。
+services:
+  firestore:
+    image: google/cloud-sdk:emulators
+    command: gcloud emulators firestore start --host-port=0.0.0.0:8085
+    ports:
+      - "8085:8085"
+
+  app:
+    build: .
+    depends_on:
+      - firestore
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      APP_ENV: development # 開発用。HTTPS 強制リダイレクトを無効にする
+      STORE_BACKEND: firestore
+      FIRESTORE_PROJECT_ID: sukesan-local
+      FIRESTORE_EMULATOR_HOST: firestore:8085
+      PORT: "8080"
+      # 開発用のダミー鍵（SESSION_SECRET は 64 文字以上必須）。本番では使わない。
+      SESSION_SECRET: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      TOKEN_ENCRYPTION_KEY: "local-dev-token-encryption-key-0"
+    ports:
+      - "3000:8080"
