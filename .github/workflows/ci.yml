@@ -20,6 +20,26 @@ jobs:
       - name: RSpec (file backend)
         run: bundle exec rspec
 
+  firestore:
+    name: Firestore Adapter Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: .ruby-version
+          bundler-cache: true
+      - name: Start Firestore emulator
+        run: |
+          docker run -d --name firestore -p 8085:8085 google/cloud-sdk:emulators \
+            gcloud emulators firestore start --host-port=0.0.0.0:8085
+          for i in $(seq 1 60); do curl -s -o /dev/null localhost:8085 && break; sleep 1; done
+      - name: RSpec (firestore adapters)
+        env:
+          FIRESTORE_EMULATOR_HOST: localhost:8085
+          FIRESTORE_PROJECT_ID: sukesan-ci
+        run: bundle exec rspec spec/stores
+
   audit:
     name: Dependency Audit
     runs-on: ubuntu-latest
