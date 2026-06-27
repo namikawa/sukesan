@@ -46,4 +46,13 @@ module AuthHelpers
   def csrf_token
     Rack::Protection::AuthenticityToken.token(session)
   end
+
+  # URL（bearer な token URL）・登録内容・会議リンク・管理情報を扱う画面か。
+  # 該当画面はブラウザ・プロキシにキャッシュさせない（no-store）。静的アセットや公開トップは対象外。
+  SENSITIVE_PREFIXES = ["/admin", "/settings", "/sync"].freeze
+  def no_store?(path)
+    path.start_with?("/t/") ||
+      SENSITIVE_PREFIXES.include?(path) ||
+      SENSITIVE_PREFIXES.any? { |prefix| path.start_with?("#{prefix}/") }
+  end
 end

@@ -142,6 +142,11 @@ after do
   headers["X-Frame-Options"] = "DENY"
   headers["Referrer-Policy"] = "no-referrer"
   headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains" if settings.production?
+  # URL・登録内容・会議リンク・管理情報を扱う画面はキャッシュさせない。
+  if no_store?(request.path_info)
+    headers["Cache-Control"] = "no-store"
+    headers["Pragma"] = "no-cache"
+  end
 end
 
 error do
