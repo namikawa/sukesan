@@ -1,14 +1,25 @@
 version: 2
+# メジャーバージョン更新は破壊的変更を含み得るため自動 PR の対象外とし、
+# パッチ/マイナーのみ提案させる（メジャーは必要時に手動・計画的に上げる）。
 updates:
   - package-ecosystem: bundler
     directory: "/"
     schedule:
       interval: weekly
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
       interval: weekly
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: docker
     directory: "/"
     schedule:
       interval: weekly
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
