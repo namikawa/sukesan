@@ -25,7 +25,7 @@ services:
       FIRESTORE_EMULATOR_HOST: firestore:8085
       PORT: "8080"
       # 開発用のダミー鍵（SESSION_SECRET は 64 文字以上必須）。本番では使わない。
-      SESSION_SECRET: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-      TOKEN_ENCRYPTION_KEY: "local-dev-token-encryption-key-0"
+      SESSION_SECRET: "insecure-dev-secret-insecure-dev-secret-insecure-dev-secret-xxxx" # gitleaks:allow
+      TOKEN_ENCRYPTION_KEY: "insecure-dev-token-encryption-key" # gitleaks:allow
     ports:
       - "3000:8080"
