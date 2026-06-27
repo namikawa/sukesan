@@ -153,9 +153,9 @@ SEARCH_LIMITER = RateLimiter.new(max: 10, window_seconds: 60)
 # 管理者ログインのブルートフォース対策。IP ごとに「失敗」5 分で 10 回まで（成功は消費しない）。
 LOGIN_LIMITER = RateLimiter.new(max: 10, window_seconds: 300)
 
-# 予約の臨界区間（空き再確認〜カレンダー登録）を直列化し、別トークン同士による
-# 同一枠の二重予約を防ぐロック。チケット保存先と同じディレクトリにロックファイルを置く。
-BOOKING_LOCK = CrossProcessLock.new(-> { File.join(TicketStore.dir, ".booking.lock") })
+# 予約の臨界区間（空き再確認〜カレンダー登録）を直列化し、別トークン同士による同一枠の二重予約を防ぐロック。
+# 実体は backend が用意する（file=flock のロックファイル / firestore=プロセス内 Mutex）。
+BOOKING_LOCK = TicketStore.booking_lock
 
 # 曜日の表示順とラベル（Ruby の wday: 0=日〜6=土）。月曜始まりで表示する。
 WEEKDAY_LABELS = { 0 => "日", 1 => "月", 2 => "火", 3 => "水", 4 => "木", 5 => "金", 6 => "土" }.freeze

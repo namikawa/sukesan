@@ -19,8 +19,16 @@ module TokenStore
   def build_backend(name, cipher)
     case name
     when "file" then FileTokenStore.new(cipher: cipher)
+    when "firestore" then build_firestore_backend(cipher)
     else raise "未対応の STORE_BACKEND: #{name}"
     end
+  end
+
+  # Firestore 関連の require は firestore モードのときだけ行う（file モードで重い gem を読み込まない）。
+  def build_firestore_backend(cipher)
+    require_relative "stores/firestore_client"
+    require_relative "stores/firestore_token_store"
+    FirestoreTokenStore.new(cipher: cipher, firestore: FirestoreClient.build)
   end
 
   def backend

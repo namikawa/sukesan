@@ -58,6 +58,9 @@ RSpec.configure do |config|
   end
   config.include RequestHelpers, type: :request
 
+  # Firestore アダプタのテストはエミュレータ（FIRESTORE_EMULATOR_HOST）がある時だけ実行する。
+  config.filter_run_excluding(:firestore) unless ENV["FIRESTORE_EMULATOR_HOST"]
+
   # レート制限はプロセス内メモリのため、リクエストスペック間でリセットする。
   # チケットの永続ファイルもテストごとに消し、状態が漏れないようにする。
   config.before(:each, type: :request) do

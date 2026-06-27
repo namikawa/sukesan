@@ -29,6 +29,10 @@ class FileTicketStore
     @dir || ENV.fetch("TICKETS_DIR") { File.expand_path("../../data/tickets", __dir__) }
   end
 
+  # 予約の臨界区間（空き再確認〜カレンダー登録）を直列化するロック。チケット保存先と同じ
+  # ディレクトリにロックファイルを置く。Mutex＋flock で同一ホスト上の複数プロセスでも有効。
+  def booking_lock = (@booking_lock ||= CrossProcessLock.new(-> { File.join(dir, ".booking.lock") }))
+
   # 新しいワンタイム URL を発行し、トークンを返す。
   def create(now: Time.now)
     token = SecureRandom.urlsafe_base64(32)

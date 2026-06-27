@@ -19,8 +19,16 @@ module TicketStore
   def build_backend(name, cipher)
     case name
     when "file" then FileTicketStore.new(cipher: cipher)
+    when "firestore" then build_firestore_backend(cipher)
     else raise "未対応の STORE_BACKEND: #{name}"
     end
+  end
+
+  # Firestore 関連の require は firestore モードのときだけ行う（file モードで重い gem を読み込まない）。
+  def build_firestore_backend(cipher)
+    require_relative "stores/firestore_client"
+    require_relative "stores/firestore_ticket_store"
+    FirestoreTicketStore.new(cipher: cipher, firestore: FirestoreClient.build)
   end
 
   def backend
@@ -35,7 +43,8 @@ module TicketStore
   def reactivate!(token, now: Time.now) = backend.reactivate!(token, now: now)
   def revoke(token, now: Time.now) = backend.revoke(token, now: now)
   def prune!(now: Time.now) = backend.prune!(now: now)
-  def dir = backend.dir
+  # 予約の臨界区間用ロック（backend ごとに適切なものを返す: file=flock / firestore=プロセス内 Mutex）。
+  def booking_lock = backend.booking_lock
 
   # --- 状態判定（純粋ロジックへ委譲） ---
   def status(ticket, now: Time.now) = TicketStatus.status(ticket, now: now)

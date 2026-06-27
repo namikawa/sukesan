@@ -25,8 +25,16 @@ module SettingsStore
   def build_backend(name)
     case name
     when "file" then FileSettingsStore.new(defaults: DEFAULT)
+    when "firestore" then build_firestore_backend
     else raise "未対応の STORE_BACKEND: #{name}"
     end
+  end
+
+  # Firestore 関連の require は firestore モードのときだけ行う（file モードで重い gem を読み込まない）。
+  def build_firestore_backend
+    require_relative "stores/firestore_client"
+    require_relative "stores/firestore_settings_store"
+    FirestoreSettingsStore.new(defaults: DEFAULT, firestore: FirestoreClient.build)
   end
 
   def backend
