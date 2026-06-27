@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "time"
+require "openssl"
 require "token_cipher"
 require "ticket_status"
 
@@ -12,8 +13,11 @@ end
 RSpec.describe "FirestoreTicketStore", :firestore do
   let(:cipher) { TokenCipher.new("0" * 32) }
   let(:firestore) { FirestoreClient.build }
+  let(:doc_id_key) { "test-doc-id-key" }
   let(:now) { Time.iso8601("2026-06-22T09:00:00+09:00") }
-  subject(:store) { FirestoreTicketStore.new(cipher: cipher, firestore: firestore) }
+  subject(:store) { FirestoreTicketStore.new(cipher: cipher, firestore: firestore, doc_id_key: doc_id_key) }
+
+  def doc_id(token) = OpenSSL::HMAC.hexdigest("SHA256", doc_id_key, token)
 
   # 各テスト前に tickets コレクションを空にする。
   before do
@@ -70,7 +74,15 @@ RSpec.describe "FirestoreTicketStore", :firestore do
     tokens = store.all(now: now).map { |t| t["token"] }
     expect(tokens.first(2)).to eq([newest, older])
 
-    enc = firestore.doc("tickets/#{newest}").get[:enc]
+    enc = firestore.doc("tickets/#{doc_id(newest)}").get[:enc]
     expect(enc).not_to include("山田太郎")
+  end
+
+  it "doc id に生 token を使わない（HMAC 化した値を使う）" do
+    token = store.create(now: now)
+    # 生 token のパスには存在せず、HMAC 化した doc id でのみ引ける。
+    expect(firestore.doc("tickets/#{token}").get.exists?).to be(false)
+    expect(firestore.doc("tickets/#{doc_id(token)}").get.exists?).to be(true)
+    expect(store.find(token)["token"]).to eq(token)
   end
 end

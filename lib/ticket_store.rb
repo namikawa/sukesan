@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require "openssl"
 require_relative "token_cipher"
 require_relative "ticket_status"
 require_relative "stores/file_ticket_store"
@@ -13,22 +14,25 @@ module TicketStore
 
   # 起動時に暗号鍵（32 バイト）とバックエンドを設定する（TokenStore と同じ鍵を渡す）。
   def configure(key, backend: ENV.fetch("STORE_BACKEND", "file"))
-    @backend = build_backend(backend, TokenCipher.new(key))
+    @backend = build_backend(backend, key)
   end
 
-  def build_backend(name, cipher)
+  def build_backend(name, key)
+    cipher = TokenCipher.new(key)
     case name
     when "file" then FileTicketStore.new(cipher: cipher)
-    when "firestore" then build_firestore_backend(cipher)
+    when "firestore" then build_firestore_backend(cipher, key)
     else raise "未対応の STORE_BACKEND: #{name}"
     end
   end
 
   # Firestore 関連の require は firestore モードのときだけ行う（file モードで重い gem を読み込まない）。
-  def build_firestore_backend(cipher)
+  # doc id 用の HMAC 鍵は暗号鍵から用途別に派生する（生 token を doc id に出さないため）。
+  def build_firestore_backend(cipher, key)
     require_relative "stores/firestore_client"
     require_relative "stores/firestore_ticket_store"
-    FirestoreTicketStore.new(cipher: cipher, firestore: FirestoreClient.build)
+    doc_id_key = OpenSSL::HMAC.digest("SHA256", key, "sukesan-ticket-doc-id")
+    FirestoreTicketStore.new(cipher: cipher, firestore: FirestoreClient.build, doc_id_key: doc_id_key)
   end
 
   def backend

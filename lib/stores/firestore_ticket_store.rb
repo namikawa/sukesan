@@ -3,14 +3,16 @@
 require "json"
 require "securerandom"
 require "time"
+require "openssl"
 require "google/cloud/firestore"
 require_relative "../ticket_status"
 
 # チケット（1回限りのワンタイム URL）の Firestore 永続化アダプタ（STORE_BACKEND=firestore）。
 #
-# コレクション tickets、doc id = token。クエリ・TTL 用の制御フィールド（status / created_at_ts / purge_at）は
-# 平文で持ち、トークン・依頼者名・予定名・参加者などの PII を含むチケット全体は TokenCipher で暗号化した文字列
-# （enc）として保存する。
+# コレクション tickets、doc id = HMAC(token)。token は bearer credential なので、平文露出しやすい doc id
+# （Firestore コンソール・監査ログ・バックアップ等に残る）には出さず、HMAC 化した値を使う。クエリ・TTL 用の
+# 制御フィールド（status / created_at_ts / purge_at）は平文で持ち、token・依頼者名・予定名・参加者などの PII を
+# 含むチケット全体は TokenCipher で暗号化した文字列（enc）として保存する。
 #
 # use! / revoke / reactivate! は Firestore トランザクションで「active のときだけ遷移」を Atomic に行うため、
 # 同一チケットの二重使用はロック無しで防げる（flock 不要）。物理削除は Firestore の TTL ポリシー（purge_at）に委ね、
@@ -19,9 +21,10 @@ class FirestoreTicketStore
   COLLECTION = "tickets"
   RETENTION_DAYS = 30 # Firestore TTL ポリシー（purge_at）で物理削除するまでの保持日数（管理画面の一覧対象）
 
-  def initialize(cipher:, firestore:)
+  def initialize(cipher:, firestore:, doc_id_key:)
     @cipher = cipher
     @firestore = firestore
+    @doc_id_key = doc_id_key
     @col = firestore.col(COLLECTION)
   end
 
@@ -76,7 +79,10 @@ class FirestoreTicketStore
 
   private
 
-  def doc(token) = @col.doc(token.to_s)
+  def doc(token) = @col.doc(doc_id(token))
+
+  # 生 token を doc id（平文メタデータ）に出さないため、HMAC 化した値を doc id に使う。
+  def doc_id(token) = OpenSSL::HMAC.hexdigest("SHA256", @doc_id_key, token.to_s)
 
   # 制御用の平文フィールド（クエリ・TTL 用）＋ PII を含む全体の暗号文。
   def fields(ticket)
