@@ -8,7 +8,7 @@ require_relative "../cross_process_lock"
 # OAuth トークンのファイル永続化アダプタ（STORE_BACKEND=file）。
 #
 # provider（:google / :microsoft）で保存先を切り替える。トークンは TokenCipher で暗号化し、
-# 0600 権限・原子的書き込み（tmp→rename）で保存する。復号できない場合（鍵相違・改ざん・旧平文など）は
+# 0600 権限・Atomic 書き込み（tmp→rename）で保存する。復号できない場合（鍵相違・改ざん・旧平文など）は
 # 「未連携」として扱う（fail-closed）。トークン更新（load→refresh→save）はプロバイダ別ロックで直列化する。
 class FileTokenStore
   PATHS = {
@@ -44,7 +44,7 @@ class FileTokenStore
     tmp = File.join(dir, ".#{File.basename(path)}.#{SecureRandom.hex(8)}.tmp")
     File.write(tmp, @cipher.encrypt(JSON.generate(token_hash)))
     File.chmod(0o600, tmp)
-    File.rename(tmp, path) # 同一ファイルシステム内での rename は原子的
+    File.rename(tmp, path) # 同一ファイルシステム内での rename は Atomic
   end
 
   def clear(provider = :google)

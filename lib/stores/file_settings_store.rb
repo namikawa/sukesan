@@ -8,8 +8,8 @@ require_relative "../cross_process_lock"
 # 調整可能な時間帯などの設定のファイル永続化アダプタ（STORE_BACKEND=file）。
 #
 # save の read-modify-write は CrossProcessLock で直列化し、複数画面（/settings・/sync）からの
-# 同時保存で一部設定が巻き戻るのを防ぐ。0600・原子的書き込み（tmp→rename）で保存する。
-# 読み取り（load）は原子的 rename 前提でロック不要。既定値（defaults）は呼び出し側から注入する。
+# 同時保存で一部設定が巻き戻るのを防ぐ。0600・Atomic 書き込み（tmp→rename）で保存する。
+# 読み取り（load）は Atomic な rename 前提でロック不要。既定値（defaults）は呼び出し側から注入する。
 class FileSettingsStore
   def initialize(defaults:, path: nil)
     @defaults = defaults
@@ -34,7 +34,7 @@ class FileSettingsStore
       tmp = File.join(dir, ".settings.#{SecureRandom.hex(8)}.tmp")
       File.write(tmp, JSON.generate(data))
       File.chmod(0o600, tmp)
-      File.rename(tmp, @path) # 同一ファイルシステム内での rename は原子的
+      File.rename(tmp, @path) # 同一ファイルシステム内での rename は Atomic
       data
     end
   end

@@ -142,6 +142,6 @@ class FileTicketStore
     tmp = "#{path}.#{SecureRandom.hex(8)}.tmp"
     File.write(tmp, @cipher.encrypt(JSON.generate(data)))
     File.chmod(0o600, tmp) # 準個人情報を含むため本人のみ読み書き可に絞る
-    File.rename(tmp, path) # 同一ファイルシステム内での rename は原子的
+    File.rename(tmp, path) # 同一ファイルシステム内での rename は Atomic
   end
 end
