@@ -7,6 +7,7 @@ require "date"
 require "securerandom"
 require "base64"
 require "digest"
+require "openssl"
 require "net/http"
 require "rack/protection"
 require "rack/session/cookie"
@@ -79,6 +80,10 @@ end
 token_cipher_key = Digest::SHA256.digest(token_key)
 TokenStore.configure(token_cipher_key)
 TicketStore.configure(token_cipher_key) # チケット（トークン・PII を含む）も同じ鍵で暗号化保存する
+
+# 決定的な Google イベント ID を作るための HMAC 鍵（暗号鍵から用途別に派生）。
+# token から ID を決定的に導き、再試行時の重複作成を Google 側の一意制約で防ぐ（BookingService 参照）。
+EVENT_ID_KEY = OpenSSL::HMAC.digest("SHA256", token_cipher_key, "sukesan-event-id")
 
 # 公開 URL。本番は必須（未設定だと OAuth redirect_uri やチケット URL が Host ヘッダ依存になり危険）。
 # 開発・テストは未設定ならリクエストから組み立てる（base_url ヘルパ参照）。
@@ -293,7 +298,8 @@ post "/schedule" do
   result = BookingService.new(
     lock: BOOKING_LOCK,
     availability: availability_search(SettingsStore.load),
-    calendar_client: GoogleCalendarClient.new(google_token)
+    calendar_client: GoogleCalendarClient.new(google_token),
+    event_id_key: EVENT_ID_KEY
   ).call(token: token, event: event, ticket_attrs: ticket_attrs,
          attendees: event_attendees, request_meet: request_meet)
 
