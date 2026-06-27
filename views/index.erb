@@ -105,7 +105,7 @@
         <% @events.each do |event| %>
           <tr>
             <td class="cb">
-              <input type="checkbox" name="selected[]" value="<%= event.match_key %>">
+              <input type="checkbox" name="selected[]" value="<%= event.external_id %>">
             </td>
             <td><%= event.title %></td>
             <td><%= format_dt(event.starts_at, all_day: event.all_day) %></td>

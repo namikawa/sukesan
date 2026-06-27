@@ -506,9 +506,10 @@ post "/sync" do
 
   # 反映直前に差分を取り直し、選択のうち「今も Outlook 側にのみ存在する」ものだけ登録する。
   # 既に Google にあるもの（前回反映済み含む）は差分から外れるため、二重作成にならない。
+  # 選択は一意な external_id で照合する（同一件名・同一時刻の重複イベントを取り違えないため）。
   selected = Array(params[:selected])
   client = GoogleCalendarClient.new(google_token)
-  compute_outlook_only(window).select { |event| selected.include?(event.match_key) }
+  compute_outlook_only(window).select { |event| selected.include?(event.external_id) }
                               .each { |event| client.create_event(event) }
   session[:flash] = "選択したイベントを Google に同期しました。"
   redirect "/sync"
