@@ -73,7 +73,7 @@ RSpec.describe "予定作成 /schedule" do
   end
 
   it "正当な候補なら予定を作成して 302 を返し、token を使用済みにする" do
-    create = stub_request(:post, "https://www.googleapis.com/calendar/v3/calendars/primary/events")
+    create = stub_request(:post, %r{googleapis\.com/calendar/v3/calendars/primary/events})
              .to_return(status: 200, body: "{}", headers: { "Content-Type" => "application/json" })
     post "/schedule", authenticity_token: csrf_token, token: token,
                       title: "打合せ", requester: "山田", slot: valid_slot
@@ -83,7 +83,7 @@ RSpec.describe "予定作成 /schedule" do
   end
 
   it "使用済みの token では再登録できず 403" do
-    stub_request(:post, "https://www.googleapis.com/calendar/v3/calendars/primary/events")
+    stub_request(:post, %r{googleapis\.com/calendar/v3/calendars/primary/events})
       .to_return(status: 200, body: "{}", headers: { "Content-Type" => "application/json" })
     post "/schedule", authenticity_token: csrf_token, token: token,
                       title: "打合せ", requester: "山田", slot: valid_slot
@@ -94,7 +94,7 @@ RSpec.describe "予定作成 /schedule" do
   end
 
   it "参加者（改行・カンマ・スペース区切り）と主催者を attendees に登録する" do
-    create = stub_request(:post, "https://www.googleapis.com/calendar/v3/calendars/primary/events")
+    create = stub_request(:post, %r{googleapis\.com/calendar/v3/calendars/primary/events})
              .with(body: hash_including(
                "attendees" => [
                  { "email" => "admin@example.com" }, { "email" => "a@example.com" },
@@ -109,7 +109,7 @@ RSpec.describe "予定作成 /schedule" do
   end
 
   it "参加者未入力でも主催者（自分）が attendees に含まれる" do
-    create = stub_request(:post, "https://www.googleapis.com/calendar/v3/calendars/primary/events")
+    create = stub_request(:post, %r{googleapis\.com/calendar/v3/calendars/primary/events})
              .with(body: hash_including("attendees" => [{ "email" => "admin@example.com" }]))
              .to_return(status: 200, body: "{}", headers: { "Content-Type" => "application/json" })
     post "/schedule", authenticity_token: csrf_token, token: token, title: "打合せ", requester: "山田",
@@ -131,7 +131,7 @@ RSpec.describe "予定作成 /schedule" do
   end
 
   it "ビデオ会議 URL を説明欄に登録する" do
-    create = stub_request(:post, "https://www.googleapis.com/calendar/v3/calendars/primary/events")
+    create = stub_request(:post, %r{googleapis\.com/calendar/v3/calendars/primary/events})
              .with(body: hash_including("description" => "依頼者: 山田\nビデオ会議: https://zoom.us/j/1"))
              .to_return(status: 200, body: "{}", headers: { "Content-Type" => "application/json" })
     post "/schedule", authenticity_token: csrf_token, token: token, title: "打合せ", requester: "山田",
@@ -153,8 +153,8 @@ RSpec.describe "予定作成 /schedule" do
   end
 
   it "Meet 発行時はリンクを発行し、完了画面（本人セッション）に表示する" do
-    stub_request(:post, "https://www.googleapis.com/calendar/v3/calendars/primary/events")
-      .with(query: { "conferenceDataVersion" => "1" })
+    stub_request(:post, %r{googleapis\.com/calendar/v3/calendars/primary/events})
+      .with(query: hash_including("conferenceDataVersion" => "1"))
       .to_return(status: 200, body: { "hangoutLink" => "https://meet.google.com/abc-defg-hij" }.to_json,
                  headers: { "Content-Type" => "application/json" })
     post "/schedule", authenticity_token: csrf_token, token: token, title: "打合せ", requester: "山田",
@@ -166,8 +166,8 @@ RSpec.describe "予定作成 /schedule" do
   end
 
   it "別セッション（漏えいURL想定）では使用済み URL に会議リンクを再表示しない" do
-    stub_request(:post, "https://www.googleapis.com/calendar/v3/calendars/primary/events")
-      .with(query: { "conferenceDataVersion" => "1" })
+    stub_request(:post, %r{googleapis\.com/calendar/v3/calendars/primary/events})
+      .with(query: hash_including("conferenceDataVersion" => "1"))
       .to_return(status: 200, body: { "hangoutLink" => "https://meet.google.com/abc-defg-hij" }.to_json,
                  headers: { "Content-Type" => "application/json" })
     post "/schedule", authenticity_token: csrf_token, token: token, title: "打合せ", requester: "山田",

@@ -33,4 +33,28 @@ RSpec.describe GoogleCalendarClient do
     expect(events.map(&:title)).to eq(%w[a])
     expect(token).to have_received(:get).once
   end
+
+  describe "#create_event のクエリパラメータ" do
+    let(:event) { Event.new(source: "google", title: "x", starts_at: t, ends_at: t + 1800, all_day: false) }
+
+    def captured_params(request_meet:)
+      params = nil
+      token = double
+      allow(token).to receive(:post) do |*_args, **kwargs|
+        params = kwargs[:params]
+        double(body: "{}")
+      end
+      described_class.new(token).create_event(event, request_meet: request_meet)
+      params
+    end
+
+    it "通知抑止のため sendUpdates=none を常に指定する" do
+      expect(captured_params(request_meet: false)).to include(sendUpdates: "none")
+      expect(captured_params(request_meet: false)).not_to include(:conferenceDataVersion)
+    end
+
+    it "request_meet 時は conferenceDataVersion を追加する" do
+      expect(captured_params(request_meet: true)).to include(sendUpdates: "none", conferenceDataVersion: 1)
+    end
+  end
 end

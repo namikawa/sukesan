@@ -94,7 +94,7 @@ RSpec.describe "Outlook 同期 /check・/sync" do
     end
 
     it "テストモード後の POST /sync は Google へ反映しない" do
-      create = stub_request(:post, "https://www.googleapis.com/calendar/v3/calendars/primary/events")
+      create = stub_request(:post, %r{googleapis\.com/calendar/v3/calendars/primary/events})
                .to_return(status: 200, body: "{}", headers: { "Content-Type" => "application/json" })
       post "/check", authenticity_token: csrf_token, range_mode: "days", sync_window_days: "30", test_mode: "1"
       post "/sync", authenticity_token: csrf_token, selected: [key]
@@ -103,7 +103,7 @@ RSpec.describe "Outlook 同期 /check・/sync" do
     end
 
     it "POST /sync は選択したイベントを Google に作成する" do
-      create = stub_request(:post, "https://www.googleapis.com/calendar/v3/calendars/primary/events")
+      create = stub_request(:post, %r{googleapis\.com/calendar/v3/calendars/primary/events})
                .to_return(status: 200, body: "{}", headers: { "Content-Type" => "application/json" })
       post "/check", authenticity_token: csrf_token, range_mode: "days", sync_window_days: "30"
       post "/sync", authenticity_token: csrf_token, selected: [key]
@@ -111,7 +111,7 @@ RSpec.describe "Outlook 同期 /check・/sync" do
     end
 
     it "既に Google にあるイベントは再計算で差分から外れ、作成しない（冪等）" do
-      create = stub_request(:post, "https://www.googleapis.com/calendar/v3/calendars/primary/events")
+      create = stub_request(:post, %r{googleapis\.com/calendar/v3/calendars/primary/events})
                .to_return(status: 200, body: "{}", headers: { "Content-Type" => "application/json" })
       stub_request(:get, %r{googleapis\.com/calendar/v3/calendars/primary/events})
         .to_return(status: 200, body: google_has_event.to_json, headers: { "Content-Type" => "application/json" })

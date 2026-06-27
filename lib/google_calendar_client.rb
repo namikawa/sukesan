@@ -45,7 +45,7 @@ class GoogleCalendarClient
     response = @token.post(
       "#{BASE}/calendars/#{CALENDAR_ID}/events",
       headers: { "Content-Type" => "application/json" },
-      params: request_meet ? { conferenceDataVersion: 1 } : {},
+      params: insert_params(request_meet),
       body: JSON.generate(create_payload(event, attendees, request_meet, id))
     )
     JSON.parse(response.body)
@@ -97,6 +97,13 @@ class GoogleCalendarClient
 
     value = node["dateTime"] || node["date"]
     value && Time.parse(value)
+  end
+
+  # events.insert のクエリパラメータ。sendUpdates=none で参加者への通知（招待メール）を送らない意図を明示する。
+  def insert_params(request_meet)
+    params = { sendUpdates: "none" }
+    params[:conferenceDataVersion] = 1 if request_meet
+    params
   end
 
   # events.insert に送る JSON ボディを組み立てる（任意項目は指定があるときだけ含める）。
