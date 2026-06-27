@@ -78,6 +78,12 @@ RSpec.describe "FirestoreTicketStore", :firestore do
     expect(enc).not_to include("山田太郎")
   end
 
+  it "purge_at は作成から 6 週間後（物理削除は TTL ポリシーに委譲）" do
+    token = store.create(now: now)
+    purge_at = firestore.doc("tickets/#{doc_id(token)}").get[:purge_at]
+    expect(purge_at.to_i).to eq((now + (FirestoreTicketStore::PURGE_DAYS * 86_400)).to_i)
+  end
+
   it "doc id に生 token を使わない（HMAC 化した値を使う）" do
     token = store.create(now: now)
     # 生 token のパスには存在せず、HMAC 化した doc id でのみ引ける。

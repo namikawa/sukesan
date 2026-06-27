@@ -16,8 +16,10 @@ require_relative "../ticket_status"
 # - read-modify-write は CrossProcessLock（Mutex＋flock）で直列化する。書き込みはアトミック（tmp→rename）なので、
 #   読み取り（find/all）はロック不要。
 class FileTicketStore
-  RETENTION_DAYS = 30
-  KEEP_WEEKS = 6 # 30日をカバーするため、保持・走査する週ファイル数
+  RETENTION_DAYS = 30 # 管理画面の一覧対象（直近 30 日）
+  # 物理保持する週ファイル数。当週＋過去 5 週＝6 バケットを保持し、6 週以上前の週ファイルは prune! で物理削除する。
+  # 30 日表示を確実にカバーするための最小バケット数でもある（ISO 週境界の最悪ケースで 6 バケット必要）。
+  KEEP_WEEKS = 6
 
   def initialize(cipher:, dir: nil)
     @cipher = cipher

@@ -48,7 +48,7 @@
     <% if @results.any? { |_, slots| slots.any?(&:lunch) } %>
       <p class="note lunch-note">
         <span class="lunch-tag">（ランチタイム）</span>
-        の枠は昼休憩の確保が難しくなりますので、お急ぎの場合のみご選択いただけますとありがたいです。
+        の枠は、昼休憩の確保が難しくなりますので、もし可能であれば他の枠を優先的にご選択いただけますとありがたいです。
       </p>
     <% end %>
     <form method="post" action="/schedule" class="slots-form">

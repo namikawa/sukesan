@@ -40,6 +40,56 @@ RSpec.describe "ワンタイム URL" do
     end
   end
 
+  describe "一覧のページネーション GET /admin" do
+    before { login_admin! }
+
+    # active チケットは各行にコピーボタンを持つため、その数で表示件数を数える。
+    def shown_rows = last_response.body.scan("copy-btn").size
+
+    it "既定は 1 ページ 10 件" do
+      12.times { TicketStore.create }
+      get "/admin"
+      expect(shown_rows).to eq(10)
+      expect(last_response.body).to include("12 件中")
+      expect(last_response.body).to include("1 / 2 ページ")
+    end
+
+    it "per で表示件数を変えられる" do
+      25.times { TicketStore.create }
+      get "/admin", per: "20"
+      expect(shown_rows).to eq(20)
+      expect(last_response.body).to include("1 / 2 ページ")
+    end
+
+    it "ホワイトリスト外の per は既定 10 にフォールバックする" do
+      12.times { TicketStore.create }
+      get "/admin", per: "13"
+      expect(shown_rows).to eq(10)
+    end
+
+    it "page で次ページの残りだけを表示する" do
+      12.times { TicketStore.create }
+      get "/admin", page: "2"
+      expect(shown_rows).to eq(2)
+      expect(last_response.body).to include("2 / 2 ページ")
+    end
+
+    it "範囲外の page は端にクランプする" do
+      12.times { TicketStore.create }
+      get "/admin", page: "99"
+      expect(last_response.body).to include("2 / 2 ページ")
+      get "/admin", page: "0"
+      expect(last_response.body).to include("1 / 2 ページ")
+    end
+
+    it "1 ページに収まるときはページ送りを出さない" do
+      5.times { TicketStore.create }
+      get "/admin"
+      expect(shown_rows).to eq(5)
+      expect(last_response.body).not_to include("ページ送り")
+    end
+  end
+
   describe "アクセス GET /t/:token" do
     it "有効なトークンなら調整画面（検索フォーム）を表示する" do
       token = TicketStore.create

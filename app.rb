@@ -345,11 +345,21 @@ post "/settings/logout" do
 end
 
 # --- 管理画面（ワンタイム URL の発行・一覧。認証していなければログイン画面を表示） ---
+# 一覧は直近 30 日分（TicketStore.all 側で絞り込み済み）をページングして表示する。
+PER_PAGE_OPTIONS = [10, 20, 50, 100].freeze
+DEFAULT_PER_PAGE = 10
+
 get "/admin" do
   @flash = session.delete(:flash)
   return erb(:login) unless admin?
 
-  @tickets = TicketStore.all
+  tickets = TicketStore.all
+  # 表示件数はホワイトリスト照合（不正値・未指定は既定 10）。ページは 1 以上に丸め、範囲外は端へクランプ。
+  @per = PER_PAGE_OPTIONS.include?(params[:per].to_i) ? params[:per].to_i : DEFAULT_PER_PAGE
+  @total = tickets.size
+  @total_pages = [(@total.to_f / @per).ceil, 1].max
+  @page = params[:page].to_i.clamp(1, @total_pages)
+  @tickets = tickets.slice((@page - 1) * @per, @per) || []
   erb :admin
 end
 

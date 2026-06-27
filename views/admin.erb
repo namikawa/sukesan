@@ -30,7 +30,20 @@
   <p class="note">※ URL を発行するには、先に <a href="/settings">設定画面</a>で Google カレンダーと連携してください。</p>
 <% end %>
 
-<% if @tickets.any? %>
+<% if @total > 0 %>
+  <section class="ticket-list">
+  <div class="pager-bar">
+    <span class="pager-status"><%= @total %> 件中 <%= (@page - 1) * @per + 1 %>–<%= [@page * @per, @total].min %> 件を表示</span>
+    <form method="get" action="/admin" class="pager-per inline">
+      <label for="per">表示件数</label>
+      <select id="per" name="per" class="per-select">
+        <% PER_PAGE_OPTIONS.each do |opt| %>
+          <option value="<%= opt %>"<%= " selected" if opt == @per %>><%= opt %> 件</option>
+        <% end %>
+      </select>
+      <button type="submit" class="btn small ghost">表示</button>
+    </form>
+  </div>
   <table class="tickets">
     <thead>
       <tr>
@@ -77,6 +90,22 @@
       <% end %>
     </tbody>
   </table>
+  <% if @total_pages > 1 %>
+    <nav class="pager" aria-label="ページ送り">
+      <% if @page > 1 %>
+        <a class="btn small ghost" href="/admin?page=<%= @page - 1 %>&per=<%= @per %>">← 前へ</a>
+      <% else %>
+        <span class="btn small ghost disabled" aria-disabled="true">← 前へ</span>
+      <% end %>
+      <span class="pager-status"><%= @page %> / <%= @total_pages %> ページ</span>
+      <% if @page < @total_pages %>
+        <a class="btn small ghost" href="/admin?page=<%= @page + 1 %>&per=<%= @per %>">次へ →</a>
+      <% else %>
+        <span class="btn small ghost disabled" aria-disabled="true">次へ →</span>
+      <% end %>
+    </nav>
+  <% end %>
+  </section>
 <% else %>
   <p class="note">まだ発行済みの URL はありません。</p>
 <% end %>

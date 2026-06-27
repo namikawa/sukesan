@@ -19,7 +19,8 @@ require_relative "../ticket_status"
 # prune! は no-op とする。チケットの有効期限（24時間）は TicketStatus が created_at から判定する（物理削除とは独立）。
 class FirestoreTicketStore
   COLLECTION = "tickets"
-  RETENTION_DAYS = 30 # Firestore TTL ポリシー（purge_at）で物理削除するまでの保持日数（管理画面の一覧対象）
+  DISPLAY_DAYS = 30 # 管理画面の一覧対象（直近 30 日）
+  PURGE_DAYS = 42   # Firestore TTL ポリシー（purge_at）で物理削除するまでの保持日数（6 週間。file の KEEP_WEEKS=6 と整合）
 
   def initialize(cipher:, firestore:, doc_id_key:)
     @cipher = cipher
@@ -46,9 +47,9 @@ class FirestoreTicketStore
     decode(doc(token).get)
   end
 
-  # 直近 RETENTION_DAYS 日に発行されたチケットを新しい順で返す（管理画面の一覧用）。
+  # 直近 DISPLAY_DAYS 日に発行されたチケットを新しい順で返す（管理画面の一覧用）。
   def all(now: Time.now)
-    cutoff = now - (RETENTION_DAYS * 86_400)
+    cutoff = now - (DISPLAY_DAYS * 86_400)
     @col.where("created_at_ts", ">=", cutoff).order("created_at_ts", :desc).get
         .filter_map { |snapshot| decode(snapshot) }
   end
@@ -90,7 +91,7 @@ class FirestoreTicketStore
     {
       status: ticket["status"],
       created_at_ts: created,
-      purge_at: created + (RETENTION_DAYS * 86_400), # Firestore TTL ポリシーの対象フィールド
+      purge_at: created + (PURGE_DAYS * 86_400), # Firestore TTL ポリシーの対象フィールド（6 週間で物理削除）
       enc: @cipher.encrypt(JSON.generate(ticket))
     }
   end
