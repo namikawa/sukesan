@@ -14,7 +14,7 @@ ENV["MS_CLIENT_SECRET"] ||= "test-ms-client-secret"
 # bcrypt のコストを最小化してテストを高速化し、平文からダイジェストを生成して app に渡す。
 BCrypt::Engine.cost = BCrypt::Engine::MIN_COST
 ENV["ADMIN_PASSWORD_DIGEST"] = BCrypt::Password.create(ENV.fetch("ADMIN_PASSWORD"))
-ENV["SESSION_SECRET"] ||= "test-session-secret-0123456789"
+ENV["SESSION_SECRET"] ||= "0123456789abcdef" * 4 # Rack::Session::Cookie は 64 文字以上必須
 # チケットの永続先を一時ディレクトリに隔離し、実データ（data/tickets）を汚さない。
 ENV["TICKETS_DIR"] ||= File.expand_path("../tmp/test-tickets", __dir__)
 
