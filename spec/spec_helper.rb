@@ -8,7 +8,10 @@ require "bcrypt"
 ENV["APP_ENV"] ||= "test"
 ENV["TZ"] = "Asia/Tokyo" # スロットの +09:00 と Time.local を一致させ、テストを決定的にする
 ENV["ADMIN_PASSWORD"] = "test-admin-password" # テストでログインに送信する平文
-# Microsoft OAuth クライアントを生成可能にする（HTTP は WebMock でスタブするため値はダミーで可）。
+# OAuth クライアントを生成可能にする（HTTP は WebMock でスタブするため値はダミーで可）。
+# .env に依存せず CI でも自己完結させるため、未設定ならダミーを入れる。
+ENV["GOOGLE_CLIENT_ID"] ||= "test-google-client-id"
+ENV["GOOGLE_CLIENT_SECRET"] ||= "test-google-client-secret"
 ENV["MS_CLIENT_ID"] ||= "test-ms-client-id"
 ENV["MS_CLIENT_SECRET"] ||= "test-ms-client-secret"
 # bcrypt のコストを最小化してテストを高速化し、平文からダイジェストを生成して app に渡す。
