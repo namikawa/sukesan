@@ -3,7 +3,7 @@
 require "openssl"
 require "base64"
 
-# 機微情報（OAuth トークン等）を AES-256-GCM で暗号化/復号する。
+# センシティブな情報（OAuth トークン等）を AES-256-GCM で暗号化/復号する。
 # 出力は base64(iv || auth_tag || ciphertext)。改ざんは復号時に検知され例外になる。
 class TokenCipher
   ALGORITHM = "aes-256-gcm"
