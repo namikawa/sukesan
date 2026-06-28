@@ -85,7 +85,7 @@ gcloud run deploy $SERVICE \
   --region $REGION \
   --max-instances 1 \
   --allow-unauthenticated \
-  --set-env-vars APP_ENV=development,STORE_BACKEND=firestore,APP_TRUST_PROXY=true,GOOGLE_CLOUD_PROJECT=$PROJECT_ID
+  --set-env-vars APP_ENV=development,STORE_BACKEND=firestore,APP_TRUST_PROXY=true,GOOGLE_CLOUD_PROJECT=$PROJECT_ID,LOG_TO_STDOUT=true
 
 export APP_URL=$(gcloud run services describe $SERVICE --region $REGION --format='value(status.url)')
 echo $APP_URL
@@ -94,6 +94,8 @@ echo $APP_URL
 `--source .` で Cloud Build が Dockerfile からビルドし、Artifact Registry に push してデプロイまで自動で行う。
 
 `GOOGLE_CLOUD_PROJECT` は Firestore のプロジェクト ID 解決（`lib/stores/firestore_client.rb`）に必須。Cloud Run は自動設定しないため、未指定だと起動時に `FIRESTORE_PROJECT_ID / GOOGLE_CLOUD_PROJECT が未設定です` で失敗する。
+
+`LOG_TO_STDOUT=true` でアプリのアクセスログを `$stdout` に出し、Cloud Logging に集約する（未指定だと `log/access.log` に書くだけで、Cloud Run の揮発 FS では再起動時に失われる）。診断・エラーログ（stderr）と HTTP リクエストログ（プラットフォーム）は設定不要で Cloud Logging に出る。
 
 注意: このブートストラップは URL の払い出しだけが目的。`APP_ENV=development` では Sinatra 4 の `host_authorization` が `*.run.app` を許可せず（dev の許可は localhost/.localhost/.test/IP のみ）、ブラウザで開くと `403 Host not permitted` になる。URL は上記 `describe` で取得すれば十分で、画面の疎通確認は本番モード（手順6）後に行う（本番は `host_authorization` が全ホスト許可になる）。
 
@@ -140,7 +142,7 @@ gcloud run deploy $SERVICE \
   --region $REGION \
   --max-instances 1 \
   --allow-unauthenticated \
-  --set-env-vars APP_ENV=production,STORE_BACKEND=firestore,APP_TRUST_PROXY=true,GOOGLE_CLOUD_PROJECT=$PROJECT_ID,APP_BASE_URL=${APP_URL},APP_TIMEZONE=Asia/Tokyo,GOOGLE_CLIENT_ID=xxxx,MS_CLIENT_ID=xxxx,MS_TENANT_ID=common \
+  --set-env-vars APP_ENV=production,STORE_BACKEND=firestore,APP_TRUST_PROXY=true,GOOGLE_CLOUD_PROJECT=$PROJECT_ID,LOG_TO_STDOUT=true,APP_BASE_URL=${APP_URL},APP_TIMEZONE=Asia/Tokyo,GOOGLE_CLIENT_ID=xxxx,MS_CLIENT_ID=xxxx,MS_TENANT_ID=common \
   --set-secrets SESSION_SECRET=SESSION_SECRET:latest,TOKEN_ENCRYPTION_KEY=TOKEN_ENCRYPTION_KEY:latest,ADMIN_PASSWORD_DIGEST=ADMIN_PASSWORD_DIGEST:latest,GOOGLE_CLIENT_SECRET=GOOGLE_CLIENT_SECRET:latest,MS_CLIENT_SECRET=MS_CLIENT_SECRET:latest
 ```
 

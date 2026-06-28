@@ -91,14 +91,23 @@ if settings.production? && ENV["APP_BASE_URL"].to_s.strip.empty?
   raise "APP_BASE_URL must be set when APP_ENV/RACK_ENV=production"
 end
 
-# アクセスログは週次ローテーションする専用ファイル（log/access.log → access.log.YYYYMMDD）に出力する。
+# アクセスログの出力先は環境で切り替える。
+# - LOG_TO_STDOUT=true: $stdout へ出す（Cloud Run などコンテナ環境。プラットフォームが Cloud Logging に集約する。
+#   揮発ファイルに書いて取りこぼすのを防ぐ）。
+# - 未設定（既定）: 週次ローテーションする専用ファイル（log/access.log → access.log.YYYYMMDD）。ローカル/VM 向け。
 # Sinatra 既定の stderr 向けアクセスログは無効化し、二重出力を防ぐ。テストでは出力しない（log/ を汚さない）。
 set :logging, false
 unless settings.test?
-  log_dir = File.expand_path("log", __dir__)
-  FileUtils.mkdir_p(log_dir)
-  ACCESS_LOG = Logger::LogDevice.new(File.join(log_dir, "access.log"), shift_age: "weekly")
-  use Rack::CommonLogger, ACCESS_LOG
+  access_log =
+    if ENV["LOG_TO_STDOUT"] == "true"
+      $stdout.sync = true # コンテナログに即時反映させる（バッファ滞留で取りこぼさない）
+      $stdout
+    else
+      log_dir = File.expand_path("log", __dir__)
+      FileUtils.mkdir_p(log_dir)
+      Logger::LogDevice.new(File.join(log_dir, "access.log"), shift_age: "weekly")
+    end
+  use Rack::CommonLogger, access_log
 end
 
 # セッションは署名 Cookie に保持する（サーバ側状態を持たないため、複数インスタンス＝Cloud Run でも
