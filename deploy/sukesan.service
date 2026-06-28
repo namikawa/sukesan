@@ -24,5 +24,23 @@ ExecStart=__APP_DIR__/bin/server run
 Restart=on-failure
 RestartSec=3
 
+# --- サンドボックス（最小権限化）---
+# アプリは data/ log/ tmp/ 以外への書き込みが不要なので、ファイルシステムを読み取り専用に寄せる。
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+# ProtectHome=true は /home 配下を不可視にするため、__APP_DIR__ は /opt/sukesan など /home の外に置くこと
+# （/home 配下に置くとアプリが自身のファイルを読めず起動に失敗する）。/home 配下で運用する場合は
+# ProtectHome=read-only に緩めるか、この行を外す。
+ProtectHome=true
+# 書き込みを許可するのはアプリのデータ/ログ/PID 用ディレクトリのみ（PID は tmp/pids/ に出る）。
+ReadWritePaths=__APP_DIR__/data __APP_DIR__/log __APP_DIR__/tmp
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+LockPersonality=true
+SystemCallArchitectures=native
+# 実行可能メモリへの書き込みを禁止。MRI（インタプリタ実行）では問題ないが、YJIT/JIT を有効化する場合は
+# 実行コード生成と競合するため、この行を外すこと。
+MemoryDenyWriteExecute=true
+
 [Install]
 WantedBy=multi-user.target

@@ -136,6 +136,11 @@ bundle exec rubocop        # Lint（-a で自動修正）
 
 構成: ルートと起動設定は `app.rb`、Web ヘルパは `helpers/`、ドメインロジックは `lib/`（空き時間検索は `lib/availability_search.rb`、チケットは `lib/ticket_store.rb` など）、ビューは `views/`、テストは `spec/`。
 
+CSP（`script-src 'self'` / `style-src 'self'`）を維持するためのルール:
+
+- ERB に inline `<script>` や `onclick` などの inline イベントハンドラを追加しない。
+- 画面ごとの JavaScript は `public/*.js` に分離し、`<script src>` で読み込む。
+
 ## データ（file バックエンド）
 
 `STORE_BACKEND=file` のとき、`data/` 配下に本人のみ読み書き可（0600）・Atomic 書き込みで保存する。

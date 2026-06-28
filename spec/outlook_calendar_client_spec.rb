@@ -27,6 +27,18 @@ RSpec.describe OutlookCalendarClient do
     expect(token).to have_received(:get).twice
   end
 
+  it "想定外ホストの @odata.nextLink は辿らずエラーにする" do
+    bad = double(body: {
+      "value" => [item("a")],
+      "@odata.nextLink" => "https://evil.example.com/v1.0/me/calendarView?$skip=250"
+    }.to_json)
+    token = double
+    allow(token).to receive(:get).and_return(bad)
+
+    expect { described_class.new(token).list_events(time_min: t, time_max: t) }
+      .to raise_error(/@odata.nextLink/)
+  end
+
   it "nextLink が無ければ 1 ページで終了する" do
     token = double
     allow(token).to receive(:get).and_return(double(body: { "value" => [item("a")] }.to_json))

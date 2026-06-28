@@ -17,7 +17,16 @@ class CrossProcessLock
   def synchronize
     @mutex.synchronize do
       path = @path_or_proc.respond_to?(:call) ? @path_or_proc.call : @path_or_proc
-      FileUtils.mkdir_p(File.dirname(path))
+      dir = File.dirname(path)
+      # ロック用ディレクトリも保存データと同じ 0700 に寄せる。先に既定 umask で作られていた場合に備え、
+      # 所有しているときは明示的に chmod する（mkdir_p は既存ディレクトリの mode を変更しないため）。
+      # 特殊な mount・権限環境で chmod が拒否されても致命的ではないので、その場合は mkdir_p の結果に委ねる。
+      FileUtils.mkdir_p(dir, mode: 0o700)
+      begin
+        File.chmod(0o700, dir) if File.owned?(dir)
+      rescue Errno::EPERM, Errno::EACCES
+        # 所有者でない・権限不足。flock 自体は機能するため続行する。
+      end
       File.open(path, File::CREAT | File::RDWR, 0o600) do |file|
         file.flock(File::LOCK_EX)
         yield
