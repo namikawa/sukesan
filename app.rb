@@ -422,6 +422,9 @@ get "/sync" do
   require_admin!
   @flash = session.delete(:flash)
   @settings = SettingsStore.load
+  # チェック直後の表示は 1 回だけ（POST /check で立てたフラグを消費）。更新・再表示時はフラグが無いので
+  # 前回の取得範囲を破棄し、未チェック状態に戻す（古い結果を残さない）。
+  clear_sync_window unless session.delete(:sync_show)
   @test_mode = sync_test_mode?
   window = current_sync_window
   @checked = !window.nil?
@@ -504,6 +507,7 @@ post "/check" do
 
   # 差分はここでは取得せず、取得範囲とテストモードだけ保存する（表示時に再計算）。
   store_sync_window(window, test_mode: params[:test_mode] == "1")
+  session[:sync_show] = true # チェック直後の表示は 1 回だけ（更新・再表示では結果を残さない）
   redirect "/sync"
 end
 

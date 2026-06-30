@@ -102,6 +102,14 @@ RSpec.describe "Outlook 同期 /check・/sync" do
       expect(create).not_to have_been_requested
     end
 
+    it "チェック直後の GET /sync は結果を表示し、再表示（更新）では結果を残さない" do
+      post "/check", authenticity_token: csrf_token, range_mode: "days", sync_window_days: "30"
+      get "/sync"
+      expect(last_response.body).to include("会議") # 初回表示は結果あり
+      get "/sync"
+      expect(last_response.body).not_to include("会議") # 更新・再表示では消える
+    end
+
     it "POST /sync は選択したイベントを Google に作成する" do
       create = stub_request(:post, %r{googleapis\.com/calendar/v3/calendars/primary/events})
                .to_return(status: 200, body: "{}", headers: { "Content-Type" => "application/json" })

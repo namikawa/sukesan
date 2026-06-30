@@ -246,6 +246,19 @@ tr.synced { background: #f0fdf4; color: #6b7280; }
   padding: 0 8px;
 }
 .settings-group .note { margin: 4px 0 0; }
+
+/* Outlook 同期フォーム：チェック/ラジオ行が詰まらないよう配置と行間を整える。 */
+.sync-form .field-check {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 14px;
+  color: #3e4c59;
+}
+.sync-form .field-check input { width: auto; }
+.sync-form .settings-group .field-check { margin-top: 12px; } /* 注記・ラジオ行どうしの間隔 */
+.sync-form > .field-check { margin: 16px 0; }                 /* テストモード行の上下に余白 */
 .field-row {
   display: flex;
   flex-wrap: wrap;
