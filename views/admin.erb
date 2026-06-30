@@ -21,7 +21,7 @@
   <p class="flash"><%= @flash %></p>
 <% end %>
 
-<h2>ワンタイム URL</h2>
+<h2>Google カレンダー登録用ワンタイム URL</h2>
 <p class="note">調整したい相手に渡す「1 回限り・24 時間有効」の URL を発行します。1 度予定が登録されると、その URL は使えなくなります。</p>
 <form method="post" action="/tickets" class="inline">
   <input type="hidden" name="authenticity_token" value="<%= csrf_token %>">

@@ -1,6 +1,18 @@
+<div class="bar">
+  <div class="brand">
+    <span class="logo" aria-hidden="true">📅</span>
+    <div class="titles">
+      <h1>スケジュール同期ツール</h1>
+      <p class="subtitle">SUKESAN</p>
+    </div>
+  </div>
+  <form method="post" action="/settings/logout" class="inline">
+    <input type="hidden" name="authenticity_token" value="<%= csrf_token %>">
+    <button type="submit" class="btn ghost">ログアウト</button>
+  </form>
+</div>
 <p><a href="/admin">← 管理画面に戻る</a></p>
 
-<h1>スケジュール同期ツール</h1>
 <p class="lead">Outlook 側にのみ存在するイベントを検知し、選択したものを Google カレンダーへ反映します。</p>
 
 <% if @flash %>
