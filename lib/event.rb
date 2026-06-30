@@ -6,12 +6,15 @@ require "time"
 #
 # match_key は「件名 + 開始 + 終了」で2つのカレンダーのイベントが同一かどうかを
 # 判定するためのキー。各カレンダーでイベント ID は異なるため、内容で突き合わせる。
+# cancelled は Outlook 側の isCancelled（キャンセル済み）。同期候補から除外する判定に使う。
 Event = Struct.new(
-  :source, :external_id, :title, :starts_at, :ends_at, :location, :all_day, :description,
+  :source, :external_id, :title, :starts_at, :ends_at, :location, :all_day, :description, :cancelled,
   keyword_init: true
 ) do
+  # 件名比較用の正規化。手動転送で付く「Fw:」（Fwd: 含む・繰り返し可）を先頭から除去し、
+  # Google 側「Fw: 会議」と Outlook 側「会議」を同一とみなせるようにする。
   def normalized_title
-    title.to_s.strip.downcase
+    title.to_s.strip.sub(/\A(?:fwd?:\s*)+/i, "").strip.downcase
   end
 
   def match_key
@@ -40,7 +43,8 @@ Event = Struct.new(
       ends_at: ends_at&.iso8601,
       location: location,
       all_day: all_day,
-      description: description
+      description: description,
+      cancelled: cancelled
     }
   end
 
@@ -54,7 +58,8 @@ Event = Struct.new(
       ends_at: h[:ends_at] && Time.parse(h[:ends_at]),
       location: h[:location],
       all_day: h[:all_day],
-      description: h[:description]
+      description: h[:description],
+      cancelled: h[:cancelled]
     )
   end
 end

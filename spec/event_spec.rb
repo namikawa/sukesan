@@ -19,6 +19,12 @@ RSpec.describe Event do
       expect(a.match_key).to eq(b.match_key)
     end
 
+    it "先頭の「Fw:」（Fwd: 含む）を無視して一致する" do
+      fw = event(title: "Fw: 定例MTG")
+      plain = event(title: "定例MTG")
+      expect(fw.match_key).to eq(plain.match_key)
+    end
+
     it "開始・終了が同じなら（タイムゾーン表記が違っても）一致する" do
       jst = event(starts_at: Time.parse("2026-06-20T10:00:00+09:00"))
       utc = event(starts_at: Time.parse("2026-06-20T01:00:00+00:00"))

@@ -75,7 +75,8 @@ class OutlookCalendarClient
       starts_at: parse_time(item["start"]),
       ends_at: parse_time(item["end"]),
       location: item.dig("location", "displayName"),
-      all_day: item["isAllDay"] == true
+      all_day: item["isAllDay"] == true,
+      cancelled: item["isCancelled"] == true
     )
   end
 
