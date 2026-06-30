@@ -86,15 +86,10 @@
 <% elsif @events.any? %>
   <form method="post" action="/sync" id="sync-form">
     <input type="hidden" name="authenticity_token" value="<%= csrf_token %>">
-    <div class="bar">
-      <label class="select-all"><input type="checkbox" id="select-all"> すべて選択</label>
-      <button type="submit" class="btn primary">選択したイベントを Google に同期</button>
-    </div>
-
     <table>
       <thead>
         <tr>
-          <th class="cb"></th>
+          <th class="cb"><input type="checkbox" id="select-all" aria-label="すべて選択"></th>
           <th>件名</th>
           <th>開始</th>
           <th>終了</th>

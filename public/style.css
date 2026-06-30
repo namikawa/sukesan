@@ -81,7 +81,6 @@ h1 { font-size: 22px; margin-bottom: 4px; }
 }
 .bar .titles h1 { font-size: 26px; margin: 0; line-height: 1.2; }
 .bar .titles .subtitle { margin: 2px 0 0; font-size: 13px; color: #52606d; }
-.select-all { font-size: 14px; color: #52606d; }
 
 table {
   width: 100%;
@@ -259,6 +258,14 @@ tr.synced { background: #f0fdf4; color: #6b7280; }
 .sync-form .field-check input { width: auto; }
 .sync-form .settings-group .field-check { margin-top: 12px; } /* 注記・ラジオ行どうしの間隔 */
 .sync-form > .field-check { margin: 16px 0; }                 /* テストモード行の上下に余白 */
+/* 結果フォーム上端に区切り線（「チェック」と候補一覧の間）。 */
+#sync-form {
+  border-top: 2px solid #2563eb;
+  padding-top: 16px;
+  margin-top: 24px;
+}
+/* 同期ボタン行（テーブル下）。ヘッダ用 .bar の下線・下余白は流用しないので打ち消す。 */
+#sync-form .bar { margin: 16px 0 0; padding-bottom: 0; border-bottom: none; }
 .field-row {
   display: flex;
   flex-wrap: wrap;
