@@ -56,8 +56,8 @@ class OutlookCalendarClient
 
   def initial_request_opts(time_min, time_max)
     {
-      # Prefer ヘッダで日時を UTC で返すよう指定する。
-      headers: { "Prefer" => 'outlook.timezone="UTC"' },
+      # Prefer ヘッダで日時を UTC、本文をプレーンテキストで返すよう指定する（HTML 混入を避ける）。
+      headers: { "Prefer" => 'outlook.timezone="UTC", outlook.body-content-type="text"' },
       params: {
         startDateTime: time_min.utc.iso8601,
         endDateTime: time_max.utc.iso8601,
@@ -76,8 +76,15 @@ class OutlookCalendarClient
       ends_at: parse_time(item["end"]),
       location: item.dig("location", "displayName"),
       all_day: item["isAllDay"] == true,
-      cancelled: item["isCancelled"] == true
+      cancelled: item["isCancelled"] == true,
+      description: body_text(item)
     )
+  end
+
+  # 本文（Prefer で text 指定済み）。空・空白のみのときは nil にして Google 側に空の説明を作らない。
+  def body_text(item)
+    text = item.dig("body", "content").to_s.strip
+    text.empty? ? nil : text
   end
 
   def parse_time(node)

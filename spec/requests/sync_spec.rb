@@ -118,6 +118,23 @@ RSpec.describe "Outlook 同期 /check・/sync" do
       expect(create).to have_been_requested.once
     end
 
+    it "Outlook 本文を Google イベントの説明（description）として作成する" do
+      with_body = ms_event.merge("body" => { "contentType" => "text", "content" => "議題: 予算確認" })
+      stub_request(:get, %r{graph\.microsoft\.com/v1\.0/me/calendarView})
+        .to_return(status: 200, body: { "value" => [with_body] }.to_json,
+                   headers: { "Content-Type" => "application/json" })
+      stub_request(:post, %r{googleapis\.com/calendar/v3/calendars/primary/events})
+        .to_return(status: 200, body: "{}", headers: { "Content-Type" => "application/json" })
+
+      post "/check", authenticity_token: csrf_token, range_mode: "days", sync_window_days: "30"
+      post "/sync", authenticity_token: csrf_token, selected: [selection]
+
+      expect(
+        a_request(:post, %r{googleapis\.com/calendar/v3/calendars/primary/events})
+          .with { |req| JSON.parse(req.body)["description"] == "議題: 予算確認" }
+      ).to have_been_made
+    end
+
     it "既に Google にあるイベントは再計算で差分から外れ、作成しない（冪等）" do
       create = stub_request(:post, %r{googleapis\.com/calendar/v3/calendars/primary/events})
                .to_return(status: 200, body: "{}", headers: { "Content-Type" => "application/json" })

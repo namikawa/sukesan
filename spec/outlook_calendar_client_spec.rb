@@ -27,6 +27,24 @@ RSpec.describe OutlookCalendarClient do
     expect(token).to have_received(:get).twice
   end
 
+  it "本文（body.content）を description として取り込む" do
+    with_body = item("a").merge("body" => { "contentType" => "text", "content" => "議題: 予算確認" })
+    token = double
+    allow(token).to receive(:get).and_return(double(body: { "value" => [with_body] }.to_json))
+
+    events = described_class.new(token).list_events(time_min: t, time_max: t)
+    expect(events.first.description).to eq("議題: 予算確認")
+  end
+
+  it "本文が空白のみなら description は nil" do
+    blank_body = item("a").merge("body" => { "content" => "   " })
+    token = double
+    allow(token).to receive(:get).and_return(double(body: { "value" => [blank_body] }.to_json))
+
+    events = described_class.new(token).list_events(time_min: t, time_max: t)
+    expect(events.first.description).to be_nil
+  end
+
   it "想定外ホストの @odata.nextLink は辿らずエラーにする" do
     bad = double(body: {
       "value" => [item("a")],
