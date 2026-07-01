@@ -353,12 +353,20 @@ post "/settings/logout" do
   redirect "/admin"
 end
 
-# --- 管理画面（ワンタイム URL の発行・一覧。認証していなければログイン画面を表示） ---
+# --- 管理者トップ（各ツールへの導線ハブ。認証していなければログイン画面を表示） ---
+get "/admin" do
+  @flash = session.delete(:flash)
+  return erb(:login) unless admin?
+
+  erb :admin
+end
+
+# --- Google カレンダー調整ツール（ワンタイム URL の発行・一覧。認証していなければログイン画面を表示） ---
 # 一覧は直近 30 日分（TicketStore.all 側で絞り込み済み）をページングして表示する。
 PER_PAGE_OPTIONS = [10, 20, 50, 100].freeze
 DEFAULT_PER_PAGE = 10
 
-get "/admin" do
+get "/tickets" do
   @flash = session.delete(:flash)
   return erb(:login) unless admin?
 
@@ -369,7 +377,7 @@ get "/admin" do
   @total_pages = [(@total.to_f / @per).ceil, 1].max
   @page = params[:page].to_i.clamp(1, @total_pages)
   @tickets = tickets.slice((@page - 1) * @per, @per) || []
-  erb :admin
+  erb :tickets
 end
 
 # --- 設定（管理者専用：認証していなければログイン画面を表示） ---
@@ -386,7 +394,7 @@ post "/tickets" do
   require_admin!
   TicketStore.create
   session[:flash] = "ワンタイム URL を発行しました。"
-  redirect "/admin"
+  redirect "/tickets"
 end
 
 # 発行済みワンタイム URL を手動で無効化する（管理者専用）。
@@ -394,7 +402,7 @@ post "/tickets/:token/revoke" do
   require_admin!
   TicketStore.revoke(params[:token].to_s)
   session[:flash] = "ワンタイム URL を無効化しました。"
-  redirect "/admin"
+  redirect "/tickets"
 end
 
 post "/settings" do

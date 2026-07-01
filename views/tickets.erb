@@ -1,0 +1,113 @@
+<div class="bar">
+  <div class="brand">
+    <span class="logo" aria-hidden="true">📅</span>
+    <div class="titles">
+      <h1>Google カレンダー調整ツール</h1>
+      <p class="subtitle">SUKESAN</p>
+    </div>
+  </div>
+  <form method="post" action="/settings/logout" class="inline">
+    <input type="hidden" name="authenticity_token" value="<%= csrf_token %>">
+    <button type="submit" class="btn ghost">ログアウト</button>
+  </form>
+</div>
+<p class="nav-links">
+  <a href="/admin">← 管理者トップ</a>
+  <a href="/settings">設定へ →</a>
+</p>
+
+<% if @flash %>
+  <p class="flash"><%= @flash %></p>
+<% end %>
+
+<h2>Google カレンダー登録用ワンタイム URL</h2>
+<p class="note">調整したい相手に渡す「1 回限り・24 時間有効」の URL を発行します。1 度予定が登録されると、その URL は使えなくなります。</p>
+<form method="post" action="/tickets" class="inline">
+  <input type="hidden" name="authenticity_token" value="<%= csrf_token %>">
+  <button type="submit" class="btn primary"<%= " disabled" unless google_connected? %>>新しいワンタイム URL を発行</button>
+</form>
+<% unless google_connected? %>
+  <p class="note">※ URL を発行するには、先に <a href="/settings">設定画面</a>で Google カレンダーと連携してください。</p>
+<% end %>
+
+<% if @total > 0 %>
+  <section class="ticket-list">
+  <div class="pager-bar">
+    <span class="pager-status"><%= @total %> 件中 <%= (@page - 1) * @per + 1 %>–<%= [@page * @per, @total].min %> 件を表示</span>
+    <form method="get" action="/tickets" class="pager-per inline">
+      <label for="per">表示件数</label>
+      <select id="per" name="per" class="per-select">
+        <% PER_PAGE_OPTIONS.each do |opt| %>
+          <option value="<%= opt %>"<%= " selected" if opt == @per %>><%= opt %> 件</option>
+        <% end %>
+      </select>
+      <button type="submit" class="btn small ghost">表示</button>
+    </form>
+  </div>
+  <table class="tickets">
+    <thead>
+      <tr>
+        <th class="col-status">ステータス</th>
+        <th class="col-created">発行日時</th>
+        <th>URL / 登録内容</th>
+        <th class="col-actions">操作</th>
+      </tr>
+    </thead>
+    <tbody>
+      <% @tickets.each do |ticket| %>
+        <% st = TicketStore.status(ticket) %>
+        <% field_id = "ticket-url-#{ticket["token"]}" %>
+        <tr class="ticket-<%= st %>">
+          <td><span class="status status-<%= st %>"><%= ticket_status_label(ticket) %></span></td>
+          <td class="col-created"><%= format_iso(ticket["created_at"]) %></td>
+          <td>
+            <% if st == "active" %>
+              <input id="<%= field_id %>" class="ticket-url" type="text" value="<%= ticket_url(ticket["token"]) %>" readonly>
+            <% elsif st == "used" %>
+              <span class="ticket-detail">
+                <%= ticket["requester"] %> /「<%= ticket["title"] %>」/
+                <%= format_slot_range(ticket["slot_start"], ticket["slot_end"]) %>
+                （登録: <%= format_iso(ticket["used_at"]) %>）
+              </span>
+            <% else %>
+              <span class="ticket-detail">—</span>
+            <% end %>
+          </td>
+          <td class="col-actions">
+            <% if st == "active" %>
+              <div class="row-actions">
+                <button type="button" class="btn small copy-btn" data-target="<%= field_id %>">コピー</button>
+                <form method="post" action="/tickets/<%= ticket["token"] %>/revoke" class="inline">
+                  <input type="hidden" name="authenticity_token" value="<%= csrf_token %>">
+                  <button type="submit" class="btn small ghost">無効化</button>
+                </form>
+              </div>
+            <% else %>
+              —
+            <% end %>
+          </td>
+        </tr>
+      <% end %>
+    </tbody>
+  </table>
+  <% if @total_pages > 1 %>
+    <nav class="pager" aria-label="ページ送り">
+      <% if @page > 1 %>
+        <a class="btn small ghost" href="/tickets?page=<%= @page - 1 %>&per=<%= @per %>">← 前へ</a>
+      <% else %>
+        <span class="btn small ghost disabled" aria-disabled="true">← 前へ</span>
+      <% end %>
+      <span class="pager-status"><%= @page %> / <%= @total_pages %> ページ</span>
+      <% if @page < @total_pages %>
+        <a class="btn small ghost" href="/tickets?page=<%= @page + 1 %>&per=<%= @per %>">次へ →</a>
+      <% else %>
+        <span class="btn small ghost disabled" aria-disabled="true">次へ →</span>
+      <% end %>
+    </nav>
+  <% end %>
+  </section>
+<% else %>
+  <p class="note">まだ発行済みの URL はありません。</p>
+<% end %>
+
+<script src="/admin.js"></script>

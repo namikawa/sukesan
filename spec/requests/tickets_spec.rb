@@ -34,13 +34,13 @@ RSpec.describe "ワンタイム URL" do
       expect(last_response.status).to eq(302)
 
       token = TicketStore.all.first["token"]
-      get "/admin"
+      get "/tickets"
       expect(last_response.body).to include("/t/#{token}")
       expect(last_response.body).to include("copy-btn")
     end
   end
 
-  describe "一覧のページネーション GET /admin" do
+  describe "一覧のページネーション GET /tickets" do
     before { login_admin! }
 
     # active チケットは各行にコピーボタンを持つため、その数で表示件数を数える。
@@ -48,7 +48,7 @@ RSpec.describe "ワンタイム URL" do
 
     it "既定は 1 ページ 10 件" do
       12.times { TicketStore.create }
-      get "/admin"
+      get "/tickets"
       expect(shown_rows).to eq(10)
       expect(last_response.body).to include("12 件中")
       expect(last_response.body).to include("1 / 2 ページ")
@@ -56,35 +56,35 @@ RSpec.describe "ワンタイム URL" do
 
     it "per で表示件数を変えられる" do
       25.times { TicketStore.create }
-      get "/admin", per: "20"
+      get "/tickets", per: "20"
       expect(shown_rows).to eq(20)
       expect(last_response.body).to include("1 / 2 ページ")
     end
 
     it "ホワイトリスト外の per は既定 10 にフォールバックする" do
       12.times { TicketStore.create }
-      get "/admin", per: "13"
+      get "/tickets", per: "13"
       expect(shown_rows).to eq(10)
     end
 
     it "page で次ページの残りだけを表示する" do
       12.times { TicketStore.create }
-      get "/admin", page: "2"
+      get "/tickets", page: "2"
       expect(shown_rows).to eq(2)
       expect(last_response.body).to include("2 / 2 ページ")
     end
 
     it "範囲外の page は端にクランプする" do
       12.times { TicketStore.create }
-      get "/admin", page: "99"
+      get "/tickets", page: "99"
       expect(last_response.body).to include("2 / 2 ページ")
-      get "/admin", page: "0"
+      get "/tickets", page: "0"
       expect(last_response.body).to include("1 / 2 ページ")
     end
 
     it "1 ページに収まるときはページ送りを出さない" do
       5.times { TicketStore.create }
-      get "/admin"
+      get "/tickets"
       expect(shown_rows).to eq(5)
       expect(last_response.body).not_to include("ページ送り")
     end
