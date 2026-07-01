@@ -122,6 +122,16 @@ tr.synced { background: #f0fdf4; color: #6b7280; }
   color: #991b1b;
   border-color: #fca5a5;
 }
+/* 結果・状態のお知らせを目立たせる情報コールアウト。 */
+.notice-info {
+  background: #eff6ff;
+  color: #1e40af;
+  border: 1px solid #bfdbfe;
+  border-left: 5px solid #2563eb;
+  border-radius: 6px;
+  padding: 12px 16px;
+  font-size: 15px;
+}
 
 .adjust-form,
 .slots-form {
