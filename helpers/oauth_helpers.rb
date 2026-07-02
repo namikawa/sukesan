@@ -82,9 +82,10 @@ module OAuthHelpers
   end
 
   # 保存済みトークンを読み、期限切れなら refresh して保存し直す。
-  # 期限内ならロックを取らず即返す（ホットパス）。期限切れ時のみプロバイダ別ロック内で
-  # 再読込→再判定→refresh→save を行い、並行 refresh や保存競合を防ぐ（ダブルチェックロック）。
-  # 保存は hash.merge(token.to_hash) で、トークン項目だけ更新し追加キー（admin_email 等）を保つ。
+  # 期限内ならロックを取らず即返し（ホットパス）、期限切れ時のみ refresh_oauth_token で更新する。
+  #
+  # refresh 失敗（invalid_grant＝連携取り消し・API 障害・通信エラー等）は 500 にせず nil（未連携扱い）を
+  # 返す。一時障害と恒久失効を区別できないため保存トークンは消さない（恒久失効は再連携で復旧する）。
   def load_oauth_token(provider, client)
     hash = TokenStore.load(provider)
     return nil if hash.nil?
@@ -92,6 +93,16 @@ module OAuthHelpers
     token = OAuth2::AccessToken.from_hash(client, hash)
     return token unless token.expired? && token.refresh_token
 
+    refresh_oauth_token(provider, client)
+  rescue OAuth2::Error, Faraday::Error => e
+    warn "[oauth] トークン更新失敗 (provider=#{provider}): #{e.class}（未連携として扱います）"
+    nil
+  end
+
+  # プロバイダ別ロック内で再読込→再判定→refresh→save を行い、並行 refresh や保存競合を防ぐ
+  # （ダブルチェックロック）。保存は hash.merge(token.to_hash) で、トークン項目だけ更新し
+  # 追加キー（admin_email 等）を保つ。
+  def refresh_oauth_token(provider, client)
     TokenStore.with_lock(provider) do
       hash = TokenStore.load(provider)
       next nil if hash.nil?

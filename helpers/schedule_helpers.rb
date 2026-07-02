@@ -8,8 +8,9 @@ module ScheduleHelpers
   EMAIL_PATTERN = URI::MailTo::EMAIL_REGEXP
 
   # 空き時間検索サービスを、管理者の Google カレンダーに接続して組み立てる。
-  def availability_search(settings)
-    AvailabilitySearch.new(settings: settings, calendar_client: GoogleCalendarClient.new(google_token))
+  # token は呼び出し側で取得済みのものを渡す（refresh 失敗＝nil のガードは呼び出し側の責務）。
+  def availability_search(settings, token)
+    AvailabilitySearch.new(settings: settings, calendar_client: GoogleCalendarClient.new(token))
   end
 
   # テキストエリアの入力を参加者メールアドレスの配列に分解する。

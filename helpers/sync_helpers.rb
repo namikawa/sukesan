@@ -71,10 +71,15 @@ module SyncHelpers
   end
 
   # 取得範囲について Google・Outlook を取得し、Outlook 側にのみ存在するイベント（同期候補）を返す。
+  # どちらかのトークンが使えない（未連携・refresh 失敗）場合は nil を返す（呼び出し側で案内を表示する）。
   def compute_outlook_only(window)
+    google = google_token
+    outlook = microsoft_token
+    return nil if google.nil? || outlook.nil?
+
     time_min, time_max = window
-    google_events = GoogleCalendarClient.new(google_token).list_events(time_min: time_min, time_max: time_max)
-    outlook_events = OutlookCalendarClient.new(microsoft_token).list_events(time_min: time_min, time_max: time_max)
+    google_events = GoogleCalendarClient.new(google).list_events(time_min: time_min, time_max: time_max)
+    outlook_events = OutlookCalendarClient.new(outlook).list_events(time_min: time_min, time_max: time_max)
     EventDiffer.outlook_only(google_events: google_events, outlook_events: outlook_events)
   end
 end

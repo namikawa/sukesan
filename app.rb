@@ -253,16 +253,19 @@ get "/t/:token" do
   # 検索（Google API 消費）が実際に走る時だけレート制限する。ページ表示だけでは消費しない。
   inputs_present = !@start_date.empty? && !@end_date.empty? && !@duration.empty?
   if google_connected? && inputs_present
-    if SEARCH_LIMITER.allow?(client_ip)
-      result = availability_search(@settings).search(
+    if !SEARCH_LIMITER.allow?(client_ip)
+      status 429
+      @flash = "空き時間の検索が多すぎます。しばらく時間をおいてから再度お試しください。"
+    elsif (google_access = google_token).nil?
+      # refresh 失敗など連携トークンが使えない場合は 500 にせず案内を返す（復旧は管理者の再連携で行う）。
+      @flash = "現在カレンダーとの連携に問題があるため検索できません。管理者にお問い合わせください。"
+    else
+      result = availability_search(@settings, google_access).search(
         start_date: @start_date, end_date: @end_date, duration_minutes: @duration.to_i
       )
       @searched = result.searched
       @capped = result.capped
       @results = result.days
-    else
-      status 429
-      @flash = "空き時間の検索が多すぎます。しばらく時間をおいてから再度お試しください。"
     end
   end
 
@@ -328,12 +331,16 @@ post "/schedule" do
     description: description
   )
 
+  # 連携トークンが使えない（refresh 失敗など）場合は、チケットを消費する前に案内を返す。
+  google_access = google_token
+  halt 502, "現在カレンダーとの連携に問題があるため登録できません。管理者にお問い合わせください。" if google_access.nil?
+
   # 予約の中核トランザクション（空き再確認→token 消費→Google 登録→失敗時ロールバック）は
   # BookingService に委譲する。HTTP ステータスへの写像だけルート側で行う。
   result = BookingService.new(
     lock: BOOKING_LOCK,
-    availability: availability_search(SettingsStore.load),
-    calendar_client: GoogleCalendarClient.new(google_token),
+    availability: availability_search(SettingsStore.load, google_access),
+    calendar_client: GoogleCalendarClient.new(google_access),
     event_id_key: EVENT_ID_KEY
   ).call(token: token, event: event, ticket_attrs: ticket_attrs,
          attendees: event_attendees, request_meet: request_meet)
@@ -463,6 +470,12 @@ get "/sync" do
             else
               []
             end
+  # nil はトークンが使えない（refresh 失敗など）。「該当なし」と誤認させず、再連携を促す。
+  if @events.nil?
+    @checked = false
+    @events = []
+    @flash ||= "カレンダー連携の更新に失敗しました。お手数ですが、連携を解除して再度連携してください。"
+  end
   erb :index
 end
 
@@ -560,9 +573,17 @@ post "/sync" do
   # 既に Google にあるもの（前回反映済み含む）は差分から外れるため、二重作成にならない。
   # 選択は一意な external_id で照合する（同一件名・同一時刻の重複イベントを取り違えないため）。
   selected = Array(params[:selected])
-  client = GoogleCalendarClient.new(google_token)
-  compute_outlook_only(window).select { |event| selected.include?(event.external_id) }
-                              .each { |event| client.create_event(event) }
+  google_access = google_token
+  events = google_access && compute_outlook_only(window)
+  # nil はトークンが使えない（refresh 失敗など）。反映せず再連携を促す。
+  if events.nil?
+    session[:flash] = "カレンダー連携の更新に失敗しました。お手数ですが、連携を解除して再度連携してください。"
+    redirect "/sync"
+  end
+
+  client = GoogleCalendarClient.new(google_access)
+  events.select { |event| selected.include?(event.external_id) }
+        .each { |event| client.create_event(event) }
   session[:flash] = "選択したイベントを Google に同期しました。"
   redirect "/sync"
 end
