@@ -71,11 +71,13 @@ RSpec.describe BookingService do
     expect(call.status).to eq(:ticket_used)
   end
 
-  it "Google 登録が失敗したら token を有効へ戻し :api_failure を返す" do
+  it "Google 登録が失敗したら token を有効へ戻し :api_failure を返す（例外クラスをログに残す）" do
     allow(calendar_client).to receive(:create_event).and_raise(StandardError)
     expect(TicketStore).to receive(:reactivate!).with("tok")
 
-    expect(call.status).to eq(:api_failure)
+    result = nil
+    expect { result = call }.to output(/\[BookingService\] 登録失敗: StandardError/).to_stderr
+    expect(result.status).to eq(:api_failure)
   end
 
   it "request_meet 時は応答から Meet リンクを取り出して返す" do

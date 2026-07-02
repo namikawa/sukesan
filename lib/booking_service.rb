@@ -46,8 +46,10 @@ class BookingService
     # 同じ token の決定的 ID が既に存在する＝前回の試行で作成済み。重複させず成功扱いにする
     # （HTTP タイムアウト等で「Google 側は成功・アプリ側は例外」になった後の再試行を冪等にする）。
     Result.new(status: :ok, meet_link: nil)
-  rescue StandardError
+  rescue StandardError => e
     # 登録に失敗したときは token を有効へ戻し、再試行できるようにする。
+    # 原因調査のため例外クラスのみ記録する（メッセージは API 応答＝秘密を含み得るため出さない）。
+    warn "[BookingService] 登録失敗: #{e.class}（token を有効へ戻します）"
     TicketStore.reactivate!(token)
     Result.new(status: :api_failure)
   end

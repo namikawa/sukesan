@@ -163,6 +163,10 @@ after do
 end
 
 error do
+  # 原因調査のため、例外クラスと発生位置だけを stderr（server ログ）へ残す。
+  # メッセージ・全文トレースは token 等の秘密を含み得るため出さない。
+  e = env["sinatra.error"]
+  warn "[error] #{e.class} at #{e.backtrace&.first}" if e
   "エラーが発生しました。しばらくしてから再度お試しください。"
 end
 
