@@ -55,5 +55,8 @@ a.menu-card:hover { border: 1px solid var(--bulma-link, #485fc7); }
 
 /* 同期の取得範囲フォーム（ラベルと入力を1行に）。 */
 .sync-line { display: flex; align-items: center; flex-wrap: wrap; gap: 0.5rem; }
+/* テストモードは基本使わないので控えめに（文字・チェックボックスとも小さく）。 */
+.test-toggle { font-size: 0.8rem; color: var(--bulma-text-weak, #7a7a7a); }
+.test-toggle input[type="checkbox"] { transform: scale(0.85); }
 .input-days { width: 6rem; }
 .input-auto { width: auto; }

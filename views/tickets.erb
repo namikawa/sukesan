@@ -74,7 +74,7 @@
         <% @tickets.each do |ticket| %>
           <% st = TicketStore.status(ticket) %>
           <% field_id = "ticket-url-#{ticket["token"]}" %>
-          <% tag_class = { "active" => "is-success", "used" => "is-info", "expired" => "is-light", "revoked" => "is-danger" }[st] %>
+          <% tag_class = { "active" => "is-success", "used" => "is-info", "expired" => "is-warning", "revoked" => "is-danger" }[st] %>
           <tr>
             <td><span class="tag <%= tag_class %>"><%= ticket_status_label(ticket) %></span></td>
             <td class="is-size-7 has-text-grey"><%= format_iso(ticket["created_at"]) %></td>
