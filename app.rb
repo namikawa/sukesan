@@ -133,7 +133,7 @@ use Rack::Session::Cookie,
     key: "sukesan.session.v2",
     secret: SESSION_SECRET,
     serialize_json: true,
-    expire_after: 60 * 60 * 24,
+    expire_after: AuthHelpers::ADMIN_SESSION_TTL, # 管理者セッションのサーバ側 TTL と同値（24h）
     httponly: true,
     same_site: :lax,
     secure: settings.production?
@@ -368,6 +368,7 @@ post "/settings/login" do
   if admin_password_valid?(params[:password].to_s)
     session.options[:renew] = true # セッション固定対策: ログイン時に session id を再生成
     session[:admin] = true
+    session[:admin_at] = Time.now.to_i # サーバ側 TTL 検証用のログイン時刻（AuthHelpers#admin?）
   else
     LOGIN_LIMITER.record(client_ip) # 失敗時のみ記録（成功ログインは制限を消費しない）
     session[:flash] = "パスワードが正しくありません。"

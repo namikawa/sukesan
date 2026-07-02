@@ -2,9 +2,16 @@
 
 # 認証・リクエスト識別まわりのヘルパ。
 module AuthHelpers
+  # 管理者セッションの有効期間（秒）。セッション Cookie の expire_after にも同じ値を使う。
+  # Cookie の期限（Expires 属性）はブラウザ任せで、署名済み Cookie 自体は無期限に有効なため、
+  # サーバ側でもログイン時刻からの経過を検証し、窃取・複製された Cookie の有効期間をこの長さに限定する。
+  ADMIN_SESSION_TTL = 24 * 60 * 60
+
   # 管理者かどうか（設定画面・連携操作・Outlook 同期の保護に使う）。
+  # admin_at（ログイン時刻）が無い・古いセッションは管理者扱いしない（fail-closed）。
   def admin?
-    session[:admin] == true
+    session[:admin] == true &&
+      (Time.now.to_i - session[:admin_at].to_i) < ADMIN_SESSION_TTL
   end
 
   def require_admin!

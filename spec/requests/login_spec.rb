@@ -34,4 +34,16 @@ RSpec.describe "管理者ログイン" do
     end
     expect(statuses).not_to include(429)
   end
+
+  it "ログインから TTL（24 時間）を超えたセッションは管理者扱いしない" do
+    login_admin!
+    get "/sync"
+    expect(last_response.status).to eq(200) # ログイン直後は管理者
+
+    future = Time.now + AuthHelpers::ADMIN_SESSION_TTL + 60
+    allow(Time).to receive(:now).and_return(future)
+    get "/sync"
+    expect(last_response.status).to eq(302)
+    expect(last_response.headers["Location"]).to end_with("/admin")
+  end
 end
