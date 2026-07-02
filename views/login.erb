@@ -1,16 +1,23 @@
-<p><a href="/">← トップページに戻る</a></p>
+<p class="block"><a href="/">← トップページに戻る</a></p>
 
-<h1>管理者ログイン</h1>
-<p class="lead">設定や連携の操作には管理者パスワードが必要です。</p>
+<h1 class="title is-4">管理者ログイン</h1>
+<p class="subtitle is-6">設定や連携の操作には管理者パスワードが必要です。</p>
 
 <% if @flash %>
-  <p class="flash error"><%= @flash %></p>
+  <div class="notification is-danger is-light"><%= @flash %></div>
 <% end %>
 
-<form method="post" action="/settings/login" class="adjust-form login-form">
+<form method="post" action="/settings/login">
   <input type="hidden" name="authenticity_token" value="<%= csrf_token %>">
-  <label>パスワード
-    <input type="password" name="password" required autofocus>
-  </label>
-  <button type="submit" class="btn primary">ログイン</button>
+  <div class="field">
+    <label class="label">パスワード</label>
+    <div class="control">
+      <input class="input" type="password" name="password" required autofocus>
+    </div>
+  </div>
+  <div class="field">
+    <div class="control">
+      <button type="submit" class="button is-primary">ログイン</button>
+    </div>
+  </div>
 </form>

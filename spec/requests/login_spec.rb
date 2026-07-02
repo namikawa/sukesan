@@ -15,7 +15,7 @@ RSpec.describe "管理者ログイン" do
   it "正しいパスワードで管理者になる" do
     login_admin!
     get "/settings"
-    expect(last_response.body).to include("<h1>設定</h1>")
+    expect(last_response.body).to include("スケジュール設定")
   end
 
   it "失敗が規定回数を超えると 429 を返す" do

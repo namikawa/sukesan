@@ -1,39 +1,43 @@
-<div class="bar">
-  <div class="brand">
-    <span class="logo" aria-hidden="true">📅</span>
-    <div class="titles">
-      <h1>SUKESAN</h1>
-      <p class="subtitle">スケジュール管理ツール</p>
+<nav class="level app-header">
+  <div class="level-left">
+    <div class="level-item">
+      <div class="is-flex is-align-items-center">
+        <span class="app-logo" aria-hidden="true">📅</span>
+        <div class="ml-3">
+          <h1 class="title is-4 mb-1">SUKESAN</h1>
+          <p class="subtitle is-6 mb-0">スケジュール管理ツール</p>
+        </div>
+      </div>
     </div>
   </div>
-</div>
+</nav>
 
 <% if @flash %>
-  <p class="flash"><%= @flash %></p>
+  <div class="notification is-success is-light"><%= @flash %></div>
 <% end %>
 
 <% if @ticket_status == "used" %>
-  <p class="lead">この URL でのご登録は完了しています。</p>
+  <p class="block">この URL でのご登録は完了しています。</p>
   <% if @completion && @completion["meet_link"] %>
-    <div class="meeting-callout">
-      <p class="meeting-label">Google Meet の会議リンク</p>
-      <a class="btn primary" href="<%= @completion["meet_link"] %>" target="_blank" rel="noopener">会議リンクを開く</a>
-      <p class="meeting-url"><a href="<%= @completion["meet_link"] %>" target="_blank" rel="noopener"><%= @completion["meet_link"] %></a></p>
+    <div class="notification is-success">
+      <p class="mb-2"><strong>Google Meet の会議リンク</strong></p>
+      <a class="button is-success" href="<%= @completion["meet_link"] %>" target="_blank" rel="noopener">会議リンクを開く</a>
+      <p class="mt-2 is-size-7"><a href="<%= @completion["meet_link"] %>" target="_blank" rel="noopener"><%= @completion["meet_link"] %></a></p>
     </div>
   <% elsif @completion && @completion["video_url"] && !@completion["video_url"].empty? %>
-    <div class="meeting-callout">
-      <p class="meeting-label">ビデオ会議リンク</p>
-      <a class="btn primary" href="<%= @completion["video_url"] %>" target="_blank" rel="noopener">会議リンクを開く</a>
-      <p class="meeting-url"><a href="<%= @completion["video_url"] %>" target="_blank" rel="noopener"><%= @completion["video_url"] %></a></p>
+    <div class="notification is-success">
+      <p class="mb-2"><strong>ビデオ会議リンク</strong></p>
+      <a class="button is-success" href="<%= @completion["video_url"] %>" target="_blank" rel="noopener">会議リンクを開く</a>
+      <p class="mt-2 is-size-7"><a href="<%= @completion["video_url"] %>" target="_blank" rel="noopener"><%= @completion["video_url"] %></a></p>
     </div>
   <% end %>
-  <p class="note">同じ URL で再度登録することはできません。別の予定を調整したい場合は、管理者に新しい URL の発行を依頼してください。</p>
+  <p class="block has-text-grey">同じ URL で再度登録することはできません。別の予定を調整したい場合は、管理者に新しい URL の発行を依頼してください。</p>
 <% elsif @ticket_status == "expired" %>
-  <p class="lead">この URL は有効期限（発行から 24 時間）が切れています。</p>
-  <p class="note">お手数ですが、管理者に新しい URL の発行を依頼してください。</p>
+  <p class="block">この URL は有効期限（発行から 24 時間）が切れています。</p>
+  <p class="block has-text-grey">お手数ですが、管理者に新しい URL の発行を依頼してください。</p>
 <% else %>
-  <p class="lead">この URL は無効です。</p>
-  <p class="note">URL が正しいかご確認のうえ、必要であれば管理者に新しい URL の発行を依頼してください。</p>
+  <p class="block">この URL は無効です。</p>
+  <p class="block has-text-grey">URL が正しいかご確認のうえ、必要であれば管理者に新しい URL の発行を依頼してください。</p>
 <% end %>
 
-<p><a href="/">← トップページへ</a></p>
+<p class="block"><a href="/">← トップページへ</a></p>
