@@ -1,0 +1,65 @@
+/* Bulma への上書き（CSP のため inline style は使わずクラスで指定）。 */
+
+/* パンくずの区切りは「>」に（Bulma 既定の / を上書き）。 */
+.breadcrumb li + li::before { content: ">"; }
+
+/* ヘッダの境界＋ブランド（ロゴ左・タイトル2段右）。 */
+.app-header {
+  border-bottom: 1px solid var(--bulma-border, #4a4a4a);
+  padding-bottom: 0.75rem;
+  margin-bottom: 1.5rem;
+}
+.app-logo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  background: rgba(127, 127, 127, 0.15);
+  font-size: 24px;
+  flex-shrink: 0;
+}
+
+/* ボックスは境界線でなく地色でページと差をつける。ライトは少し濃いめ・ダークは少し明るめ。
+   明示 data-theme と OS 追従（prefers-color-scheme）の両対応。 */
+.box { background-color: #f0f2f4; }
+[data-theme="dark"] .box { background-color: #262c34; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) .box { background-color: #262c34; }
+}
+
+/* 管理者トップのツール導線（クリックできる box）。 */
+a.menu-card { display: block; color: inherit; }
+a.menu-card:hover { border: 1px solid var(--bulma-link, #485fc7); }
+.menu-card .menu-title { display: block; font-weight: 600; font-size: 1.05rem; }
+.menu-card .menu-desc { display: block; color: var(--bulma-text-weak, #7a7a7a); font-size: 0.9rem; margin-top: 0.25rem; }
+
+/* 空き候補スロット（日ごとのチップ一覧）。 */
+.day-head {
+  font-size: 1rem;
+  margin: 1rem 0 0.5rem;
+  border-bottom: 1px solid var(--bulma-border, #dbdbdb);
+  padding-bottom: 0.25rem;
+}
+.slots { list-style: none; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+.slots li {
+  background: var(--bulma-scheme-main-bis, #fafafa);
+  border: 1px solid var(--bulma-border, #dbdbdb);
+  border-radius: 6px;
+  padding: 8px 12px;
+}
+.slots li.lunch { background: #fffbeb; border-color: #fcd34d; }
+.slots label { cursor: pointer; }
+.lunch-tag { color: #b45309; font-weight: 600; font-size: 0.85em; }
+
+/* 一覧テーブルの操作列を詰める。 */
+.ticket-actions { white-space: nowrap; }
+
+/* 同期の取得範囲フォーム（ラベルと入力を1行に）。 */
+.sync-line { display: flex; align-items: center; flex-wrap: wrap; gap: 0.5rem; }
+/* テストモードは基本使わないので控えめに（文字・チェックボックスとも小さく）。 */
+.test-toggle { font-size: 0.8rem; color: var(--bulma-text-weak, #7a7a7a); }
+.test-toggle input[type="checkbox"] { transform: scale(0.85); }
+.input-days { width: 6rem; }
+.input-auto { width: auto; }

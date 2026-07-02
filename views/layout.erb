@@ -1,15 +1,17 @@
 <!DOCTYPE html>
+<%# デザインは Bulma。テーマは OS 設定に追従（prefers-color-scheme）。 %>
 <html lang="ja">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>SUKESAN (スケジュール管理ツール)</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="/style.css">
+  <link rel="stylesheet" href="/bulma.min.css">
+  <link rel="stylesheet" href="/bulma-overrides.css">
 </head>
 <body>
-  <main>
-    <%== yield %>
+  <main class="container">
+    <section class="section"><%== yield %></section>
   </main>
 </body>
 </html>

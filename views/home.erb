@@ -1,25 +1,36 @@
-<div class="bar">
-  <div class="brand">
-    <span class="logo" aria-hidden="true">📅</span>
-    <div class="titles">
-      <h1>SUKESAN</h1>
-      <p class="subtitle">スケジュール管理ツール</p>
+<nav class="level app-header">
+  <div class="level-left">
+    <div class="level-item">
+      <div class="is-flex is-align-items-center">
+        <span class="app-logo" aria-hidden="true">📅</span>
+        <div class="ml-3">
+          <h1 class="title is-4 mb-1">SUKESAN</h1>
+          <p class="subtitle is-6 mb-0">スケジュール管理ツール</p>
+        </div>
+      </div>
     </div>
   </div>
-  <span><a href="/admin">管理者の方はこちら</a></span>
-</div>
-<p class="lead">このツールでのスケジュール調整は、管理者が発行する「ワンタイム URL」からのみ行えます。</p>
+  <div class="level-right">
+    <div class="level-item">
+      <a href="/admin">管理者の方はこちら</a>
+    </div>
+  </div>
+</nav>
+
+<p class="block">このツールでのスケジュール調整は、管理者が発行する「ワンタイム URL」からのみ行えます。</p>
 
 <% if @flash %>
-  <p class="flash"><%= @flash %></p>
+  <div class="notification is-info is-light"><%= @flash %></div>
 <% end %>
 
-<section class="usage">
-  <h2>ご利用方法</h2>
-  <ol class="usage-steps">
-    <li>調整したい担当者（管理者）に連絡し、登録用の<strong>ワンタイム URL</strong> を発行してもらってください。</li>
-    <li>受け取った URL を開くと、空き時間の検索・予定の登録ができます。</li>
-    <li>希望の時間帯を選んで登録すると、予定が確定します。</li>
-  </ol>
-  <p class="note">※ ワンタイム URL には有効期限（発行から 24 時間）があります。期限を過ぎた場合や、一度登録した後は使えなくなりますので、改めて発行を依頼してください。</p>
-</section>
+<div class="box">
+  <h2 class="title is-5">ご利用方法</h2>
+  <div class="content">
+    <ol>
+      <li>調整したい担当者（管理者）に連絡し、登録用の<strong>ワンタイム URL</strong> を発行してもらってください。</li>
+      <li>受け取った URL を開くと、空き時間の検索・予定の登録ができます。</li>
+      <li>希望の時間帯を選んで登録すると、予定が確定します。</li>
+    </ol>
+    <p class="is-size-7 has-text-grey">※ ワンタイム URL には有効期限（発行から 24 時間）があります。期限を過ぎた場合や、一度登録した後は使えなくなりますので、改めて発行を依頼してください。</p>
+  </div>
+</div>

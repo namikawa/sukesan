@@ -1,60 +1,94 @@
-<div class="bar">
-  <div class="brand">
-    <span class="logo" aria-hidden="true">📅</span>
-    <div class="titles">
-      <h1>設定</h1>
-      <p class="subtitle">SUKESAN</p>
+<nav class="level app-header">
+  <div class="level-left">
+    <div class="level-item">
+      <div class="is-flex is-align-items-center">
+        <span class="app-logo" aria-hidden="true">📅</span>
+        <div class="ml-3">
+          <h1 class="title is-4 mb-1">設定</h1>
+          <p class="subtitle is-6 mb-0">SUKESAN</p>
+        </div>
+      </div>
     </div>
   </div>
-  <form method="post" action="/settings/logout" class="inline">
-    <input type="hidden" name="authenticity_token" value="<%= csrf_token %>">
-    <button type="submit" class="btn ghost">ログアウト</button>
-  </form>
-</div>
-<p><a href="/tickets">← Google カレンダー調整ツールに戻る</a></p>
+  <div class="level-right">
+    <div class="level-item">
+      <form method="post" action="/settings/logout">
+        <input type="hidden" name="authenticity_token" value="<%= csrf_token %>">
+        <button type="submit" class="button is-light">ログアウト</button>
+      </form>
+    </div>
+  </div>
+</nav>
+
+<nav class="breadcrumb" aria-label="breadcrumbs">
+  <ul>
+    <li><a href="/">トップ</a></li>
+    <li><a href="/admin">管理者トップ</a></li>
+    <li><a href="/tickets">Google カレンダー調整ツール</a></li>
+    <li class="is-active"><a href="#" aria-current="page">設定</a></li>
+  </ul>
+</nav>
 
 <% if @flash %>
-  <p class="flash"><%= @flash %></p>
+  <div class="notification is-info is-light"><%= @flash %></div>
 <% end %>
 
-<h2>Google カレンダー連携</h2>
-<p class="note">ワンタイム URL の利用者は、ここで連携した管理者カレンダーに対して予定を登録します。</p>
-<section class="connections">
-  <div class="conn <%= google_connected? ? 'on' : 'off' %>">
-    <span class="label">Google カレンダー</span>
-    <span class="state"><%= google_connected? ? '連携済み' : '未連携' %></span>
+<h2 class="title is-5">Google カレンダー連携</h2>
+<p class="block">ワンタイム URL の利用者は、ここで連携した管理者カレンダーに対して予定を登録します。</p>
+<div class="box">
+  <div class="level is-mobile">
+    <div class="level-left">
+      <div class="level-item">
+        Google カレンダー
+        <span class="tag <%= google_connected? ? "is-success" : "is-danger" %> ml-2"><%= google_connected? ? "連携済み" : "未連携" %></span>
+      </div>
+    </div>
+    <div class="level-right">
+      <div class="level-item">
+        <% if google_connected? %>
+          <form method="post" action="/settings/google/disconnect">
+            <input type="hidden" name="authenticity_token" value="<%= csrf_token %>">
+            <button type="submit" class="button is-light">連携を解除</button>
+          </form>
+        <% else %>
+          <a class="button is-primary" href="/auth/google">Google と連携</a>
+        <% end %>
+      </div>
+    </div>
   </div>
-  <% if google_connected? %>
-    <form method="post" action="/settings/google/disconnect" class="inline">
-      <input type="hidden" name="authenticity_token" value="<%= csrf_token %>">
-      <button type="submit" class="btn ghost">連携を解除</button>
-    </form>
-  <% else %>
-    <a class="btn primary" href="/auth/google">Google と連携</a>
-  <% end %>
-</section>
+</div>
 
-<h2>スケジュール設定</h2>
-<p class="note">※ 営業時間・昼休憩などの時刻はすべて <strong><%= APP_TIMEZONE %></strong> として扱われます。</p>
-<form method="post" action="/settings" class="settings-form">
+<h2 class="title is-5">スケジュール設定</h2>
+<p class="block"><small>※ 営業時間・昼休憩などの時刻はすべて <strong><%= APP_TIMEZONE %></strong> として扱われます。</small></p>
+<form method="post" action="/settings">
   <input type="hidden" name="authenticity_token" value="<%= csrf_token %>">
 
-  <fieldset class="settings-group">
-    <legend>MTG 調整可能な時間・曜日</legend>
-    <p class="note">この曜日・時間帯の範囲でのみ空き候補を表示します。</p>
-    <div class="field-row">
-      <label>開始時刻
-        <input type="time" name="business_start" value="<%= @settings["business_start"] %>" required>
-      </label>
-      <label>終了時刻
-        <input type="time" name="business_end" value="<%= @settings["business_end"] %>" required>
-      </label>
+  <div class="box">
+    <h3 class="title is-6">MTG 調整可能な時間・曜日</h3>
+    <p class="block"><small>この曜日・時間帯の範囲でのみ空き候補を表示します。</small></p>
+    <div class="columns">
+      <div class="column is-narrow">
+        <div class="field">
+          <label class="label">開始時刻</label>
+          <div class="control">
+            <input class="input" type="time" name="business_start" value="<%= @settings["business_start"] %>" required>
+          </div>
+        </div>
+      </div>
+      <div class="column is-narrow">
+        <div class="field">
+          <label class="label">終了時刻</label>
+          <div class="control">
+            <input class="input" type="time" name="business_end" value="<%= @settings["business_end"] %>" required>
+          </div>
+        </div>
+      </div>
     </div>
-    <div class="field-row">
-      <span class="field-label">調整可能な曜日</span>
-      <div class="weekdays">
+    <div class="field">
+      <label class="label">調整可能な曜日</label>
+      <div class="control">
         <% WEEKDAY_ORDER.each do |wday| %>
-          <label class="weekday">
+          <label class="checkbox mr-4">
             <input type="checkbox" name="business_days[]" value="<%= wday %>"
                    <%= "checked" if @settings["business_days"].include?(wday) %>>
             <%= WEEKDAY_LABELS[wday] %>
@@ -62,24 +96,42 @@
         <% end %>
       </div>
     </div>
-  </fieldset>
+  </div>
 
-  <fieldset class="settings-group">
-    <legend>昼休憩の確保</legend>
-    <p class="note">この時間帯に連続した休憩（分）を確保できなくなる候補に「（ランチタイム）」を表示します。0 分で無効化できます。</p>
-    <div class="field-row">
-      <label>時間帯（開始）
-        <input type="time" name="lunch_start" value="<%= @settings["lunch_start"] %>" required>
-      </label>
-      <label>時間帯（終了）
-        <input type="time" name="lunch_end" value="<%= @settings["lunch_end"] %>" required>
-      </label>
-      <label>休憩時間（分）
-        <input type="number" name="lunch_minutes" value="<%= @settings["lunch_minutes"] %>" min="0" step="5" required>
-      </label>
+  <div class="box">
+    <h3 class="title is-6">昼休憩の確保</h3>
+    <p class="block"><small>この時間帯に連続した休憩（分）を確保できなくなる候補に「（ランチタイム）」を表示します。0 分で無効化できます。</small></p>
+    <div class="columns">
+      <div class="column is-narrow">
+        <div class="field">
+          <label class="label">時間帯（開始）</label>
+          <div class="control">
+            <input class="input" type="time" name="lunch_start" value="<%= @settings["lunch_start"] %>" required>
+          </div>
+        </div>
+      </div>
+      <div class="column is-narrow">
+        <div class="field">
+          <label class="label">時間帯（終了）</label>
+          <div class="control">
+            <input class="input" type="time" name="lunch_end" value="<%= @settings["lunch_end"] %>" required>
+          </div>
+        </div>
+      </div>
+      <div class="column is-narrow">
+        <div class="field">
+          <label class="label">休憩時間（分）</label>
+          <div class="control">
+            <input class="input" type="number" name="lunch_minutes" value="<%= @settings["lunch_minutes"] %>" min="0" step="5" required>
+          </div>
+        </div>
+      </div>
     </div>
-  </fieldset>
+  </div>
 
-
-  <button type="submit" class="btn primary">保存</button>
+  <div class="field">
+    <div class="control">
+      <button type="submit" class="button is-primary">保存</button>
+    </div>
+  </div>
 </form>

@@ -1,31 +1,40 @@
-<div class="bar">
-  <div class="brand">
-    <span class="logo" aria-hidden="true">📅</span>
-    <div class="titles">
-      <h1>管理者トップ</h1>
-      <p class="subtitle">SUKESAN</p>
+<nav class="level app-header">
+  <div class="level-left">
+    <div class="level-item">
+      <div class="is-flex is-align-items-center">
+        <span class="app-logo" aria-hidden="true">📅</span>
+        <div class="ml-3">
+          <h1 class="title is-4 mb-1">管理者トップ</h1>
+          <p class="subtitle is-6 mb-0">SUKESAN</p>
+        </div>
+      </div>
     </div>
   </div>
-  <form method="post" action="/settings/logout" class="inline">
-    <input type="hidden" name="authenticity_token" value="<%= csrf_token %>">
-    <button type="submit" class="btn ghost">ログアウト</button>
-  </form>
-</div>
-<p class="nav-links">
-  <a href="/">← トップページ</a>
-</p>
+  <div class="level-right">
+    <div class="level-item">
+      <form method="post" action="/settings/logout">
+        <input type="hidden" name="authenticity_token" value="<%= csrf_token %>">
+        <button type="submit" class="button is-light">ログアウト</button>
+      </form>
+    </div>
+  </div>
+</nav>
+<nav class="breadcrumb" aria-label="breadcrumbs">
+  <ul>
+    <li><a href="/">トップ</a></li>
+    <li class="is-active"><a href="#" aria-current="page">管理者トップ</a></li>
+  </ul>
+</nav>
 
 <% if @flash %>
-  <p class="flash"><%= @flash %></p>
+  <div class="notification is-info is-light"><%= @flash %></div>
 <% end %>
 
-<section class="admin-menu">
-  <a class="menu-card" href="/tickets">
-    <span class="menu-title">Google カレンダー調整ツール</span>
-    <span class="menu-desc">調整用のワンタイム URL を発行・管理します。</span>
-  </a>
-  <a class="menu-card" href="/sync">
-    <span class="menu-title">スケジュール同期ツール</span>
-    <span class="menu-desc">Outlook 側にのみある予定を Google カレンダーへ同期します。</span>
-  </a>
-</section>
+<a class="box menu-card" href="/tickets">
+  <span class="menu-title">Google カレンダー調整ツール</span>
+  <span class="menu-desc">調整用のワンタイム URL を発行・管理します。</span>
+</a>
+<a class="box menu-card" href="/sync">
+  <span class="menu-title">スケジュール同期ツール</span>
+  <span class="menu-desc">Outlook 側にのみある予定を Google カレンダーへ同期します。</span>
+</a>

@@ -1,75 +1,102 @@
-<div class="bar">
-  <div class="brand">
-    <span class="logo" aria-hidden="true">📅</span>
-    <div class="titles">
-      <h1>SUKESAN</h1>
-      <p class="subtitle">スケジュール管理ツール</p>
+<nav class="level app-header">
+  <div class="level-left">
+    <div class="level-item">
+      <div class="is-flex is-align-items-center">
+        <span class="app-logo" aria-hidden="true">📅</span>
+        <div class="ml-3">
+          <h1 class="title is-4 mb-1">SUKESAN</h1>
+          <p class="subtitle is-6 mb-0">スケジュール管理ツール</p>
+        </div>
+      </div>
     </div>
   </div>
-</div>
-<p class="lead">調整したい期間と必要な時間を入力すると、空き時間の候補から希望の枠を選んで予定を登録できます。</p>
-<p class="note">このページは 1 回限りの調整用 URL です。予定を登録すると、この URL は使えなくなります（発行から 24 時間で期限切れ）。</p>
-<p class="note">※ 表示・入力の時刻はすべて <strong><%= APP_TIMEZONE %></strong> です。</p>
+</nav>
+
+<p class="block">調整したい期間と必要な時間を入力すると、空き時間の候補から希望の枠を選んで予定を登録できます。</p>
+<p class="block is-size-7 has-text-grey">このページは 1 回限りの調整用 URL です。予定を登録すると、この URL は使えなくなります（発行から 24 時間で期限切れ）。</p>
+<p class="block is-size-7 has-text-grey">※ 表示・入力の時刻はすべて <strong><%= APP_TIMEZONE %></strong> です。</p>
 
 <% if @flash %>
-  <p class="flash"><%= @flash %></p>
+  <div class="notification is-info is-light"><%= @flash %></div>
 <% end %>
 
 <% unless google_connected? %>
-  <p class="note">現在カレンダーが連携されていないため、スケジュール調整はできません。管理者にお問い合わせください。</p>
+  <div class="notification is-warning">現在カレンダーが連携されていないため、スケジュール調整はできません。管理者にお問い合わせください。</div>
 <% end %>
 
 <% if google_connected? %>
-  <form method="get" action="/t/<%= @token %>" class="adjust-form">
-    <label>開始日
-      <input type="date" id="start-date" name="start_date" value="<%= @start_date %>" required>
-    </label>
-    <label>終了日
-      <input type="date" id="end-date" name="end_date" value="<%= @end_date %>" min="<%= @start_date %>" required>
-    </label>
-    <label>必要な時間（分）
-      <input type="number" name="duration" value="<%= @duration %>"
-             min="<%= AvailabilitySearch::DURATION_STEP_MINUTES %>"
-             step="<%= AvailabilitySearch::DURATION_STEP_MINUTES %>" required>
-    </label>
-    <button type="submit" class="btn primary">空き時間をチェック</button>
+  <form method="get" action="/t/<%= @token %>" class="box">
+    <div class="columns is-mobile is-multiline">
+      <div class="column is-narrow">
+        <div class="field">
+          <label class="label">開始日</label>
+          <div class="control">
+            <input class="input" type="date" id="start-date" name="start_date" value="<%= @start_date %>" required>
+          </div>
+        </div>
+      </div>
+      <div class="column is-narrow">
+        <div class="field">
+          <label class="label">終了日</label>
+          <div class="control">
+            <input class="input" type="date" id="end-date" name="end_date" value="<%= @end_date %>" min="<%= @start_date %>" required>
+          </div>
+        </div>
+      </div>
+      <div class="column is-narrow">
+        <div class="field">
+          <label class="label">必要な時間（分）</label>
+          <div class="control">
+            <input class="input" type="number" name="duration" value="<%= @duration %>"
+                   min="<%= AvailabilitySearch::DURATION_STEP_MINUTES %>"
+                   step="<%= AvailabilitySearch::DURATION_STEP_MINUTES %>" required>
+          </div>
+        </div>
+      </div>
+    </div>
+    <button type="submit" class="button is-primary">空き時間をチェック</button>
+    <p class="block mt-2 is-size-7 has-text-grey">調整したい期間を選べます（最大 <%= AvailabilitySearch::MAX_BUSINESS_DAYS %> 営業日まで表示）。</p>
   </form>
-  <p class="note">調整したい期間を選べます（最大 <%= AvailabilitySearch::MAX_BUSINESS_DAYS %> 営業日まで表示）。</p>
   <script src="/home.js"></script>
 <% end %>
 
 <% if @searched %>
   <% if @results.any? { |_, slots| slots.any? } %>
-    <h2>空き候補（<%= @duration %>分）</h2>
+    <h2 class="title is-5">空き候補（<%= @duration %>分）</h2>
     <% if @capped %>
-      <p class="note">※ 期間が長いため、最初の <%= AvailabilitySearch::MAX_BUSINESS_DAYS %> 営業日分のみ表示しています。</p>
+      <p class="block is-size-7 has-text-grey">※ 期間が長いため、最初の <%= AvailabilitySearch::MAX_BUSINESS_DAYS %> 営業日分のみ表示しています。</p>
     <% end %>
-    <p class="note">希望の時間帯を選び、依頼者名と予定名を入力して「スケジュール登録する」を押してください。</p>
+    <p class="block">希望の時間帯を選び、依頼者名と予定名を入力して「スケジュール登録する」を押してください。</p>
     <% if @results.any? { |_, slots| slots.any?(&:lunch) } %>
-      <p class="note lunch-note">
+      <div class="notification is-warning is-light">
         <span class="lunch-tag">（ランチタイム）</span>
         の枠は、昼休憩の確保が難しくなりますので、もし可能であれば他の枠を優先的にご選択いただけますとありがたいです。
-      </p>
+      </div>
     <% end %>
-    <form method="post" action="/schedule" class="slots-form">
+    <form method="post" action="/schedule" class="box">
       <input type="hidden" name="authenticity_token" value="<%= csrf_token %>">
       <input type="hidden" name="token" value="<%= @token %>">
-      <label class="field">依頼者名
-        <input type="text" name="requester" placeholder="例: 山田 太郎" required>
-      </label>
-      <label class="field">予定名
-        <input type="text" name="title" placeholder="例: 打ち合わせ" required>
-      </label>
-      <label class="field"><span class="field-text">参加者メールアドレス<span class="optional">（任意）</span></span>
-        <textarea name="attendees" rows="3" placeholder="複数可。改行・カンマ・スペース区切りで入力できます"></textarea>
-      </label>
-      <label class="field"><span class="field-text">ビデオ会議用URLのご指定があればご記入ください<span class="optional">（任意）</span></span>
-        <input type="url" name="video_url" placeholder="例: https://zoom.us/j/...">
-      </label>
-      <label class="field-check">
+      <div class="field">
+        <label class="label">依頼者名</label>
+        <div class="control"><input class="input" type="text" name="requester" placeholder="例: 山田 太郎" required></div>
+      </div>
+      <div class="field">
+        <label class="label">予定名</label>
+        <div class="control"><input class="input" type="text" name="title" placeholder="例: 打ち合わせ" required></div>
+      </div>
+      <div class="field">
+        <label class="label">参加者メールアドレス <span class="has-text-grey is-size-7">（任意）</span></label>
+        <div class="control"><textarea class="textarea" name="attendees" rows="3" placeholder="複数可。改行・カンマ・スペース区切りで入力できます"></textarea></div>
+      </div>
+      <div class="field">
+        <label class="label">ビデオ会議用URLのご指定があればご記入ください <span class="has-text-grey is-size-7">（任意）</span></label>
+        <div class="control"><input class="input" type="url" name="video_url" placeholder="例: https://zoom.us/j/..."></div>
+      </div>
+      <label class="checkbox mb-4">
         <input type="checkbox" name="request_meet" value="1">
-        Google Meet のリンクを発行する<span class="optional">（任意・ビデオ会議用 URL とは併用できません）</span>
+        Google Meet のリンクを発行する <span class="has-text-grey is-size-7">（任意・ビデオ会議用 URL とは併用できません）</span>
       </label>
+
       <% @results.each do |date, slots| %>
         <% next if slots.empty? %>
         <div class="day-group">
@@ -87,12 +114,11 @@
           </ul>
         </div>
       <% end %>
-      <button type="submit" class="btn primary">スケジュール登録する</button>
+      <button type="submit" class="button is-primary mt-4">スケジュール登録する</button>
     </form>
   <% else %>
-    <p class="note">
-      指定した期間内に <%= @duration %>分 の空きはありませんでした。
-      期間・時間を変えてお試しください。
-    </p>
+    <div class="notification is-info">
+      指定した期間内に <%= @duration %>分 の空きはありませんでした。期間・時間を変えてお試しください。
+    </div>
   <% end %>
 <% end %>
