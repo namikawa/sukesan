@@ -110,12 +110,16 @@ unless settings.test?
   use Rack::CommonLogger, access_log
 end
 
-# セッションは署名 Cookie に保持する（サーバ側状態を持たないため、複数インスタンス＝Cloud Run でも
-# そのまま動く）。rack-session 2.x の既定 coder は JSON で Marshal を使わない。Cookie 属性を強化し、
-# Secure は本番のみ有効化。大きくなり得る同期差分はセッションに載せず、表示・反映時に都度再計算する。
+# セッションは暗号化 Cookie（AES-CTR＋HMAC）に保持する（サーバ側状態を持たないため、複数インスタンス
+# ＝Cloud Run でもそのまま動く）。直列化は serialize_json: true で JSON に固定する（rack-session 2.x の
+# 既定は Marshal のため、SESSION_SECRET 漏えい時にデシリアライズ経由のコード実行へ波及させない）。
+# key 末尾の .v2 は Marshal→JSON 切替の世代分け（旧形式 Cookie を JSON で読むと例外→500 になるため、
+# 名前ごと分離して旧 Cookie を無視させる）。Cookie 属性を強化し、Secure は本番のみ有効化。
+# 大きくなり得る同期差分はセッションに載せず、表示・反映時に都度再計算する。
 use Rack::Session::Cookie,
-    key: "sukesan.session",
+    key: "sukesan.session.v2",
     secret: SESSION_SECRET,
+    serialize_json: true,
     expire_after: 60 * 60 * 24,
     httponly: true,
     same_site: :lax,
