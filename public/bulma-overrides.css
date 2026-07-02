@@ -1,5 +1,8 @@
 /* Bulma への上書き（CSP のため inline style は使わずクラスで指定）。 */
 
+/* パンくずの区切りは「>」に（Bulma 既定の / を上書き）。 */
+.breadcrumb li + li::before { content: ">"; }
+
 /* ヘッダの境界＋ブランド（ロゴ左・タイトル2段右）。 */
 .app-header {
   border-bottom: 1px solid var(--bulma-border, #4a4a4a);

@@ -19,7 +19,12 @@
     </div>
   </div>
 </nav>
-<p class="block"><a href="/">← トップページ</a></p>
+<nav class="breadcrumb" aria-label="breadcrumbs">
+  <ul>
+    <li><a href="/">トップ</a></li>
+    <li class="is-active"><a href="#" aria-current="page">管理者トップ</a></li>
+  </ul>
+</nav>
 
 <% if @flash %>
   <div class="notification is-info is-light"><%= @flash %></div>
