@@ -2,7 +2,7 @@
 
 RSpec.describe "キャッシュ制御ヘッダ" do
   it "URL・登録内容・管理情報を扱う画面には Cache-Control: no-store を付ける" do
-    %w[/admin /settings /sync /t/anything].each do |path|
+    %w[/admin /settings /sync /tickets /tickets?page=2 /t/anything].each do |path|
       get path
       expect(last_response.headers["Cache-Control"]).to eq("no-store"), "#{path} に no-store がない"
       expect(last_response.headers["Pragma"]).to eq("no-cache")
