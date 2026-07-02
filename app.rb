@@ -30,6 +30,7 @@ require_relative "lib/availability_search"
 require_relative "lib/booking_service"
 require_relative "lib/cross_process_lock"
 require_relative "lib/masked_access_logger"
+require_relative "lib/audit_log"
 
 require_relative "helpers/auth_helpers"
 require_relative "helpers/oauth_helpers"
@@ -101,23 +102,28 @@ end
 #   揮発ファイルに書いて取りこぼすのを防ぐ）。
 # - 未設定（既定）: 週次ローテーションする専用ファイル（log/access.log → access.log.YYYYMMDD）。ローカル/VM 向け。
 # Sinatra 既定の stderr 向けアクセスログは無効化し、二重出力を防ぐ。テストでは出力しない（log/ を汚さない）。
+# 週次ローテーションのログデバイスを 0600 で用意する。ローテーション直後の新ファイルは
+# 既定権限に戻るが、次回起動時の chmod で回収する（アクセスログの主対策はマスキング）。
+def weekly_log_device(path)
+  device = Logger::LogDevice.new(path, shift_age: "weekly")
+  File.chmod(0o600, path) if File.owned?(path)
+  device
+end
+
 set :logging, false
 unless settings.test?
-  access_log =
-    if ENV["LOG_TO_STDOUT"] == "true"
-      $stdout.sync = true # コンテナログに即時反映させる（バッファ滞留で取りこぼさない）
-      $stdout
-    else
-      log_dir = File.expand_path("log", __dir__)
-      # アクセス記録のためディレクトリ・ファイルとも所有者のみに絞る。週次ローテーション直後の
-      # 新ファイルは既定権限に戻るが、次回起動時の chmod で回収する（主対策は下記のマスキング）。
-      FileUtils.mkdir_p(log_dir, mode: 0o700)
-      File.chmod(0o700, log_dir) if File.owned?(log_dir)
-      access_log_path = File.join(log_dir, "access.log")
-      device = Logger::LogDevice.new(access_log_path, shift_age: "weekly")
-      File.chmod(0o600, access_log_path) if File.owned?(access_log_path)
-      device
-    end
+  if ENV["LOG_TO_STDOUT"] == "true"
+    $stdout.sync = true # コンテナログに即時反映させる（バッファ滞留で取りこぼさない）
+    access_log = $stdout
+    AuditLog.configure($stdout) # 監査ログも stdout へ（1 行 JSON。Cloud Logging がフィールドを解釈）
+  else
+    log_dir = File.expand_path("log", __dir__)
+    # アクセス・監査の記録のため、ディレクトリ・ファイルとも所有者のみに絞る。
+    FileUtils.mkdir_p(log_dir, mode: 0o700)
+    File.chmod(0o700, log_dir) if File.owned?(log_dir)
+    access_log = weekly_log_device(File.join(log_dir, "access.log"))
+    AuditLog.configure(weekly_log_device(File.join(log_dir, "audit.log")))
+  end
   # CommonLogger のサブクラス。/t/<token> の bearer token を HMAC 短縮 ID に、OAuth callback の
   # クエリ（code/state）を [FILTERED] に置換してから出力する（ログに秘密を残さない）。
   use MaskedAccessLogger, access_log, LOG_TOKEN_ID_KEY
@@ -221,6 +227,13 @@ TICKET_STATUS_LABELS = {
 }.freeze
 
 helpers AuthHelpers, OAuthHelpers, FormatHelpers, SettingsParamsHelpers, SyncHelpers, ScheduleHelpers
+
+helpers do
+  # 監査ログでチケットを識別する短縮 ID（アクセスログの /t/~xxxxxxxx と同じ導出で相関できる）。
+  def audit_ticket_id(token)
+    "~#{MaskedAccessLogger.token_short_id(LOG_TOKEN_ID_KEY, token)}"
+  end
+end
 
 # --- トップ画面（利用案内のみ。調整はワンタイム URL から行う） ---
 get "/" do
@@ -351,9 +364,11 @@ post "/schedule" do
   when :ticket_used
     halt 409, "この URL は既に使用されています。"
   when :api_failure
+    AuditLog.record(:booking_failed, ip: client_ip, target: audit_ticket_id(token))
     halt 502, "予定の登録に失敗しました。お手数ですが、もう一度お試しください。"
   end
 
+  AuditLog.record(:booking_created, ip: client_ip, target: audit_ticket_id(token))
   # 会議情報は登録直後の本人セッションでだけ完了画面に表示する（チケットには残さない）。
   session[:completion] = { "token" => token, "meet_link" => result.meet_link, "video_url" => video_url }
   session[:flash] = "#{requester} さんの「#{title}」を #{format_dt(event.starts_at)} に登録しました。"
@@ -369,8 +384,10 @@ post "/settings/login" do
     session.options[:renew] = true # セッション固定対策: ログイン時に session id を再生成
     session[:admin] = true
     session[:admin_at] = Time.now.to_i # サーバ側 TTL 検証用のログイン時刻（AuthHelpers#admin?）
+    AuditLog.record(:login_success, ip: client_ip)
   else
     LOGIN_LIMITER.record(client_ip) # 失敗時のみ記録（成功ログインは制限を消費しない）
+    AuditLog.record(:login_failure, ip: client_ip)
     session[:flash] = "パスワードが正しくありません。"
   end
   redirect "/admin"
@@ -421,7 +438,8 @@ end
 # 1回限りのスケジュール調整 URL を発行する（管理者専用）。
 post "/tickets" do
   require_admin!
-  TicketStore.create
+  token = TicketStore.create
+  AuditLog.record(:ticket_create, ip: client_ip, target: audit_ticket_id(token))
   session[:flash] = "ワンタイム URL を発行しました。"
   redirect "/tickets"
 end
@@ -430,6 +448,7 @@ end
 post "/tickets/:token/revoke" do
   require_admin!
   TicketStore.revoke(params[:token].to_s)
+  AuditLog.record(:ticket_revoke, ip: client_ip, target: audit_ticket_id(params[:token].to_s))
   session[:flash] = "ワンタイム URL を無効化しました。"
   redirect "/tickets"
 end
@@ -439,6 +458,7 @@ post "/settings" do
   values = settings_params
   if settings_valid?(values)
     SettingsStore.save(values)
+    AuditLog.record(:settings_update, ip: client_ip)
     session[:flash] = "設定を保存しました。"
   else
     session[:flash] = "入力内容が正しくありません（時間は HH:MM・開始 < 終了、休憩は 0 分以上で入力してください）。"
@@ -450,6 +470,7 @@ post "/settings/google/disconnect" do
   require_admin!
   revoke_google_token
   TokenStore.clear
+  AuditLog.record(:oauth_disconnect, ip: client_ip, target: "google")
   session[:flash] = "Google 連携を解除しました。"
   redirect "/settings"
 end
@@ -503,6 +524,7 @@ get "/auth/google/callback" do
   )
   # 連携時に主催者（管理者）のメールを取得し、トークンと一緒に保存する。
   TokenStore.save(token.to_hash.merge("admin_email" => fetch_google_email(token)))
+  AuditLog.record(:oauth_connect, ip: client_ip, target: "google")
   session[:flash] = "Google と連携しました。"
   redirect "/settings"
 end
@@ -526,6 +548,7 @@ get "/auth/microsoft/callback" do
     params[:code], redirect_uri: microsoft_redirect_uri, code_verifier: verifier
   )
   TokenStore.save(token.to_hash, :microsoft)
+  AuditLog.record(:oauth_connect, ip: client_ip, target: "microsoft")
   redirect "/sync"
 end
 
@@ -533,6 +556,7 @@ post "/disconnect" do
   require_admin!
   TokenStore.clear(:microsoft)
   clear_sync_window
+  AuditLog.record(:oauth_disconnect, ip: client_ip, target: "microsoft")
   redirect "/sync"
 end
 
