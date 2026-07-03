@@ -1,0 +1,7 @@
+<%# flash（操作結果の通知）と flash_alert（入力・状態エラーの警告）。FormatHelpers#flash_messages 経由で描画する。 %>
+<% if @flash %>
+  <div class="notification is-<%= type %> is-light"><%= @flash %></div>
+<% end %>
+<% if @flash_alert %>
+  <div class="notification is-warning"><%= @flash_alert %></div>
+<% end %>

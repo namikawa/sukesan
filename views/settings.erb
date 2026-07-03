@@ -1,24 +1,4 @@
-<nav class="level app-header">
-  <div class="level-left">
-    <div class="level-item">
-      <div class="is-flex is-align-items-center">
-        <span class="app-logo" aria-hidden="true">📅</span>
-        <div class="ml-3">
-          <h1 class="title is-4 mb-1">設定</h1>
-          <p class="subtitle is-6 mb-0">SUKESAN</p>
-        </div>
-      </div>
-    </div>
-  </div>
-  <div class="level-right">
-    <div class="level-item">
-      <form method="post" action="/settings/logout">
-        <input type="hidden" name="authenticity_token" value="<%= csrf_token %>">
-        <button type="submit" class="button is-light">ログアウト</button>
-      </form>
-    </div>
-  </div>
-</nav>
+<%== page_header(title: "設定", logout: true) %>
 
 <nav class="breadcrumb" aria-label="breadcrumbs">
   <ul>
@@ -29,9 +9,7 @@
   </ul>
 </nav>
 
-<% if @flash %>
-  <div class="notification is-info is-light"><%= @flash %></div>
-<% end %>
+<%== flash_messages %>
 
 <h2 class="title is-5">Google カレンダー連携</h2>
 <p class="block">ワンタイム URL の利用者は、ここで連携した管理者カレンダーに対して予定を登録します。</p>

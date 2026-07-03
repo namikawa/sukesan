@@ -2,6 +2,24 @@
 
 # 画面表示用の整形ヘルパ。
 module FormatHelpers
+  # パーシャル（views/_*.erb）をレイアウト無しで描画する。
+  # 描画結果は HTML のため、呼び出し側は <%== %>（エスケープ無し）で埋め込む。
+  def partial(name, locals = {})
+    erb :"_#{name}", layout: false, locals: locals
+  end
+
+  # flash（操作結果の通知）と flash_alert（入力・状態エラーの警告）の表示ブロック。
+  # type は flash 通知の色（info / success / danger）。
+  def flash_messages(type: "info")
+    partial(:flash, type: type)
+  end
+
+  # ページ共通ヘッダ（ロゴ・タイトル・サブタイトル）。右側には logout: true でログアウトボタン、
+  # admin_link: true で「管理者の方はこちら」リンクを表示する（両方 false なら右側なし）。
+  def page_header(title:, subtitle: "SUKESAN", logout: false, admin_link: false)
+    partial(:page_header, title: title, subtitle: subtitle, logout: logout, admin_link: admin_link)
+  end
+
   # 発行したワンタイム URL（依頼者へ渡す調整ページの絶対 URL）。
   def ticket_url(token)
     "#{base_url}/t/#{token}"

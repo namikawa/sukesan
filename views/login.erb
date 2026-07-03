@@ -8,9 +8,7 @@
 <h1 class="title is-4">管理者ログイン</h1>
 <p class="subtitle is-6">設定や連携の操作には管理者パスワードが必要です。</p>
 
-<% if @flash %>
-  <div class="notification is-danger is-light"><%= @flash %></div>
-<% end %>
+<%== flash_messages(type: "danger") %>
 
 <form method="post" action="/settings/login">
   <input type="hidden" name="authenticity_token" value="<%= csrf_token %>">

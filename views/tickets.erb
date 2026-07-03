@@ -1,24 +1,4 @@
-<nav class="level app-header">
-  <div class="level-left">
-    <div class="level-item">
-      <div class="is-flex is-align-items-center">
-        <span class="app-logo" aria-hidden="true">📅</span>
-        <div class="ml-3">
-          <h1 class="title is-4 mb-1">Google カレンダー調整ツール</h1>
-          <p class="subtitle is-6 mb-0">SUKESAN</p>
-        </div>
-      </div>
-    </div>
-  </div>
-  <div class="level-right">
-    <div class="level-item">
-      <form method="post" action="/settings/logout">
-        <input type="hidden" name="authenticity_token" value="<%= csrf_token %>">
-        <button type="submit" class="button is-light">ログアウト</button>
-      </form>
-    </div>
-  </div>
-</nav>
+<%== page_header(title: "Google カレンダー調整ツール", logout: true) %>
 <nav class="level is-mobile mb-3">
   <div class="level-left">
     <nav class="breadcrumb mb-0" aria-label="breadcrumbs">
@@ -34,9 +14,7 @@
   </div>
 </nav>
 
-<% if @flash %>
-  <div class="notification is-info is-light"><%= @flash %></div>
-<% end %>
+<%== flash_messages %>
 
 <h2 class="title is-5">Google カレンダー登録用ワンタイム URL</h2>
 <p class="block">調整したい相手に渡す「1 回限り・24 時間有効」の URL を発行します。1 度予定が登録されると、その URL は使えなくなります。</p>

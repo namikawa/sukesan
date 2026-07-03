@@ -1,23 +1,6 @@
-<nav class="level app-header">
-  <div class="level-left">
-    <div class="level-item">
-      <div class="is-flex is-align-items-center">
-        <span class="app-logo" aria-hidden="true">📅</span>
-        <div class="ml-3">
-          <h1 class="title is-4 mb-1">SUKESAN</h1>
-          <p class="subtitle is-6 mb-0">スケジュール管理ツール</p>
-        </div>
-      </div>
-    </div>
-  </div>
-</nav>
+<%== page_header(title: "SUKESAN", subtitle: "スケジュール管理ツール") %>
 
-<% if @flash %>
-  <div class="notification is-success is-light"><%= @flash %></div>
-<% end %>
-<% if @flash_alert %>
-  <div class="notification is-warning"><%= @flash_alert %></div>
-<% end %>
+<%== flash_messages(type: "success") %>
 
 <% if @ticket_status == "used" %>
   <p class="block">この URL でのご登録は完了しています。</p>

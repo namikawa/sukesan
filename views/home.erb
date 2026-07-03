@@ -1,27 +1,8 @@
-<nav class="level app-header">
-  <div class="level-left">
-    <div class="level-item">
-      <div class="is-flex is-align-items-center">
-        <span class="app-logo" aria-hidden="true">📅</span>
-        <div class="ml-3">
-          <h1 class="title is-4 mb-1">SUKESAN</h1>
-          <p class="subtitle is-6 mb-0">スケジュール管理ツール</p>
-        </div>
-      </div>
-    </div>
-  </div>
-  <div class="level-right">
-    <div class="level-item">
-      <a href="/admin">管理者の方はこちら</a>
-    </div>
-  </div>
-</nav>
+<%== page_header(title: "SUKESAN", subtitle: "スケジュール管理ツール", admin_link: true) %>
 
 <p class="block">このツールでのスケジュール調整は、管理者が発行する「ワンタイム URL」からのみ行えます。</p>
 
-<% if @flash %>
-  <div class="notification is-info is-light"><%= @flash %></div>
-<% end %>
+<%== flash_messages %>
 
 <div class="box">
   <h2 class="title is-5">ご利用方法</h2>

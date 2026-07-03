@@ -1,0 +1,30 @@
+<%# ページ共通ヘッダ。FormatHelpers#page_header 経由で描画する（title / subtitle / logout / admin_link）。 %>
+<nav class="level app-header">
+  <div class="level-left">
+    <div class="level-item">
+      <div class="is-flex is-align-items-center">
+        <span class="app-logo" aria-hidden="true">📅</span>
+        <div class="ml-3">
+          <h1 class="title is-4 mb-1"><%= title %></h1>
+          <p class="subtitle is-6 mb-0"><%= subtitle %></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <% if logout %>
+    <div class="level-right">
+      <div class="level-item">
+        <form method="post" action="/settings/logout">
+          <input type="hidden" name="authenticity_token" value="<%= csrf_token %>">
+          <button type="submit" class="button is-light">ログアウト</button>
+        </form>
+      </div>
+    </div>
+  <% elsif admin_link %>
+    <div class="level-right">
+      <div class="level-item">
+        <a href="/admin">管理者の方はこちら</a>
+      </div>
+    </div>
+  <% end %>
+</nav>
