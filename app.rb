@@ -28,6 +28,7 @@ require_relative "lib/ticket_store"
 require_relative "lib/rate_limiter"
 require_relative "lib/availability_search"
 require_relative "lib/booking_service"
+require_relative "lib/hold_service"
 require_relative "lib/cross_process_lock"
 require_relative "lib/masked_access_logger"
 require_relative "lib/audit_log"
@@ -38,6 +39,7 @@ require_relative "helpers/format_helpers"
 require_relative "helpers/settings_params_helpers"
 require_relative "helpers/sync_helpers"
 require_relative "helpers/schedule_helpers"
+require_relative "helpers/hold_helpers"
 
 # タイムゾーンを固定する（特定地域での運用前提。グローバル運用は想定しない）。
 # APP_TIMEZONE（既定 Asia/Tokyo）をプロセスの TZ に適用し、サーバ OS の設定に依存させない。
@@ -153,6 +155,11 @@ before do
   # HTTPS 強制リダイレクト先は Host ヘッダ由来の request.url ではなく、ENV 固定の base_url
   # （本番では APP_BASE_URL）＋ パス/クエリで組み立て、Host 細工による誘導を防ぐ。
   redirect "#{base_url}#{request.fullpath}", 308 if settings.production? && !request_secure?
+
+  # 仮押さえを実行したブラウザ（holder_key 保持セッション）のみ、Cookie 期限を仮押さえの
+  # 操作期間（7 日）へ毎レスポンスで延長する。通常のセッションは既定（24 時間）のまま。
+  holder_keys = session[:holder_keys]
+  session.options[:expire_after] = TicketStatus::HOLD_TTL_SECONDS if holder_keys.is_a?(Hash) && holder_keys.any?
 end
 
 # Content-Security-Policy。スクリプト/スタイルは同一オリジンのみ（インライン不可）。
@@ -223,10 +230,11 @@ MAX_URL_LENGTH = 2048
 
 # 発行済みワンタイム URL の一覧表示に使うステータス文言。
 TICKET_STATUS_LABELS = {
-  "active" => "有効", "used" => "使用済み", "expired" => "期限切れ", "revoked" => "無効化"
+  "active" => "有効", "used" => "使用済み", "expired" => "期限切れ", "revoked" => "無効化",
+  "held" => "仮押さえ中", "cancelled" => "キャンセル"
 }.freeze
 
-helpers AuthHelpers, OAuthHelpers, FormatHelpers, SettingsParamsHelpers, SyncHelpers, ScheduleHelpers
+helpers AuthHelpers, OAuthHelpers, FormatHelpers, SettingsParamsHelpers, SyncHelpers, ScheduleHelpers, HoldHelpers
 
 helpers do
   # 監査ログでチケットを識別する短縮 ID（アクセスログの /t/~xxxxxxxx と同じ導出で相関できる）。
@@ -245,11 +253,24 @@ end
 get "/t/:token" do
   @token = params[:token].to_s
   @flash = session.delete(:flash)
+  @flash_alert = session.delete(:flash_alert) # 入力・状態エラーの警告通知（redirect_with_alert!）
+  @form_restore = session.delete(:form_restore) || {} # エラー時に保持した入力値（1 回で消費）
   ticket = TicketStore.find(@token)
+
+  # 仮押さえ中は決定画面（候補一覧・決定・削除）。破壊的操作はホルダー（仮押さえを行った
+  # ブラウザ）のみ可能で、URL だけを知る第三者には閲覧のみ許す。
+  if TicketStore.held?(ticket)
+    @ticket = ticket
+    @holder = holder_of?(ticket)
+    @holds = ticket["holds"].sort_by { |h| h["slot_start"] }
+    @deadline = Time.iso8601(ticket["held_at"]) + TicketStatus::HOLD_TTL_SECONDS
+    halt erb(:hold_decision)
+  end
 
   # 無効・期限切れ・使用済み・存在しない token は案内ページを表示する。
   # 410 Gone を返す（404 は not_found ハンドラに横取りされるため使わない）。
   unless TicketStore.active?(ticket)
+    forget_holder!(@token) # 終端状態（決定・取りやめ・期限切れ等）の holder キーはセッションから掃除
     @ticket_status = ticket ? TicketStore.status(ticket) : "missing"
     # 会議情報は「登録直後・本人セッション・当該 token」のときだけ表示する。
     completion = session[:completion]
@@ -375,6 +396,154 @@ post "/schedule" do
   redirect "/t/#{token}"
 end
 
+# --- 複数カレンダー仮押さえ（ワンタイム URL からのみ） ---
+# 指定期間の候補から最大 MAX_HOLDS 件を [仮ブロック] としてカレンダーに作成し、チケットを held にする。
+post "/hold" do
+  halt 429, "リクエストが多すぎます。しばらく時間をおいてからお試しください。" unless SCHEDULE_LIMITER.allow?(client_ip)
+
+  token = params[:token].to_s
+  ticket = TicketStore.find(token)
+  # 入力・状態のエラーはエラーページでなく、元画面上部の警告通知（flash_alert）で伝える。
+  # 入力値はエラー後の画面で復元する（redirect_with_alert! が一時保存。文字数はコピー上限で抑える）。
+  @form_restore = {
+    "requester" => params[:requester].to_s[0, 200], "title" => params[:title].to_s[0, 200],
+    "slots" => Array(params[:slots]).map(&:to_s)
+  }
+  redirect_with_alert!(token, "この URL は無効か、期限切れです。管理者に新しい URL の発行を依頼してください。") unless TicketStore.active?(ticket)
+  redirect_with_alert!(token, "Google の連携が必要です。管理者にお問い合わせください。") unless google_connected?
+
+  title = params[:title].to_s.strip
+  requester = params[:requester].to_s.strip
+  redirect_with_alert!(token, "依頼者名・予定名を入力してください。") if title.empty? || requester.empty?
+  too_long = title.length > MAX_TEXT_LENGTH || requester.length > MAX_TEXT_LENGTH
+  redirect_with_alert!(token, "予定名・依頼者名が長すぎます（各 #{MAX_TEXT_LENGTH} 文字以内）。") if too_long
+
+  slots = parse_hold_slots(params[:slots])
+  redirect_with_alert!(token, "仮押さえする時間帯を選択してください。") if slots.empty?
+  if slots.size > HoldService::MAX_HOLDS
+    redirect_with_alert!(token, "仮押さえは最大 #{HoldService::MAX_HOLDS} 件までです。選び直してください。")
+  end
+  redirect_with_alert!(token, "時間帯の形式が正しくありません。") if slots.any? { |starts_at, _| starts_at.nil? }
+  redirect_with_alert!(token, "選択した時間帯が重複しています。重ならないように選び直してください。") if overlapping_slots?(slots)
+  redirect_with_alert!(token, "過去の時間帯は仮押さえできません。再度空き時間をチェックしてください。") if slots.any? do |s, _|
+    AvailabilitySearch.too_soon?(s)
+  end
+
+  google_access = google_token
+  redirect_with_alert!(token, "現在カレンダーとの連携に問題があるため仮押さえできません。管理者にお問い合わせください。") if google_access.nil?
+
+  # ホルダーキー: 決定・削除の操作をこのブラウザに限定するための第二要素（チケットとセッションの両方へ保存）。
+  holder_key = SecureRandom.urlsafe_base64(32)
+  result = hold_service(google_access).hold(token: token, requester: requester, title: title,
+                                            slots: slots, holder_key: holder_key)
+
+  case result.status
+  when :slot_taken
+    redirect_with_alert!(token, "選択した時間帯は予約できなくなりました。再度空き時間をチェックしてください。")
+  when :ticket_used
+    redirect_with_alert!(token, "この URL は既に使用されています。")
+  when :api_failure
+    redirect_with_alert!(token, "仮押さえに失敗しました。お手数ですが、もう一度お試しください。")
+  end
+
+  remember_holder!(token, holder_key)
+  AuditLog.record(:hold_created, ip: client_ip, target: "#{audit_ticket_id(token)} count=#{slots.size}")
+  session[:flash] = "#{slots.size} 件の日程を仮押さえしました。この画面から 7 日以内に 1 件へ決定してください。"
+  redirect "/t/#{token}"
+end
+
+# 仮押さえから 1 件に決定する（ホルダーのみ）。任意項目（参加者・ビデオ URL・Meet）はここで指定する。
+post "/hold/confirm" do
+  halt 429, "リクエストが多すぎます。しばらく時間をおいてからお試しください。" unless SCHEDULE_LIMITER.allow?(client_ip)
+
+  token = params[:token].to_s
+  ticket = TicketStore.find(token)
+  redirect_with_alert!(token, "この操作は完了済みか、期限切れです。") unless TicketStore.held?(ticket)
+  halt 403, "この操作は仮押さえを行ったブラウザからのみ行えます。" unless holder_of?(ticket)
+
+  # エラー時に決定画面の入力値（任意項目・選択スロット）を復元する。
+  @form_restore = {
+    "slot" => params[:slot].to_s, "attendees" => params[:attendees].to_s[0, 2000],
+    "video_url" => params[:video_url].to_s[0, MAX_URL_LENGTH], "request_meet" => params[:request_meet].to_s
+  }
+
+  slot_start = params[:slot].to_s
+  redirect_with_alert!(token, "決定する日程を選択してください。") if ticket["holds"].none? { |h| h["slot_start"] == slot_start }
+
+  attendees = parse_attendees(params[:attendees])
+  video_url = params[:video_url].to_s.strip
+  request_meet = params[:request_meet].to_s == "1"
+  redirect_with_alert!(token, "参加者は最大 #{MAX_ATTENDEES} 件までです。") if attendees.size > MAX_ATTENDEES
+  redirect_with_alert!(token, "参加者メールアドレスの形式が正しくありません。") unless attendees.all? { |email| valid_email?(email) }
+  unless video_url.empty? || valid_http_url?(video_url)
+    redirect_with_alert!(token,
+                         "ビデオ会議 URL の形式が正しくありません（http/https の URL）。")
+  end
+  redirect_with_alert!(token, "ビデオ会議 URL の指定と Google Meet の発行は同時に指定できません。") if request_meet && !video_url.empty?
+
+  google_access = google_token
+  redirect_with_alert!(token, "現在カレンダーとの連携に問題があるため操作できません。管理者にお問い合わせください。") if google_access.nil?
+
+  event_attendees = ([google_admin_email.to_s] + attendees).reject(&:empty?).uniq(&:downcase)
+  result = hold_service(google_access).confirm(token: token, slot_start: slot_start,
+                                               attendees: event_attendees, video_url: video_url,
+                                               request_meet: request_meet)
+  redirect_with_alert!(token, "この操作は完了済みか、期限切れです。画面を再読み込みしてください。") if result.status == :not_held
+
+  forget_holder!(token)
+  AuditLog.record(:hold_confirmed, ip: client_ip, target: audit_ticket_id(token))
+  # 会議情報は決定直後の本人セッションでだけ完了画面に表示する（チケットには残さない）。
+  session[:completion] = { "token" => token, "meet_link" => result.meet_link, "video_url" => video_url }
+  session[:flash] = "「#{ticket['title']}」を #{format_iso(slot_start)} に決定しました。#{hold_result_notes(result)}".strip
+  redirect "/t/#{token}"
+end
+
+# 仮押さえから 1 件を削除する（ホルダーのみ）。最後の 1 件を削除するとこの URL は終了する。
+post "/hold/delete" do
+  halt 429, "リクエストが多すぎます。しばらく時間をおいてからお試しください。" unless SCHEDULE_LIMITER.allow?(client_ip)
+
+  token = params[:token].to_s
+  ticket = TicketStore.find(token)
+  redirect_with_alert!(token, "この操作は完了済みか、期限切れです。") unless TicketStore.held?(ticket)
+  halt 403, "この操作は仮押さえを行ったブラウザからのみ行えます。" unless holder_of?(ticket)
+
+  google_access = google_token
+  redirect_with_alert!(token, "現在カレンダーとの連携に問題があるため操作できません。管理者にお問い合わせください。") if google_access.nil?
+
+  result = hold_service(google_access).remove(token: token, slot_start: params[:slot].to_s)
+  redirect_with_alert!(token, "該当の仮押さえが見つかりません。画面を再読み込みしてください。") if result.status == :not_held
+
+  AuditLog.record(:hold_deleted, ip: client_ip, target: audit_ticket_id(token))
+  if TicketStore.held?(TicketStore.find(token))
+    session[:flash] = "仮押さえを 1 件削除しました。#{hold_result_notes(result)}".strip
+  else
+    forget_holder!(token) # 最後の 1 件を削除＝終了（cancelled）
+    session[:flash] = "すべての仮押さえを削除したため、この URL は終了しました。#{hold_result_notes(result)}".strip
+  end
+  redirect "/t/#{token}"
+end
+
+# 仮押さえをすべて取りやめて終了する（ホルダーのみ）。
+post "/hold/cancel" do
+  halt 429, "リクエストが多すぎます。しばらく時間をおいてからお試しください。" unless SCHEDULE_LIMITER.allow?(client_ip)
+
+  token = params[:token].to_s
+  ticket = TicketStore.find(token)
+  redirect_with_alert!(token, "この操作は完了済みか、期限切れです。") unless TicketStore.held?(ticket)
+  halt 403, "この操作は仮押さえを行ったブラウザからのみ行えます。" unless holder_of?(ticket)
+
+  google_access = google_token
+  redirect_with_alert!(token, "現在カレンダーとの連携に問題があるため操作できません。管理者にお問い合わせください。") if google_access.nil?
+
+  result = hold_service(google_access).cancel(token: token)
+  redirect_with_alert!(token, "この操作は完了済みか、期限切れです。画面を再読み込みしてください。") if result.status == :not_held
+
+  forget_holder!(token)
+  AuditLog.record(:hold_cancelled, ip: client_ip, target: audit_ticket_id(token))
+  session[:flash] = "仮押さえをすべて取りやめました。#{hold_result_notes(result)}".strip
+  redirect "/t/#{token}"
+end
+
 # --- 管理者ログイン ---
 post "/settings/login" do
   # 失敗回数だけを数える。bcrypt 計算の前に弾くことで CPU 消耗型の総当たりも防ぐ。
@@ -439,11 +608,14 @@ post "/tickets" do
 end
 
 # 発行済みワンタイム URL を手動で無効化する（管理者専用）。
+# 仮押さえ中だったチケットは、残っている [仮ブロック] イベントも削除する（URL 漏えい・放置時の kill switch）。
 post "/tickets/:token/revoke" do
   require_admin!
-  TicketStore.revoke(params[:token].to_s)
+  previous = TicketStore.revoke(params[:token].to_s)
+  failed = previous.is_a?(Hash) ? delete_hold_events(Array(previous["holds"])) : 0
   AuditLog.record(:ticket_revoke, ip: client_ip, target: audit_ticket_id(params[:token].to_s))
   session[:flash] = "ワンタイム URL を無効化しました。"
+  session[:flash] += " ※#{failed} 件の仮押さえイベントを削除できませんでした。" if failed.positive?
   redirect "/tickets"
 end
 

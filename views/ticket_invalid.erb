@@ -15,17 +15,21 @@
 <% if @flash %>
   <div class="notification is-success is-light"><%= @flash %></div>
 <% end %>
+<% if @flash_alert %>
+  <div class="notification is-warning"><%= @flash_alert %></div>
+<% end %>
 
 <% if @ticket_status == "used" %>
   <p class="block">この URL でのご登録は完了しています。</p>
+  <%# 通知エリアは淡色（is-light）、ボタンはベタ塗りにしてボタンを識別しやすくする。 %>
   <% if @completion && @completion["meet_link"] %>
-    <div class="notification is-success">
+    <div class="notification is-success is-light">
       <p class="mb-2"><strong>Google Meet の会議リンク</strong></p>
       <a class="button is-success" href="<%= @completion["meet_link"] %>" target="_blank" rel="noopener">会議リンクを開く</a>
       <p class="mt-2 is-size-7"><a href="<%= @completion["meet_link"] %>" target="_blank" rel="noopener"><%= @completion["meet_link"] %></a></p>
     </div>
   <% elsif @completion && @completion["video_url"] && !@completion["video_url"].empty? %>
-    <div class="notification is-success">
+    <div class="notification is-success is-light">
       <p class="mb-2"><strong>ビデオ会議リンク</strong></p>
       <a class="button is-success" href="<%= @completion["video_url"] %>" target="_blank" rel="noopener">会議リンクを開く</a>
       <p class="mt-2 is-size-7"><a href="<%= @completion["video_url"] %>" target="_blank" rel="noopener"><%= @completion["video_url"] %></a></p>
@@ -33,8 +37,11 @@
   <% end %>
   <p class="block has-text-grey">同じ URL で再度登録することはできません。別の予定を調整したい場合は、管理者に新しい URL の発行を依頼してください。</p>
 <% elsif @ticket_status == "expired" %>
-  <p class="block">この URL は有効期限（発行から 24 時間）が切れています。</p>
+  <p class="block">この URL は有効期限が切れています。</p>
   <p class="block has-text-grey">お手数ですが、管理者に新しい URL の発行を依頼してください。</p>
+<% elsif @ticket_status == "cancelled" %>
+  <p class="block">この URL の仮押さえはすべて取りやめられ、終了しています。</p>
+  <p class="block has-text-grey">再度調整する場合は、管理者に新しい URL の発行を依頼してください。</p>
 <% else %>
   <p class="block">この URL は無効です。</p>
   <p class="block has-text-grey">URL が正しいかご確認のうえ、必要であれば管理者に新しい URL の発行を依頼してください。</p>

@@ -1,0 +1,91 @@
+<nav class="level app-header">
+  <div class="level-left">
+    <div class="level-item">
+      <div class="is-flex is-align-items-center">
+        <span class="app-logo" aria-hidden="true">📅</span>
+        <div class="ml-3">
+          <h1 class="title is-4 mb-1">SUKESAN</h1>
+          <p class="subtitle is-6 mb-0">スケジュール管理ツール</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</nav>
+
+<% if @flash %>
+  <div class="notification is-info is-light"><%= @flash %></div>
+<% end %>
+<% if @flash_alert %>
+  <div class="notification is-warning"><%= @flash_alert %></div>
+<% end %>
+
+<% if @holder %>
+  <h2 class="title is-5">仮押さえ中の日程</h2>
+  <p class="block"><strong><%= @ticket["title"] %></strong> ／ 依頼者: <%= @ticket["requester"] %></p>
+  <p class="block is-size-7 has-text-grey">決定期限: <strong><%= format_dt(@deadline) %></strong>。期限内に 1 件へ決定するか、不要な日程を削除できます。期限を過ぎると仮押さえは無効になります。</p>
+
+  <%# 決定フォーム本体。候補のラジオは form 属性でこのフォームに紐づける（削除フォームと入れ子にしないため）。 %>
+  <form method="post" action="/hold/confirm" id="confirm-form">
+    <input type="hidden" name="authenticity_token" value="<%= csrf_token %>">
+    <input type="hidden" name="token" value="<%= @token %>">
+  </form>
+
+  <div class="box">
+    <table class="table is-fullwidth is-hoverable">
+      <thead>
+        <tr>
+          <th>選択</th>
+          <th>日時</th>
+          <th>操作</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% @holds.each do |hold| %>
+          <tr>
+            <td>
+              <input type="radio" name="slot" value="<%= hold["slot_start"] %>" form="confirm-form" required aria-label="この日程を選択" <%= "checked" if @form_restore["slot"] == hold["slot_start"] %>>
+            </td>
+            <td><%= format_slot_range(hold["slot_start"], hold["slot_end"]) %></td>
+            <td>
+              <form method="post" action="/hold/delete" class="is-inline">
+                <input type="hidden" name="authenticity_token" value="<%= csrf_token %>">
+                <input type="hidden" name="token" value="<%= @token %>">
+                <input type="hidden" name="slot" value="<%= hold["slot_start"] %>">
+                <button type="submit" class="button is-small is-light">削除</button>
+              </form>
+            </td>
+          </tr>
+        <% end %>
+      </tbody>
+    </table>
+
+    <div class="field">
+      <label class="label">参加者メールアドレス <span class="has-text-grey is-size-7">（任意）</span></label>
+      <div class="control"><textarea class="textarea" name="attendees" rows="3" form="confirm-form" placeholder="複数可。改行・カンマ・スペース区切りで入力できます"><%= @form_restore["attendees"] %></textarea></div>
+    </div>
+    <div class="field">
+      <label class="label">ビデオ会議用URLのご指定があればご記入ください <span class="has-text-grey is-size-7">（任意）</span></label>
+      <div class="control"><input class="input" type="url" name="video_url" value="<%= @form_restore["video_url"] %>" form="confirm-form" placeholder="例: https://zoom.us/j/..."></div>
+    </div>
+    <label class="checkbox mb-4">
+      <input type="checkbox" name="request_meet" value="1" form="confirm-form" <%= "checked" if @form_restore["request_meet"] == "1" %>>
+      Google Meet のリンクを発行する <span class="has-text-grey is-size-7">（任意・ビデオ会議用 URL とは併用できません）</span>
+    </label>
+    <div>
+      <button type="submit" class="button is-primary" form="confirm-form">この日程で決定する</button>
+    </div>
+  </div>
+
+  <form method="post" action="/hold/cancel" class="mt-4 mb-4">
+    <input type="hidden" name="authenticity_token" value="<%= csrf_token %>">
+    <input type="hidden" name="token" value="<%= @token %>">
+    <button type="submit" class="button is-small is-danger is-light">すべて削除して仮押さえスケジュールを解放する</button>
+  </form>
+<% else %>
+  <%# 非ホルダー（URL だけを知る第三者）には、仮押さえの内容（予定名・依頼者・日程）を一切表示しない。 %>
+  <h2 class="title is-5">仮押さえ中の URL です</h2>
+  <p class="block">この URL では現在、日程の仮押さえが行われています。内容の確認と操作（決定・削除）は、仮押さえを行ったブラウザからのみ可能です。</p>
+  <p class="block has-text-grey">心当たりがない場合は、この URL を発行した管理者にお問い合わせください。</p>
+<% end %>
+
+<p class="block"><a href="/">← トップページへ</a></p>
