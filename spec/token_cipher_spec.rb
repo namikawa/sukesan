@@ -27,4 +27,9 @@ RSpec.describe TokenCipher do
     tampered = Base64.strict_encode64(raw[0..-2] + (raw[-1].ord ^ 0x01).chr)
     expect { cipher.decrypt(tampered) }.to raise_error(OpenSSL::Cipher::CipherError)
   end
+
+  it "短すぎる暗号文（IV＋認証タグ未満）は ArgumentError にする（fail-closed の rescue 対象）" do
+    expect { cipher.decrypt(Base64.strict_encode64("short")) }
+      .to raise_error(ArgumentError, /ciphertext too short/)
+  end
 end

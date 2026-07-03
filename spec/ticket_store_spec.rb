@@ -49,6 +49,15 @@ RSpec.describe TicketStore do
       expect(described_class.find("anything", now: now)).to be_nil
       expect(described_class.all(now: now)).to eq([])
     end
+
+    it "短い破損データ（base64 は正しいが暗号文が不完全）も空として扱う（fail-closed）" do
+      FileUtils.mkdir_p(ENV.fetch("TICKETS_DIR"))
+      path = File.join(ENV.fetch("TICKETS_DIR"), "tickets-#{now.strftime('%G-W%V')}.json")
+      File.write(path, Base64.strict_encode64("xx"))
+
+      expect(described_class.find("anything", now: now)).to be_nil
+      expect(described_class.all(now: now)).to eq([])
+    end
   end
 
   describe ".use!" do

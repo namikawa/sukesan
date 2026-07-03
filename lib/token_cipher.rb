@@ -26,6 +26,10 @@ class TokenCipher
 
   def decrypt(blob)
     raw = Base64.strict_decode64(blob)
+    # 短すぎるデータ（IV＋認証タグ未満）は復号不能。nil スライス由来の TypeError 等で呼び出し側の
+    # fail-closed な rescue（ArgumentError 等の列挙）から漏れないよう、ArgumentError に正規化する。
+    raise ArgumentError, "ciphertext too short" if raw.bytesize < IV_LENGTH + TAG_LENGTH
+
     cipher = OpenSSL::Cipher.new(ALGORITHM)
     cipher.decrypt
     cipher.key = @key
