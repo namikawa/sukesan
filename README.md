@@ -12,7 +12,8 @@ SUKESAN（スケジュール管理ツール）は、Google カレンダーと連
 | `GET /t/:token` | トークン | 調整ページ（空き候補の検索・登録） |
 | `POST /schedule` | トークン | 空き枠を登録し、トークンを使用済みにする |
 | `POST /hold` ほか | トークン | 複数日程の仮押さえ・決定・削除（決定・削除は仮押さえを行ったブラウザのみ） |
-| `GET /admin` | 管理者 | ワンタイム URL の発行・一覧・無効化（未ログイン時はログイン画面） |
+| `GET /admin` | 管理者 | 管理者トップ（各ツールへの導線。未ログイン時はログイン画面） |
+| `GET /tickets` | 管理者 | ワンタイム URL の発行・一覧・無効化 |
 | `POST /tickets` / `POST /tickets/:token/revoke` | 管理者 | URL の発行 / 無効化 |
 | `GET /settings` / `POST /settings` | 管理者 | カレンダー連携・調整時間などの設定 |
 | `GET /sync` ほか | 管理者 | Outlook → Google 同期 |
@@ -35,9 +36,7 @@ SUKESAN（スケジュール管理ツール）は、Google カレンダーと連
 - アクセス制御・スパム対策: トークンの有効性と空き枠はサーバ側で再検証する（日付は ISO8601、所要時間は 15 分単位）。二重登録を防ぐため登録前にトークンを消費し、失敗時のみ復帰させる。レート制限は同一 IP につき登録 5 回/分・空き時間検索 10 回/分（超過は 429）。
 - 二重予約の抑止: 予約処理（空き再確認〜カレンダー登録）を 1 件ずつ直列化し、同じ枠の同時予約は後続をロック内の再確認で弾く。
 
-## Outlook 同期（作成途中）
-
-> ⚠️ この機能は開発途中で、動作の十分な確認が取れていません。本番利用は非推奨です。
+## Outlook 同期
 
 Google・Outlook の両方を連携し、Outlook 側にのみある予定を抽出して、選択分を Google（`primary`）へ一方向で反映します。突き合わせは「件名 + 開始 + 終了」。
 
@@ -82,7 +81,7 @@ bin/server status    # 状態確認
 bin/server run       # フォアグラウンド（サービス管理用）
 ```
 
-- 直接起動する場合は `bundle exec rackup -p 3000` または `ruby app.rb`。ブラウザで <http://localhost:3000>。
+- 直接起動する場合は `bundle exec ruby app.rb`。ブラウザで <http://localhost:3000>。
 - PID は `tmp/pids/server.pid`。ログは `log/` 配下: アクセスログは `log/access.log`（週次ローテーション。過去週は `access.log.YYYYMMDD`）、プロセス出力（起動ログ・診断 `warn`）は `log/server.log`。ポートは `PORT` で変更可。
 - OS サービス登録用テンプレートは `deploy/`（systemd: `sukesan.service` / launchd: `com.sukesan.server.plist`）。`bin/server run` を起動コマンドにし、`__APP_DIR__` 等を置換して登録する。
 - `APP_ENV=production` で本番ハードニング（HTTPS 必須リダイレクト・Cookie の Secure 化・エラー秘匿・HSTS）が有効になる。HTTPS は前段プロキシで終端し `X-Forwarded-Proto` を渡す前提。
