@@ -55,6 +55,30 @@ class GoogleCalendarClient
     raise
   end
 
+  # イベントを削除する。既に存在しない（404）・削除済み（410）の場合は成功扱いにする（冪等）。
+  # sendUpdates=none でキャンセル通知は送らない。
+  def delete_event(event_id)
+    @token.delete("#{BASE}/calendars/#{CALENDAR_ID}/events/#{event_id}", params: { sendUpdates: "none" })
+    true
+  rescue OAuth2::Error => e
+    return true if [404, 410].include?(e.response&.status)
+
+    raise
+  end
+
+  # イベントの一部項目を更新する（仮押さえの確定で使用: 件名の prefix 除去・説明の差し替え・
+  # 参加者/Google Meet の追加）。指定した項目だけを送る。戻り値は更新後の API レスポンス
+  # （JSON をパースしたハッシュ。Meet リンク取得に使う）。
+  def patch_event(event_id, summary: nil, description: nil, attendees: [], request_meet: false)
+    response = @token.patch(
+      "#{BASE}/calendars/#{CALENDAR_ID}/events/#{event_id}",
+      headers: { "Content-Type" => "application/json" },
+      params: insert_params(request_meet),
+      body: JSON.generate(patch_payload(summary, description, attendees, request_meet))
+    )
+    JSON.parse(response.body)
+  end
+
   # 作成レスポンスから Google Meet のリンクを取り出す（無ければ nil）。
   def self.meet_link(response)
     response["hangoutLink"] ||
@@ -104,6 +128,16 @@ class GoogleCalendarClient
     params = { sendUpdates: "none" }
     params[:conferenceDataVersion] = 1 if request_meet
     params
+  end
+
+  # events.patch に送る JSON ボディ（指定された項目のみ）。
+  def patch_payload(summary, description, attendees, request_meet)
+    payload = {}
+    payload[:summary] = summary if summary
+    payload[:description] = description if description
+    payload[:attendees] = attendees.map { |email| { email: email } } unless attendees.empty?
+    payload[:conferenceData] = meet_create_request if request_meet
+    payload
   end
 
   # events.insert に送る JSON ボディを組み立てる（任意項目は指定があるときだけ含める）。

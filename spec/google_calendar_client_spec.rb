@@ -57,4 +57,66 @@ RSpec.describe GoogleCalendarClient do
       expect(captured_params(request_meet: true)).to include(sendUpdates: "none", conferenceDataVersion: 1)
     end
   end
+
+  # response.status を持つ OAuth2::Error を作るヘルパ（initialize はレスポンス解析を要するため回避）。
+  def oauth2_error(status)
+    error = OAuth2::Error.allocate
+    allow(error).to receive(:response).and_return(double(status: status))
+    error
+  end
+
+  describe "#delete_event" do
+    it "削除に成功したら true を返す（sendUpdates=none 指定）" do
+      token = double
+      allow(token).to receive(:delete).and_return(double(body: ""))
+
+      expect(described_class.new(token).delete_event("ev1")).to be(true)
+      expect(token).to have_received(:delete)
+        .with(%r{/calendars/primary/events/ev1\z}, params: { sendUpdates: "none" })
+    end
+
+    it "既に存在しない（404/410）場合も削除済みとして true（冪等）" do
+      [404, 410].each do |status|
+        token = double
+        allow(token).to receive(:delete).and_raise(oauth2_error(status))
+        expect(described_class.new(token).delete_event("ev1")).to be(true)
+      end
+    end
+
+    it "その他のエラー（500 等）はそのまま送出する" do
+      token = double
+      allow(token).to receive(:delete).and_raise(oauth2_error(500))
+      expect { described_class.new(token).delete_event("ev1") }.to raise_error(OAuth2::Error)
+    end
+  end
+
+  describe "#patch_event" do
+    def captured_patch(**)
+      captured = nil
+      token = double
+      allow(token).to receive(:patch) do |*args, **opts|
+        captured = { url: args.first, params: opts[:params], body: JSON.parse(opts[:body]) }
+        double(body: '{"hangoutLink":"https://meet.google.com/abc"}')
+      end
+      response = described_class.new(token).patch_event("ev1", **)
+      [captured, response]
+    end
+
+    it "指定した項目だけを送る（件名・説明）" do
+      captured, = captured_patch(summary: "打合せ - 山田 (from 調整ツール)", description: "依頼者: 山田")
+      expect(captured[:url]).to match(%r{/calendars/primary/events/ev1\z})
+      expect(captured[:params]).to eq(sendUpdates: "none")
+      expect(captured[:body]).to eq(
+        "summary" => "打合せ - 山田 (from 調整ツール)", "description" => "依頼者: 山田"
+      )
+    end
+
+    it "参加者と Meet 発行を指定でき、レスポンスを返す" do
+      captured, response = captured_patch(summary: "x", attendees: ["a@example.com"], request_meet: true)
+      expect(captured[:params]).to include(conferenceDataVersion: 1)
+      expect(captured[:body]["attendees"]).to eq([{ "email" => "a@example.com" }])
+      expect(captured[:body]["conferenceData"]).to have_key("createRequest")
+      expect(response["hangoutLink"]).to eq("https://meet.google.com/abc")
+    end
+  end
 end
