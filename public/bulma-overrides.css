@@ -29,6 +29,18 @@
   :root:not([data-theme]) .box { background-color: #262c34; }
 }
 
+/* ダークモードではネイティブのフォーム部品も暗色スキームで描画させる（date/time 入力の
+   カレンダー・時計アイコンが黒いまま暗い背景に沈み、押しづらくなるのを防ぐ）。
+   Bulma 1.x はテーマ変数の切替のみで color-scheme プロパティを宣言しないため、ここで補う。 */
+[data-theme="dark"] input,
+[data-theme="dark"] select,
+[data-theme="dark"] textarea { color-scheme: dark; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) input,
+  :root:not([data-theme]) select,
+  :root:not([data-theme]) textarea { color-scheme: dark; }
+}
+
 /* 管理者トップのツール導線（クリックできる box）。 */
 a.menu-card { display: block; color: inherit; }
 a.menu-card:hover { border: 1px solid var(--bulma-link, #485fc7); }
