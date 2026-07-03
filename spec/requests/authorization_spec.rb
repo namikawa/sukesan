@@ -1,10 +1,12 @@
 # frozen_string_literal: true
 
 RSpec.describe "認可境界" do
-  it "未ログインで GET /sync は /admin へリダイレクトする" do
-    get "/sync"
-    expect(last_response.status).to eq(302)
-    expect(last_response.headers["Location"]).to end_with("/admin")
+  it "未ログインの管理ページ GET は、その URL のままログイン画面を表示する" do
+    %w[/admin /tickets /settings /sync].each do |path|
+      get path
+      expect(last_response.status).to eq(200), "#{path} が 200 でない"
+      expect(last_response.body).to include("管理者ログイン"), "#{path} がログイン画面でない"
+    end
   end
 
   it "未ログインで GET /auth/google は /admin へリダイレクトする" do

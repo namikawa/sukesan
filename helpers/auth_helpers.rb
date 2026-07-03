@@ -14,8 +14,16 @@ module AuthHelpers
       (Time.now.to_i - session[:admin_at].to_i) < ADMIN_SESSION_TTL
   end
 
+  # 状態変更（POST）やアクション（OAuth 開始等）のゲート。未認証は /admin へリダイレクトする。
   def require_admin!
     redirect "/admin" unless admin?
+  end
+
+  # 管理ページ（GET）のゲート。flash を取り出し、未認証ならその URL のままログイン画面を
+  # 描画して中断する（ログイン後に元のページへ戻れる）。全管理ページで挙動を統一する。
+  def require_admin_page!
+    @flash = session.delete(:flash)
+    halt erb(:login) unless admin?
   end
 
   # 入力されたパスワードを、ENV の bcrypt ダイジェスト（ADMIN_PASSWORD_DIGEST）と照合する。

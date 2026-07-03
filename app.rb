@@ -401,9 +401,7 @@ end
 
 # --- 管理者トップ（各ツールへの導線ハブ。認証していなければログイン画面を表示） ---
 get "/admin" do
-  @flash = session.delete(:flash)
-  return erb(:login) unless admin?
-
+  require_admin_page!
   erb :admin
 end
 
@@ -413,9 +411,7 @@ PER_PAGE_OPTIONS = [10, 20, 50, 100].freeze
 DEFAULT_PER_PAGE = 10
 
 get "/tickets" do
-  @flash = session.delete(:flash)
-  return erb(:login) unless admin?
-
+  require_admin_page!
   tickets = TicketStore.all
   # 表示件数はホワイトリスト照合（不正値・未指定は既定 10）。ページは 1 以上に丸め、範囲外は端へクランプ。
   @per = PER_PAGE_OPTIONS.include?(params[:per].to_i) ? params[:per].to_i : DEFAULT_PER_PAGE
@@ -428,9 +424,7 @@ end
 
 # --- 設定（管理者専用：認証していなければログイン画面を表示） ---
 get "/settings" do
-  @flash = session.delete(:flash)
-  return erb(:login) unless admin?
-
+  require_admin_page!
   @settings = SettingsStore.load
   erb :settings
 end
@@ -477,8 +471,7 @@ end
 
 # --- Outlook 同期（管理者専用） ---
 get "/sync" do
-  require_admin!
-  @flash = session.delete(:flash)
+  require_admin_page!
   @settings = SettingsStore.load
   # チェック直後の表示は 1 回だけ（POST /check で立てたフラグを消費）。更新・再表示時はフラグが無いので
   # 前回の取得範囲を破棄し、未チェック状態に戻す（古い結果を残さない）。
