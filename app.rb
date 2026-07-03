@@ -200,8 +200,9 @@ not_found do
   "ページが見つかりません。"
 end
 
-# Outlook 同期の日付範囲指定で許可する最大日数（開始〜終了の差）。日数指定の上限と揃える。
-MAX_SYNC_RANGE_DAYS = 180
+# Outlook 同期の日付範囲指定で許可する最大日数（開始〜終了の差）。
+# 日数指定の上限（SYNC_WINDOW_DAYS_RANGE）から導出し、二重定義を避ける。
+MAX_SYNC_RANGE_DAYS = SettingsParamsHelpers::SYNC_WINDOW_DAYS_RANGE.max
 
 # 公開フォーム（スケジュール調整）のスパム対策。IP ごとに 60 秒で 5 回まで。
 SCHEDULE_LIMITER = RateLimiter.new(max: 5, window_seconds: 60)

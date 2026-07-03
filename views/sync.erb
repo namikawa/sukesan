@@ -46,8 +46,10 @@
         日数で指定:
       </label>
       <input class="input is-small input-days" type="number" name="sync_window_days"
-             value="<%= @settings["sync_window_days"] %>" min="1" max="180" step="1">
-      <span>日先まで（当日 0:00 起点・最大 180）</span>
+             value="<%= @settings["sync_window_days"] %>"
+             min="<%= SettingsParamsHelpers::SYNC_WINDOW_DAYS_RANGE.min %>"
+             max="<%= SettingsParamsHelpers::SYNC_WINDOW_DAYS_RANGE.max %>" step="1">
+      <span>日先まで（当日 0:00 起点・最大 <%= MAX_SYNC_RANGE_DAYS %>）</span>
     </div>
 
     <div class="sync-line mb-3">
@@ -58,7 +60,7 @@
       <input class="input is-small input-auto" type="date" name="start_date">
       <span>〜</span>
       <input class="input is-small input-auto" type="date" name="end_date">
-      <span>（最大 180 日）</span>
+      <span>（最大 <%= MAX_SYNC_RANGE_DAYS %> 日）</span>
     </div>
 
     <label class="checkbox test-toggle mb-3">
