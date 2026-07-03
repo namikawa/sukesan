@@ -1,75 +1,69 @@
 # SUKESAN
 
-SUKESAN（スケジュール管理ツール）は、Google カレンダーと連携したスケジュール調整ツールです。管理者が発行する 1 回限り・24 時間有効のワンタイム URL から、依頼者が空き時間を選んで予定を登録できます。補助機能として、Outlook 側にのみある予定を Google へ反映する Outlook 同期（管理者専用）があります。
+SUKESAN（スケジュール管理ツール）は、Google カレンダーと連携したスケジュール調整ツールです。管理者が発行するワンタイム URL から、依頼者が空き時間を選んで予定を登録できます（1 件の登録のほか、最大 5 件の仮押さえにも対応）。補助機能として、Outlook 側にのみある予定を Google へ反映する Outlook 同期（管理者専用）があります。
 
-トップページ（`/`）は利用案内のみ。ワンタイム URL の発行・一覧・無効化は管理画面（`/admin`）、カレンダー連携や各種設定は設定画面（`/settings`）で行います。
+トップページ（`/`）は利用案内のみ。ワンタイム URL の発行・一覧・無効化は `/tickets`、カレンダー連携や調整時間の設定は `/settings` で行います（いずれも管理者専用。`/admin` が各ツールへの導線ハブ）。
 
 ## 画面と権限
 
 | URL | 権限 | 内容 |
 | --- | --- | --- |
 | `GET /` | 公開 | 利用案内ページ |
-| `GET /t/:token` | トークン | 調整ページ（空き候補の検索・登録） |
-| `POST /schedule` | トークン | 空き枠を登録し、トークンを使用済みにする |
+| `GET /t/:token` | トークン | 調整ページ（空き候補の検索・登録・仮押さえの決定/削除） |
+| `POST /schedule` | トークン | 空き枠を 1 件登録し、トークンを使用済みにする |
 | `POST /hold` ほか | トークン | 複数日程の仮押さえ・決定・削除（決定・削除は仮押さえを行ったブラウザのみ） |
-| `GET /admin` | 管理者 | 管理者トップ（各ツールへの導線。未ログイン時はログイン画面） |
-| `GET /tickets` | 管理者 | ワンタイム URL の発行・一覧・無効化 |
-| `POST /tickets` / `POST /tickets/:token/revoke` | 管理者 | URL の発行 / 無効化 |
-| `GET /settings` / `POST /settings` | 管理者 | カレンダー連携・調整時間などの設定 |
+| `GET /admin` | 管理者 | 管理者トップ（各ツールへの導線） |
+| `GET /tickets`・`POST /tickets` ほか | 管理者 | ワンタイム URL の発行・一覧・無効化 |
+| `GET /settings`・`POST /settings` ほか | 管理者 | カレンダー連携・調整時間などの設定 |
 | `GET /sync` ほか | 管理者 | Outlook → Google 同期 |
-| `/auth/google`, `/auth/microsoft` | 管理者 | OAuth 連携 |
+| `/auth/google`・`/auth/microsoft` | 管理者 | OAuth 連携 |
 
-権限の意味:
+権限の意味: 公開 = 認証不要。トークン = 有効なワンタイム URL が必要（ログイン不要）。管理者 = `ADMIN_PASSWORD_DIGEST` でのログインが必要（未認証はその場でログイン画面を表示）。
 
-- 公開 = 認証不要。
-- トークン = 有効なワンタイム URL が必要（管理者ログインは不要）。
-- 管理者 = `ADMIN_PASSWORD_DIGEST` でのログインが必要。未認証で管理ページにアクセスすると `/admin` のログインへ誘導される。
+## スケジュール登録（ワンタイム URL）
 
-## 仕組み
+- 管理者が `/tickets` で発行する（要 Google 連携）。発行から 24 時間有効・1 回の登録で使用済みになる。無効な URL へのアクセスは案内ページ（HTTP 410）を返す。一覧でステータスと登録内容を確認でき、有効な URL はコピー・手動無効化ができる。
+- 依頼者は期間と必要時間を入力すると、営業時間・曜日・昼休憩の設定に基づく 30 分刻みの空き候補（最大 5 営業日分）から枠を選んで登録できる。登録予定名は `[予定名] - [依頼者名] (from 調整ツール)`。
+- 任意項目: 参加者メールアドレス（複数可。参加者として登録するが招待メールは送らない。主催者は自動追加）、ビデオ会議 URL、Google Meet リンクの発行（URL 指定と Meet 発行は併用不可）。会議リンクは登録した本人のブラウザにのみ表示される。
+- 空き枠・入力値はサーバ側で再検証し、二重登録・同一枠の二重予約は直列化と再確認で防ぐ。レート制限は同一 IP につき登録・仮押さえ操作 5 回/分、空き時間検索 10 回/分（超過は 429）。
 
-- ワンタイム URL: 管理画面で発行（要 Google 連携）。発行から 24 時間有効・1 回登録で使用済み。一覧でステータス（有効 / 使用済み / 期限切れ / 無効化）と登録内容を確認でき、有効な URL はコピー・手動無効化が可能。無効な URL へのアクセスは HTTP 410 を返す。保存先は `data/tickets/`（ISO 週ごとに分割し、約 30 日で自動削除）。
-- 調整フロー: 依頼者が期間と必要時間を入力 → 営業時間・曜日・昼休憩の設定に基づき 30 分刻みの空き候補を日付ごとに表示 → 枠と依頼者名・予定名を入力して登録。登録予定名は `[予定名] - [依頼者名] (from 調整ツール)`。検索だけでは URL は無効化されない。一度に表示するのは最大 5 営業日。
-- 複数カレンダー仮押さえ: 調整画面のタブから最大 5 件の日程を「[仮ブロック]」としてカレンダーに仮押さえできる。仮押さえ後は同じ URL に 7 日間アクセスでき、1 件に決定すると残りの仮押さえはカレンダーから削除される（参加者・ビデオ会議 URL・Google Meet は決定時に指定）。決定・削除と内容の閲覧は仮押さえを行ったブラウザのみ可能で、URL だけを知る第三者には案内のみを表示する。管理者は一覧（`/tickets`）で仮押さえ中のチケット（残件数・期限）を確認でき、無効化すると残りの仮押さえイベントも削除される。
-- 登録時の任意項目: 参加者メールアドレス（改行・カンマ・スペース区切りで複数可。イベントの参加者に登録するが招待メールは送らない）、ビデオ会議 URL（説明欄に記載）、Google Meet リンクの発行（発行時は完了画面にリンクを表示）。ビデオ会議 URL と Meet 発行は併用不可。主催者（連携した Google アカウント）も参加者として自動追加される。
-- 設定（`/settings`）: 営業時間、調整可能な曜日、昼休憩（時間帯と確保分数。0 分で無効）を指定し、`data/settings.json` に永続化する。昼休憩の確保が難しくなる候補には「（ランチタイム）」の注意書きを表示する。件名に「ランチ」「らんち」「lunch」を含む予定が当日の 10:00〜16:00 に既にある日は、その予定を昼休憩とみなし注意書きを表示しない。
-- タイムゾーン: `APP_TIMEZONE`（既定 `Asia/Tokyo`）で固定し、画面にも表示する。
-- アクセス制御・スパム対策: トークンの有効性と空き枠はサーバ側で再検証する（日付は ISO8601、所要時間は 15 分単位）。二重登録を防ぐため登録前にトークンを消費し、失敗時のみ復帰させる。レート制限は同一 IP につき登録 5 回/分・空き時間検索 10 回/分（超過は 429）。
-- 二重予約の抑止: 予約処理（空き再確認〜カレンダー登録）を 1 件ずつ直列化し、同じ枠の同時予約は後続をロック内の再確認で弾く。
+## 複数スケジュール仮押さえ
+
+- 調整画面のタブから最大 5 件の日程を「[仮ブロック]」としてカレンダーに仮押さえできる。仮押さえ後は同じ URL に 7 日間アクセスでき、1 件に決定すると残りの仮押さえは自動削除される（参加者・ビデオ会議 URL・Google Meet は決定時に指定）。
+- 決定・個別削除・全削除と内容の閲覧は、仮押さえを行ったブラウザのみ可能（URL だけを知る第三者には案内のみ表示）。ブラウザの Cookie を失うと操作できなくなるため、その場合は管理者が無効化して新しい URL を再発行する。
+- 管理者は `/tickets` で仮押さえ中のチケット（日程・残件数・期限）を確認でき、無効化すると残りの仮押さえイベントもカレンダーから削除される。
+
+## 設定（`/settings`）
+
+- 営業時間・調整可能な曜日・昼休憩（時間帯と確保分数。0 分で無効）を設定する。
+- 昼休憩の確保が難しくなる候補には「（ランチタイム）」の注意書きを表示する。件名に「ランチ」「らんち」「lunch」を含む予定が当日の 10:00〜16:00 に既にある日は、その予定を昼休憩とみなし表示しない。
+- 時刻はすべて `APP_TIMEZONE`（既定 `Asia/Tokyo`）で解釈・表示する。
 
 ## Outlook 同期
 
 Google・Outlook の両方を連携し、Outlook 側にのみある予定を抽出して、選択分を Google（`primary`）へ一方向で反映します。突き合わせは「件名 + 開始 + 終了」。
 
-- 取得範囲は同期画面（`/sync`）で指定: 「日数で指定」（当日 0:00 起点〜N 日先、最大 180）か「日付範囲で指定」（開始日〜終了日、最大 180 日）をラジオで選ぶ。Google・Outlook 共通。日数は前回値を既定として記憶する。
-- テストモード: チェック時に有効にすると、差分を一覧表示するだけで Google には反映しない（誤適用防止のためサーバ側でも反映を拒否）。通常モードは従来どおり差分を選択して反映する。
-- 両カレンダーともページネーション（Google は `nextPageToken`、Outlook は `@odata.nextLink`）で全件取得する。
+- 取得範囲は `/sync` で「日数（当日 0:00 起点・最大 180）」か「日付範囲（最大 180 日）」を指定する。日数は前回値を既定として記憶する。
+- テストモードでは差分の一覧表示のみで Google には反映しない（誤適用防止のためサーバ側でも反映を拒否）。
 
 ## セットアップ
 
-依存 gem:
-
 ```bash
 bundle install
+cp .env.example .env   # 値を設定（各項目の説明は .env.example 内のコメント参照）
 ```
 
-OAuth クライアント:
+OAuth クライアントの用意:
 
-- Google（必須）: Google Cloud Console で Calendar API を有効化し、OAuth クライアント ID（ウェブ）を作成。リダイレクト URI に `http://localhost:3000/auth/google/callback` を登録。スコープは `https://www.googleapis.com/auth/calendar.events`（予定の読み書き）と `https://www.googleapis.com/auth/userinfo.email`（主催者メールの取得）で、OAuth 同意画面にも両スコープを追加する。
+- Google（必須）: Google Cloud Console で Calendar API を有効化し、OAuth クライアント ID（ウェブ）を作成。リダイレクト URI に `http://localhost:3000/auth/google/callback` を登録。スコープは `https://www.googleapis.com/auth/calendar.events` と `https://www.googleapis.com/auth/userinfo.email`（OAuth 同意画面にも追加）。
 - Microsoft（Outlook 同期を使う場合のみ）: Azure でアプリ登録し、リダイレクト URI `http://localhost:3000/auth/microsoft/callback` を登録。委任アクセス許可 `Calendars.Read` と `offline_access` を付与。
 
-環境変数（`.env.example` をコピーして設定）:
+主な環境変数（一覧と説明は `.env.example`）:
 
-```bash
-cp .env.example .env
-```
-
-- `ADMIN_PASSWORD_DIGEST`: 管理者パスワードの bcrypt ダイジェスト（平文は保存しない）。`bin/admin_password_digest` で生成し、出力行を `.env` に貼り付ける。値に `$` を含むためシングルクォートで囲む。未設定だとログイン不可。
-- `SESSION_SECRET`: セッション Cookie（署名付き）の鍵。64 文字以上が必須（短いと起動失敗）。本番（`APP_ENV=production`）は必須、開発は未設定なら一時生成。生成例 `ruby -rsecurerandom -e 'puts SecureRandom.hex(64)'`。
-- `TOKEN_ENCRYPTION_KEY`: 保存する OAuth トークン（Google / Microsoft）の暗号化鍵。本番は必須、開発は未設定なら `SESSION_SECRET` から導出。
+- `ADMIN_PASSWORD_DIGEST`: 管理者パスワードの bcrypt ダイジェスト。`bin/admin_password_digest` で生成し、シングルクォートで囲んで設定する。未設定だとログイン不可。
+- `SESSION_SECRET`（64 文字以上）と `TOKEN_ENCRYPTION_KEY`: セッションと保存トークン・チケットの鍵。本番では必須。`TOKEN_ENCRYPTION_KEY` を変更・紛失すると既存の保存データは復号できない。
 - `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` と、Outlook 用の `MS_CLIENT_ID` / `MS_CLIENT_SECRET` / `MS_TENANT_ID`。
-- `APP_TIMEZONE`: タイムゾーン（既定 `Asia/Tokyo`、tz database 名）。
-- `APP_BASE_URL`: 公開 URL。OAuth の redirect_uri やチケット URL の生成に使い、Host ヘッダ汚染を排除する。本番（`APP_ENV=production`）では必須で、未設定だと起動に失敗する。開発は未設定ならリクエストから組み立てる。
-- `.env` は `chmod 600` 推奨。
+- `APP_BASE_URL`: 公開 URL。OAuth の redirect_uri やチケット URL の生成に使う。本番（`APP_ENV=production`）では必須。
 
 ## 起動・運用
 
@@ -81,35 +75,25 @@ bin/server status    # 状態確認
 bin/server run       # フォアグラウンド（サービス管理用）
 ```
 
-- 直接起動する場合は `bundle exec ruby app.rb`。ブラウザで <http://localhost:3000>。
-- PID は `tmp/pids/server.pid`。ログは `log/` 配下: アクセスログは `log/access.log`（週次ローテーション。過去週は `access.log.YYYYMMDD`）、プロセス出力（起動ログ・診断 `warn`）は `log/server.log`。ポートは `PORT` で変更可。
+- ブラウザで <http://localhost:3000>（ポートは `PORT` で変更可）。直接起動する場合は `bundle exec ruby app.rb`。
+- ログは `log/` 配下。アクセスログ `access.log`（ワンタイム URL のトークン・OAuth code はマスクして記録。週次ローテーション）、監査ログ `audit.log`（ログイン成否・URL 発行/無効化・設定変更・連携・予約・仮押さえ操作を 1 行 JSON で記録）、プロセス出力 `server.log`。`LOG_TO_STDOUT=true` で stdout へ切替（コンテナ向け）。
 - OS サービス登録用テンプレートは `deploy/`（systemd: `sukesan.service` / launchd: `com.sukesan.server.plist`）。`bin/server run` を起動コマンドにし、`__APP_DIR__` 等を置換して登録する。
-- `APP_ENV=production` で本番ハードニング（HTTPS 必須リダイレクト・Cookie の Secure 化・エラー秘匿・HSTS）が有効になる。HTTPS は前段プロキシで終端し `X-Forwarded-Proto` を渡す前提。
+- `APP_ENV=production` で本番ハードニング（HTTPS 必須リダイレクト・Cookie の Secure 化・エラー秘匿・HSTS）が有効になる。HTTPS は前段プロキシで終端し、`APP_TRUST_PROXY=true` を設定する。
 
 ## データストア（file / firestore）
 
-`STORE_BACKEND` で永続化の実装を切り替える（設定・OAuth トークン・チケット）。
+`STORE_BACKEND` で永続化の実装を切り替える（設定・OAuth トークン・チケット）。どちらの実装でも、トークンとチケットは `TOKEN_ENCRYPTION_KEY` で暗号化して保存する（Firestore では制御・クエリ用の最小限のフィールドのみ平文）。
 
-- `file`（既定）: `data/` 配下のローカルファイル。flock で直列化するため単一ホスト前提（単一インスタンス＋永続ディスク）。開発や VM 運用向け。
-- `firestore`: Google Cloud Firestore。各ストアの read-modify-write とチケットの一回限り消費（`use!`）はトランザクション／条件付き書き込みで処理するためロックファイル不要で、複数インスタンスでも一貫する。チケットの物理削除は `purge_at` フィールドの TTL ポリシーに委ねる。ただし「別チケットによる同一スロットの二重予約」防止はプロセス内ロックに依存するため、単一インスタンス運用（`max-instances=1`）が前提（複数インスタンスでスケールする場合はスロット予約 document による排他が別途必要）。
+- `file`（既定）: `data/` 配下のローカルファイル（0600・Atomic 書き込み）。flock で直列化するため単一ホスト前提。開発・VM 運用向け。内訳は `settings.json`（設定）、`google_token.json` / `microsoft_token.json`（OAuth トークン）、`tickets/`（ワンタイム URL。ISO 週ごとに分割し、約 30 日で自動削除）。
+- `firestore`: Google Cloud Firestore（Cloud Run など向け）。チケットの状態遷移はトランザクションで処理し、物理削除は `purge_at` フィールドの TTL ポリシーに委ねる。同一スロットの二重予約防止はプロセス内ロックに依存するため、単一インスタンス運用（`max-instances=1`）が前提。
 
-どちらの実装でも、OAuth トークンとチケットのセンシティブな情報は `TOKEN_ENCRYPTION_KEY` で暗号化して保存する（Firestore では制御・クエリ用の最小限のフィールドのみ平文）。
+## Cloud Run デプロイ
 
-## コンテナ / Cloud Run デプロイ
+コンテナはプレーン HTTP で `$PORT`（Cloud Run は既定 8080）を listen し、TLS はプラットフォームが終端する前提。手順の概略:
 
-コンテナはプレーン HTTP で `$PORT`（Cloud Run は既定 8080）を listen し、TLS はプラットフォームが終端する前提（`nginx` 等は同梱しない）。
-
-ローカルで本番相当（Firestore バックエンド）を動かす:
-
-```bash
-docker compose up --build   # アプリ + Firestore エミュレータ。http://localhost:3000
-```
-
-Cloud Run へのデプロイ手順（概略）:
-
-1. Firestore（Native モード）を有効化し、`tickets` コレクションの `purge_at` フィールドに TTL ポリシーを設定する（期限切れチケットの自動削除）。`created_at_ts` は一覧の並べ替えに使う（単一フィールドインデックスで足りる）。
-2. 秘密情報を Secret Manager に登録: `SESSION_SECRET`（64 文字以上）/ `TOKEN_ENCRYPTION_KEY` / `ADMIN_PASSWORD_DIGEST` / `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` /（Outlook 同期を使うなら）`MS_CLIENT_ID` / `MS_CLIENT_SECRET` / `MS_TENANT_ID`。`TOKEN_ENCRYPTION_KEY` はデプロイをまたいで固定し、別途バックアップする（変更・紛失で既存トークン・チケットが復号不能になる）。
-3. ビルドしてデプロイ（Cloud Run は x86_64）:
+1. Firestore（Native モード）を有効化し、`tickets` コレクションの `purge_at` フィールドに TTL ポリシーを設定する。
+2. 秘密情報を Secret Manager に登録: `SESSION_SECRET` / `TOKEN_ENCRYPTION_KEY` / `ADMIN_PASSWORD_DIGEST` / `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` /（Outlook 同期を使うなら）`MS_CLIENT_ID` / `MS_CLIENT_SECRET` / `MS_TENANT_ID`。`TOKEN_ENCRYPTION_KEY` はデプロイをまたいで固定し、別途バックアップする。
+3. ビルドしてデプロイ:
 
    ```bash
    gcloud run deploy sukesan \
@@ -117,16 +101,13 @@ Cloud Run へのデプロイ手順（概略）:
      --region asia-northeast1 \
      --allow-unauthenticated \
      --max-instances 1 \
-     --set-env-vars APP_ENV=production,STORE_BACKEND=firestore,APP_TRUST_PROXY=true,APP_BASE_URL=https://YOUR_DOMAIN,APP_TIMEZONE=Asia/Tokyo \
+     --set-env-vars APP_ENV=production,STORE_BACKEND=firestore,APP_TRUST_PROXY=true,APP_BASE_URL=https://YOUR_DOMAIN,APP_TIMEZONE=Asia/Tokyo,LOG_TO_STDOUT=true \
      --set-secrets SESSION_SECRET=SESSION_SECRET:latest,TOKEN_ENCRYPTION_KEY=TOKEN_ENCRYPTION_KEY:latest,ADMIN_PASSWORD_DIGEST=ADMIN_PASSWORD_DIGEST:latest,GOOGLE_CLIENT_ID=GOOGLE_CLIENT_ID:latest,GOOGLE_CLIENT_SECRET=GOOGLE_CLIENT_SECRET:latest
    ```
 
-   `--max-instances 1` は同一スロットの二重予約を防ぐための前提（min は 0 のままでゼロスケール可）。デプロイ中のリビジョン切替で旧新が一瞬重なる窓は残るため、厳密な二重予約防止が必要な用途では slot reservation document による排他を実装する。
+4. 独自ドメインはロードバランサを使わず Cloud Run のドメインマッピング（または Firebase Hosting）で割り当て、`APP_BASE_URL` と OAuth の redirect_uri を本番ドメインに合わせる。
 
-4. 独自ドメインはロードバランサを使わず Cloud Run のドメインマッピング（または Firebase Hosting）で割り当てる（管理 TLS・自動更新）。`APP_BASE_URL` と OAuth の redirect_uri を本番ドメインに合わせる。
-5. `APP_TRUST_PROXY=true` で `X-Forwarded-Proto`（HTTPS 判定・リダイレクト）と `X-Forwarded-For`（レート制限の IP）を信頼する。
-
-備考: アクセスログは Cloud Run が自動収集する。レート制限はインスタンス内メモリのため複数インスタンス間では共有されない。
+備考: `--max-instances 1` は同一スロットの二重予約を防ぐための前提。ログは stdout 経由で Cloud Logging に収集される。レート制限はインスタンス内メモリのため複数インスタンス間では共有されない。
 
 ## 開発
 
@@ -135,23 +116,13 @@ bundle exec rspec          # テスト
 bundle exec rubocop        # Lint（-a で自動修正）
 ```
 
-構成: ルートと起動設定は `app.rb`、Web ヘルパは `helpers/`、ドメインロジックは `lib/`（空き時間検索は `lib/availability_search.rb`、チケットは `lib/ticket_store.rb` など）、ビューは `views/`、テストは `spec/`。
-
-CSP（`script-src 'self'` / `style-src 'self'`）を維持するためのルール:
-
-- ERB に inline `<script>` や `onclick` などの inline イベントハンドラを追加しない。
-- 画面ごとの JavaScript は `public/*.js` に分離し、`<script src>` で読み込む。
-
-## データ（file バックエンド）
-
-`STORE_BACKEND=file` のとき、`data/` 配下に本人のみ読み書き可（0600）・Atomic 書き込みで保存する。
-
-- `data/settings.json`: 調整時間などの設定。
-- `data/google_token.json` / `data/microsoft_token.json`: OAuth トークン（refresh token を含む）。
-- `data/tickets/`: 発行済みワンタイム URL の状態と登録内容。
+- Firestore アダプタの spec はエミュレータ（`FIRESTORE_EMULATOR_HOST`）がある場合のみ実行される。`docker compose up --build` でアプリ＋エミュレータの本番相当（<http://localhost:3000>）も起動できる。
+- CI（GitHub Actions）で rubocop / rspec / Firestore アダプタ / bundler-audit / secret scan を実行する。
+- CSP（`script-src 'self'` / `style-src 'self'`）を維持するため、ERB に inline `<script>` や inline イベントハンドラを書かず、JavaScript は `public/*.js` に分離して `<script src>` で読み込む。
+- 構成: ルートと起動設定は `app.rb`、Web ヘルパは `helpers/`、ドメインロジックは `lib/`、ビューは `views/`、テストは `spec/`。
 
 ## 注意・制約
 
-- ワンタイム URL を知る人は期限内・未使用なら登録できるため、共有先に注意する。
+- ワンタイム URL を知る人は期限内・未使用なら登録できるため、共有先に注意する（仮押さえの決定・削除は実行したブラウザに限定される）。
 - 反映先は Google の `primary` カレンダー。
 - 本番は HTTPS 必須。OAuth リダイレクト URI は本番ドメインに合わせて登録する。
