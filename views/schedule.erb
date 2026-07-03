@@ -19,6 +19,9 @@
 <% if @flash %>
   <div class="notification is-info is-light"><%= @flash %></div>
 <% end %>
+<% if @flash_alert %>
+  <div class="notification is-warning"><%= @flash_alert %></div>
+<% end %>
 
 <% unless google_connected? %>
   <div class="notification is-warning">現在カレンダーが連携されていないため、スケジュール調整はできません。管理者にお問い合わせください。</div>
@@ -66,59 +69,118 @@
     <% if @capped %>
       <p class="block is-size-7 has-text-grey">※ 期間が長いため、最初の <%= AvailabilitySearch::MAX_BUSINESS_DAYS %> 営業日分のみ表示しています。</p>
     <% end %>
-    <p class="block">希望の時間帯を選び、依頼者名と予定名を入力して「スケジュール登録する」を押してください。</p>
     <% if @results.any? { |_, slots| slots.any?(&:lunch) } %>
       <div class="notification is-warning is-light">
         <span class="lunch-tag">（ランチタイム）</span>
         の枠は、昼休憩の確保が難しくなりますので、もし可能であれば他の枠を優先的にご選択いただけますとありがたいです。
       </div>
     <% end %>
-    <form method="post" action="/schedule" class="box">
-      <input type="hidden" name="authenticity_token" value="<%= csrf_token %>">
-      <input type="hidden" name="token" value="<%= @token %>">
-      <div class="field">
-        <label class="label">依頼者名</label>
-        <div class="control"><input class="input" type="text" name="requester" placeholder="例: 山田 太郎" required></div>
-      </div>
-      <div class="field">
-        <label class="label">予定名</label>
-        <div class="control"><input class="input" type="text" name="title" placeholder="例: 打ち合わせ" required></div>
-      </div>
-      <div class="field">
-        <label class="label">参加者メールアドレス <span class="has-text-grey is-size-7">（任意）</span></label>
-        <div class="control"><textarea class="textarea" name="attendees" rows="3" placeholder="複数可。改行・カンマ・スペース区切りで入力できます"></textarea></div>
-      </div>
-      <div class="field">
-        <label class="label">ビデオ会議用URLのご指定があればご記入ください <span class="has-text-grey is-size-7">（任意）</span></label>
-        <div class="control"><input class="input" type="url" name="video_url" placeholder="例: https://zoom.us/j/..."></div>
-      </div>
-      <label class="checkbox mb-4">
-        <input type="checkbox" name="request_meet" value="1">
-        Google Meet のリンクを発行する <span class="has-text-grey is-size-7">（任意・ビデオ会議用 URL とは併用できません）</span>
-      </label>
 
-      <% @results.each do |date, slots| %>
-        <% next if slots.empty? %>
-        <div class="day-group">
-          <h3 class="day-head"><%= format_date_label(date) %></h3>
-          <ul class="slots">
-            <% slots.each do |slot| %>
-              <li class="<%= "lunch" if slot.lunch %>">
-                <label>
-                  <input type="radio" name="slot" value="<%= slot.starts_at.iso8601 %>/<%= slot.ends_at.iso8601 %>" required>
-                  <%= format_time(slot.starts_at) %> 〜 <%= format_time(slot.ends_at) %>
-                  <% if slot.lunch %><span class="lunch-tag">（ランチタイム）</span><% end %>
-                </label>
-              </li>
-            <% end %>
-          </ul>
+    <%# タブは JS 有効時のみ表示（tabs.js が is-hidden を外す）。JS 無効時は両フォームを縦に表示する。
+        表示制御は hidden 属性でなく Bulma の .is-hidden（!important）を使う（.tabs の display:flex が
+        hidden 属性の UA スタイルを上書きするため）。仮押さえの入力復元時は仮押さえタブを初期表示にする。 %>
+    <% hold_tab_active = @form_restore.any? %>
+    <div class="tabs is-boxed is-hidden" id="mode-tabs">
+      <ul>
+        <li class="<%= "is-active" unless hold_tab_active %>" data-tab="tab-book"><a>スケジュール登録</a></li>
+        <li class="<%= "is-active" if hold_tab_active %>" data-tab="tab-hold"><a>複数スケジュール仮押さえ</a></li>
+      </ul>
+    </div>
+
+    <section id="tab-book" class="mode-panel">
+      <p class="block">希望の時間帯を 1 つ選び、依頼者名と予定名を入力して「スケジュール登録する」を押してください。</p>
+      <form method="post" action="/schedule" class="box">
+        <input type="hidden" name="authenticity_token" value="<%= csrf_token %>">
+        <input type="hidden" name="token" value="<%= @token %>">
+        <div class="field">
+          <label class="label">依頼者名</label>
+          <div class="control"><input class="input" type="text" name="requester" placeholder="例: 山田 太郎" required></div>
         </div>
-      <% end %>
-      <button type="submit" class="button is-primary mt-4">スケジュール登録する</button>
-    </form>
+        <div class="field">
+          <label class="label">予定名</label>
+          <div class="control"><input class="input" type="text" name="title" placeholder="例: 打ち合わせ" required></div>
+        </div>
+        <div class="field">
+          <label class="label">参加者メールアドレス <span class="has-text-grey is-size-7">（任意）</span></label>
+          <div class="control"><textarea class="textarea" name="attendees" rows="3" placeholder="複数可。改行・カンマ・スペース区切りで入力できます"></textarea></div>
+        </div>
+        <div class="field">
+          <label class="label">ビデオ会議用URLのご指定があればご記入ください <span class="has-text-grey is-size-7">（任意）</span></label>
+          <div class="control"><input class="input" type="url" name="video_url" placeholder="例: https://zoom.us/j/..."></div>
+        </div>
+        <label class="checkbox mb-4">
+          <input type="checkbox" name="request_meet" value="1">
+          Google Meet のリンクを発行する <span class="has-text-grey is-size-7">（任意・ビデオ会議用 URL とは併用できません）</span>
+        </label>
+
+        <% @results.each do |date, slots| %>
+          <% next if slots.empty? %>
+          <div class="day-group">
+            <h3 class="day-head"><%= format_date_label(date) %></h3>
+            <ul class="slots">
+              <% slots.each do |slot| %>
+                <li class="<%= "lunch" if slot.lunch %>">
+                  <label>
+                    <input type="radio" name="slot" value="<%= slot.starts_at.iso8601 %>/<%= slot.ends_at.iso8601 %>" required>
+                    <%= format_time(slot.starts_at) %> 〜 <%= format_time(slot.ends_at) %>
+                    <% if slot.lunch %><span class="lunch-tag">（ランチタイム）</span><% end %>
+                  </label>
+                </li>
+              <% end %>
+            </ul>
+          </div>
+        <% end %>
+        <button type="submit" class="button is-primary mt-4">スケジュール登録する</button>
+      </form>
+    </section>
+
+    <section id="tab-hold" class="mode-panel">
+      <p class="block">複数の日程（最大 <%= HoldService::MAX_HOLDS %> 件）を「[仮ブロック]」としてカレンダーに仮押さえできます。仮押さえ後、この URL から 7 日以内に 1 件へ決定してください。参加者やビデオ会議は決定時に指定できます。</p>
+      <form method="post" action="/hold" class="box" id="hold-form" data-max-holds="<%= HoldService::MAX_HOLDS %>">
+        <input type="hidden" name="authenticity_token" value="<%= csrf_token %>">
+        <input type="hidden" name="token" value="<%= @token %>">
+        <%# 入力エラー時に候補一覧の表示状態へ戻れるよう、検索条件を引き回す（redirect_with_alert! が使用）。 %>
+        <input type="hidden" name="start_date" value="<%= @start_date %>">
+        <input type="hidden" name="end_date" value="<%= @end_date %>">
+        <input type="hidden" name="duration" value="<%= @duration %>">
+        <div class="field">
+          <label class="label">依頼者名</label>
+          <div class="control"><input class="input" type="text" name="requester" value="<%= @form_restore["requester"] %>" placeholder="例: 山田 太郎" required></div>
+        </div>
+        <div class="field">
+          <label class="label">予定名</label>
+          <div class="control"><input class="input" type="text" name="title" value="<%= @form_restore["title"] %>" placeholder="例: 打ち合わせ" required></div>
+        </div>
+
+        <% @results.each do |date, slots| %>
+          <% next if slots.empty? %>
+          <div class="day-group">
+            <h3 class="day-head"><%= format_date_label(date) %></h3>
+            <ul class="slots">
+              <% slots.each do |slot| %>
+                <% slot_value = "#{slot.starts_at.iso8601}/#{slot.ends_at.iso8601}" %>
+                <li class="<%= "lunch" if slot.lunch %>">
+                  <label>
+                    <input type="checkbox" name="slots[]" value="<%= slot_value %>" <%= "checked" if @form_restore["slots"]&.include?(slot_value) %>>
+                    <%= format_time(slot.starts_at) %> 〜 <%= format_time(slot.ends_at) %>
+                    <% if slot.lunch %><span class="lunch-tag">（ランチタイム）</span><% end %>
+                  </label>
+                </li>
+              <% end %>
+            </ul>
+          </div>
+        <% end %>
+        <div class="mt-4">
+          <span id="hold-count" class="is-size-7 has-text-grey mr-3"></span>
+          <button type="submit" class="button is-primary">選択した日程を仮押さえする</button>
+        </div>
+      </form>
+    </section>
   <% else %>
     <div class="notification is-info">
       指定した期間内に <%= @duration %>分 の空きはありませんでした。期間・時間を変えてお試しください。
     </div>
   <% end %>
 <% end %>
+<script src="/tabs.js"></script>
+<script src="/hold-form.js"></script>

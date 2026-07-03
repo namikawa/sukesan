@@ -1,0 +1,191 @@
+# frozen_string_literal: true
+
+RSpec.describe "複数カレンダー仮押さえ /hold" do
+  let(:token_hash) { { "access_token" => "fake", "expires_at" => 4_102_444_800, "admin_email" => "admin@example.com" } }
+  let(:settings) do
+    {
+      "business_start" => "09:00", "business_end" => "18:00", "business_days" => [1, 2, 3, 4, 5],
+      "lunch_start" => "11:00", "lunch_end" => "14:00", "lunch_minutes" => 60
+    }
+  end
+
+  # 過去・直前拒否（リードタイム）に掛からない、十分先の営業日（平日）。
+  def future_weekday
+    d = Date.today + 7
+    d += 1 until (1..5).cover?(d.wday)
+    d
+  end
+
+  let(:date) { future_weekday }
+  let(:slot1) { "#{date}T09:00:00+09:00/#{date}T09:30:00+09:00" }
+  let(:slot2) { "#{date}T10:00:00+09:00/#{date}T10:30:00+09:00" }
+  let(:ticket) { TicketStore.create }
+
+  before do
+    allow(TokenStore).to receive(:load).and_return(token_hash)
+    allow(SettingsStore).to receive(:load).and_return(settings)
+    stub_request(:get, %r{googleapis\.com/calendar/v3/calendars/primary/events})
+      .to_return(status: 200, body: { "items" => [] }.to_json, headers: { "Content-Type" => "application/json" })
+    stub_request(:post, %r{googleapis\.com/calendar/v3/calendars/primary/events})
+      .to_return(status: 200, body: "{}", headers: { "Content-Type" => "application/json" })
+    stub_request(:patch, %r{googleapis\.com/calendar/v3/calendars/primary/events/})
+      .to_return(status: 200, body: "{}", headers: { "Content-Type" => "application/json" })
+    stub_request(:delete, %r{googleapis\.com/calendar/v3/calendars/primary/events/})
+      .to_return(status: 204, body: "")
+  end
+
+  def create_holds(slots: [slot1, slot2])
+    post "/hold", authenticity_token: csrf_token, token: ticket,
+                  requester: "山田", title: "打合せ", slots: slots
+  end
+
+  it "選択した日程を [仮ブロック] として作成し、チケットを仮押さえ状態にする" do
+    allow(AuditLog).to receive(:record)
+    create_holds
+    expect(last_response.status).to eq(302)
+
+    expect(TicketStore.status(TicketStore.find(ticket))).to eq("held")
+    created = a_request(:post, %r{googleapis\.com/calendar/v3/calendars/primary/events})
+              .with { |req| JSON.parse(req.body)["summary"].start_with?("[仮ブロック] 打合せ - 山田") }
+    expect(created).to have_been_made.times(2)
+    expect(AuditLog).to have_received(:record)
+      .with(:hold_created, ip: anything, target: a_string_matching(/count=2\z/))
+
+    follow_redirect!
+    expect(last_response.body).to include("仮押さえ中の日程")
+    expect(last_response.body).to include("この日程で決定する")
+  end
+
+  it "調整画面（検索結果）に仮押さえタブが表示される" do
+    get "/t/#{ticket}", start_date: date.to_s, end_date: date.to_s, duration: "30"
+    expect(last_response.body).to include("複数スケジュール仮押さえ")
+    expect(last_response.body).to include('name="slots[]"')
+  end
+
+  it "仮押さえ後はセッション Cookie の期限が 7 日へ延長され、通常セッションは 24 時間のまま" do
+    get "/settings" # 通常セッション（CSRF トークンのみ）
+    normal = last_response.headers["Set-Cookie"][/expires=([^;]+)/i, 1]
+    expect(Time.parse(normal)).to be < Time.now + (2 * 86_400)
+
+    create_holds
+    extended = last_response.headers["Set-Cookie"][/expires=([^;]+)/i, 1]
+    expect(Time.parse(extended)).to be > Time.now + (6 * 86_400)
+  end
+
+  it "別ブラウザ（Cookie 無し）には内容を表示せず、決定・削除は 403" do
+    create_holds
+    clear_cookies # 別ブラウザを模す
+
+    get "/t/#{ticket}"
+    expect(last_response.status).to eq(200)
+    expect(last_response.body).to include("仮押さえを行ったブラウザからのみ")
+    expect(last_response.body).not_to include("この日程で決定する")
+    # 予定名・依頼者・日程の一覧も表示しない。
+    expect(last_response.body).not_to include("打合せ")
+    expect(last_response.body).not_to include("山田")
+    expect(last_response.body).not_to include("09:00")
+
+    post "/hold/confirm", authenticity_token: csrf_token, token: ticket, slot: "#{date}T09:00:00+09:00"
+    expect(last_response.status).to eq(403)
+
+    post "/hold/delete", authenticity_token: csrf_token, token: ticket, slot: "#{date}T09:00:00+09:00"
+    expect(last_response.status).to eq(403)
+  end
+
+  it "ホルダーは 1 件に決定でき、決定イベントは件名更新・他候補は削除される" do
+    create_holds
+    post "/hold/confirm", authenticity_token: csrf_token, token: ticket,
+                          slot: "#{date}T09:00:00+09:00"
+    expect(last_response.status).to eq(302)
+
+    saved = TicketStore.find(ticket)
+    expect(TicketStore.status(saved)).to eq("used")
+    expect(saved["slot_start"]).to eq("#{date}T09:00:00+09:00")
+
+    patched = a_request(:patch, %r{googleapis\.com/calendar/v3/calendars/primary/events/})
+              .with { |req| JSON.parse(req.body)["summary"] == "打合せ - 山田 (from 調整ツール)" }
+    expect(patched).to have_been_made.once
+    expect(a_request(:delete, %r{googleapis\.com/calendar/v3/calendars/primary/events/}))
+      .to have_been_made.once
+
+    follow_redirect!
+    expect(last_response.status).to eq(410) # used の案内ページ
+    expect(last_response.body).to include("決定しました")
+  end
+
+  it "holds に無いスロットでは決定できず、決定画面に警告を表示する" do
+    create_holds
+    post "/hold/confirm", authenticity_token: csrf_token, token: ticket, slot: "#{date}T13:00:00+09:00"
+    expect(last_response.status).to eq(302)
+
+    follow_redirect!
+    expect(last_response.body).to include("決定する日程を選択してください")
+    expect(TicketStore.status(TicketStore.find(ticket))).to eq("held") # 決定されていない
+  end
+
+  it "個別削除で候補が減り、最後の 1 件を削除すると終了（cancelled）する" do
+    create_holds
+    post "/hold/delete", authenticity_token: csrf_token, token: ticket, slot: "#{date}T09:00:00+09:00"
+    expect(last_response.status).to eq(302)
+    expect(TicketStore.status(TicketStore.find(ticket))).to eq("held")
+
+    post "/hold/delete", authenticity_token: csrf_token, token: ticket, slot: "#{date}T10:00:00+09:00"
+    expect(TicketStore.status(TicketStore.find(ticket))).to eq("cancelled")
+
+    get "/t/#{ticket}"
+    expect(last_response.status).to eq(410)
+    expect(last_response.body).to include("取りやめられ")
+  end
+
+  it "「すべて削除して終了」で全イベントを削除して cancelled にする" do
+    create_holds
+    post "/hold/cancel", authenticity_token: csrf_token, token: ticket
+    expect(last_response.status).to eq(302)
+    expect(TicketStore.status(TicketStore.find(ticket))).to eq("cancelled")
+    expect(a_request(:delete, %r{googleapis\.com/calendar/v3/calendars/primary/events/}))
+      .to have_been_made.times(2)
+  end
+
+  it "入力エラー後も依頼者名・予定名・選択済みスロットを復元し、仮押さえタブを初期表示にする" do
+    six = (0...6).map do |i|
+      "#{date}T#{format('%02d', 9 + i)}:00:00+09:00/#{date}T#{format('%02d', 9 + i)}:30:00+09:00"
+    end
+    post "/hold", authenticity_token: csrf_token, token: ticket, requester: "山田", title: "打合せ",
+                  slots: six, start_date: date.to_s, end_date: date.to_s, duration: "30"
+    follow_redirect!
+
+    expect(last_response.body).to include('value="山田"')
+    expect(last_response.body).to include('value="打合せ"')
+    expect(last_response.body).to match(/value="#{Regexp.escape(six.first)}" checked/)
+    expect(last_response.body).to include('class="is-active" data-tab="tab-hold"')
+  end
+
+  it "件数超過・重複・候補外の選択は弾き、元画面上部に警告を表示する" do
+    six = (0...6).map do |i|
+      "#{date}T#{format('%02d', 9 + i)}:00:00+09:00/#{date}T#{format('%02d', 9 + i)}:30:00+09:00"
+    end
+    create_holds(slots: six)
+    expect(last_response.status).to eq(302) # 最大 5 件
+    follow_redirect!
+    expect(last_response.body).to include("仮押さえは最大 5 件までです")
+
+    create_holds(slots: [slot1, slot1])
+    follow_redirect! # 時間帯の重複
+    expect(last_response.body).to include("重複しています")
+
+    create_holds(slots: ["#{date}T09:15:00+09:00/#{date}T09:45:00+09:00"])
+    follow_redirect! # サーバ側再計算の候補に無い枠
+    expect(last_response.body).to include("予約できなくなりました")
+    expect(TicketStore.status(TicketStore.find(ticket))).to eq("active") # 仮押さえされていない
+  end
+
+  it "使用済みチケットでは仮押さえできず、案内ページに警告を表示する" do
+    TicketStore.use!(ticket, attrs: {})
+    create_holds
+    expect(last_response.status).to eq(302)
+
+    follow_redirect!
+    expect(last_response.status).to eq(410)
+    expect(last_response.body).to include("この URL は無効か、期限切れです")
+  end
+end

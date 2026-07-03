@@ -68,6 +68,9 @@ a.menu-card:hover { border: 1px solid var(--bulma-link, #485fc7); }
 /* 一覧テーブルの操作列を詰める。 */
 .ticket-actions { white-space: nowrap; }
 
+/* /tickets の仮押さえ中の日程一覧（セル内の小さな箇条書き。Bulma のリセットで消える list-style を戻す）。 */
+.hold-slot-list { margin: 0.25rem 0 0; padding-left: 1.1rem; list-style: disc; color: var(--bulma-text-weak, #7a7a7a); }
+
 /* 同期の取得範囲フォーム（ラベルと入力を1行に）。 */
 .sync-line { display: flex; align-items: center; flex-wrap: wrap; gap: 0.5rem; }
 /* テストモードは基本使わないので控えめに（文字・チェックボックスとも小さく）。 */

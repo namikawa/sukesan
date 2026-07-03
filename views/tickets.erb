@@ -84,7 +84,9 @@
         <% @tickets.each do |ticket| %>
           <% st = TicketStore.status(ticket) %>
           <% field_id = "ticket-url-#{ticket["token"]}" %>
-          <% tag_class = { "active" => "is-success", "used" => "is-info", "expired" => "is-warning", "revoked" => "is-danger" }[st] %>
+          <%# cancelled は修飾なし（既定のグレー）: is-light はテーマによって背景と同化して読めないため。 %>
+          <% tag_class = { "active" => "is-success", "used" => "is-info", "expired" => "is-warning",
+                           "revoked" => "is-danger", "held" => "is-link", "cancelled" => "" }[st] %>
           <tr>
             <td><span class="tag <%= tag_class %>"><%= ticket_status_label(ticket) %></span></td>
             <td class="is-size-7 has-text-grey"><%= format_iso(ticket["created_at"]) %></td>
@@ -97,13 +99,26 @@
                   <%= format_slot_range(ticket["slot_start"], ticket["slot_end"]) %>
                   （登録: <%= format_iso(ticket["used_at"]) %>）
                 </span>
+              <% elsif st == "held" %>
+                <span class="is-size-7">
+                  <%= ticket["requester"] %> /「<%= ticket["title"] %>」/
+                  仮押さえ 残 <%= Array(ticket["holds"]).size %> 件
+                  （期限: <%= format_dt(Time.iso8601(ticket["held_at"]) + TicketStatus::HOLD_TTL_SECONDS) %>）
+                </span>
+                <ul class="is-size-7 hold-slot-list">
+                  <% Array(ticket["holds"]).sort_by { |h| h["slot_start"] }.each do |hold| %>
+                    <li><%= format_slot_range(hold["slot_start"], hold["slot_end"]) %></li>
+                  <% end %>
+                </ul>
               <% else %>
                 <span class="has-text-grey">—</span>
               <% end %>
             </td>
             <td class="ticket-actions">
-              <% if st == "active" %>
-                <button type="button" class="button is-small copy-btn" data-target="<%= field_id %>">コピー</button>
+              <% if st == "active" || st == "held" %>
+                <% if st == "active" %>
+                  <button type="button" class="button is-small copy-btn" data-target="<%= field_id %>">コピー</button>
+                <% end %>
                 <form method="post" action="/tickets/<%= ticket["token"] %>/revoke" class="is-inline">
                   <input type="hidden" name="authenticity_token" value="<%= csrf_token %>">
                   <button type="submit" class="button is-small is-light">無効化</button>

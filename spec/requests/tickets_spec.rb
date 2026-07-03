@@ -152,4 +152,47 @@ RSpec.describe "ワンタイム URL" do
       expect(TicketStore.status(TicketStore.find(token))).to eq("active")
     end
   end
+
+  describe "仮押さえ中チケットの管理" do
+    let(:held_token) do
+      token = TicketStore.create
+      TicketStore.hold!(token, attrs: {
+                          "requester" => "山田", "title" => "打合せ", "holder_key" => "k",
+                          "holds" => [
+                            { "event_id" => "sukesanaaa", "slot_start" => "2026-07-10T10:00:00+09:00",
+                              "slot_end" => "2026-07-10T10:30:00+09:00" },
+                            { "event_id" => "sukesanbbb", "slot_start" => "2026-07-11T14:00:00+09:00",
+                              "slot_end" => "2026-07-11T14:30:00+09:00" }
+                          ]
+                        })
+      token
+    end
+
+    before do
+      allow(TokenStore).to receive(:load)
+        .and_return({ "access_token" => "fake", "expires_at" => 4_102_444_800 })
+      stub_request(:delete, %r{googleapis\.com/calendar/v3/calendars/primary/events/})
+        .to_return(status: 204, body: "")
+    end
+
+    it "一覧に「仮押さえ中」と残件数・日程を表示する" do
+      held_token
+      login_admin!
+      get "/tickets"
+      expect(last_response.body).to include("仮押さえ中")
+      expect(last_response.body).to include("仮押さえ 残 2 件")
+      expect(last_response.body).to include("2026-07-10 10:00")
+      expect(last_response.body).to include("2026-07-11 14:00")
+      expect(last_response.body).not_to include("不明")
+    end
+
+    it "無効化すると残りの仮押さえイベントも削除する（kill switch）" do
+      login_admin!
+      post "/tickets/#{held_token}/revoke", authenticity_token: csrf_token
+
+      expect(TicketStore.status(TicketStore.find(held_token))).to eq("revoked")
+      expect(a_request(:delete, %r{googleapis\.com/calendar/v3/calendars/primary/events/}))
+        .to have_been_made.times(2)
+    end
+  end
 end
