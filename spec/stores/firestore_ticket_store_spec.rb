@@ -60,10 +60,81 @@ RSpec.describe "FirestoreTicketStore", :firestore do
     expect(ticket).not_to have_key("requester")
   end
 
-  it "revoke は active のときだけ無効化する" do
+  it "revoke は active のとき無効化し、遷移前のチケットを返す" do
     token = store.create(now: now)
-    expect(store.revoke(token, now: now)).to be(true)
+    expect(store.revoke(token, now: now)).to include("status" => "active")
     expect(TicketStatus.status(store.find(token), now: now)).to eq("revoked")
+  end
+
+  # 2 枠の仮押さえ済みチケットを作るヘルパ。
+  def hold_ticket
+    token = store.create(now: now)
+    store.hold!(token, now: now, attrs: {
+                  "requester" => "山田", "title" => "打合せ", "holder_key" => "holder-secret",
+                  "holds" => [
+                    { "event_id" => "ev1", "slot_start" => "2026-06-23T10:00:00+09:00",
+                      "slot_end" => "2026-06-23T10:30:00+09:00" },
+                    { "event_id" => "ev2", "slot_start" => "2026-06-24T14:00:00+09:00",
+                      "slot_end" => "2026-06-24T14:30:00+09:00" }
+                  ]
+                })
+    token
+  end
+
+  it "hold! で held になり、制御フィールドの status も held に更新される" do
+    token = hold_ticket
+    ticket = store.find(token)
+    expect(TicketStatus.status(ticket, now: now)).to eq("held")
+    expect(ticket["holds"].size).to eq(2)
+    expect(firestore.doc("tickets/#{doc_id(token)}").get[:status]).to eq("held")
+  end
+
+  it "confirm_hold! は選択スロットで確定し、確定前の holds を返す（二重決定は nil）" do
+    token = hold_ticket
+    holds = store.confirm_hold!(token, slot_start: "2026-06-23T10:00:00+09:00",
+                                       attrs: {}, now: now)
+    expect(holds.map { |h| h["event_id"] }).to eq(%w[ev1 ev2])
+
+    ticket = store.find(token)
+    expect(TicketStatus.status(ticket, now: now)).to eq("used")
+    expect(ticket["slot_start"]).to eq("2026-06-23T10:00:00+09:00")
+    expect(ticket).not_to have_key("holder_key")
+
+    expect(store.confirm_hold!(token, slot_start: "2026-06-24T14:00:00+09:00",
+                                      attrs: {}, now: now)).to be_nil
+  end
+
+  it "remove_hold! は 1 件を取り除き、最後の 1 件で cancelled になる" do
+    token = hold_ticket
+    removed = store.remove_hold!(token, slot_start: "2026-06-23T10:00:00+09:00", now: now)
+    expect(removed["event_id"]).to eq("ev1")
+    expect(TicketStatus.status(store.find(token), now: now)).to eq("held")
+
+    store.remove_hold!(token, slot_start: "2026-06-24T14:00:00+09:00", now: now)
+    expect(TicketStatus.status(store.find(token), now: now)).to eq("cancelled")
+  end
+
+  it "cancel_hold! はすべて取りやめて cancelled にし、holds を返す" do
+    token = hold_ticket
+    expect(store.cancel_hold!(token, now: now).size).to eq(2)
+    expect(TicketStatus.status(store.find(token), now: now)).to eq("cancelled")
+  end
+
+  it "仮押さえ中のチケットも revoke でき、holds を含む遷移前チケットを返す（kill switch 用）" do
+    token = hold_ticket
+    previous = store.revoke(token, now: now)
+    expect(previous["holds"].size).to eq(2)
+    expect(TicketStatus.status(store.find(token), now: now)).to eq("revoked")
+  end
+
+  it "held は held_at から 7 日で期限切れになる（発行 24 時間は超えても有効）" do
+    token = hold_ticket
+    within = now + TicketStatus::TTL_SECONDS + 3600
+    expect(TicketStatus.held?(store.find(token), now: within)).to be(true)
+
+    after_ttl = now + TicketStatus::HOLD_TTL_SECONDS + 60
+    expect(store.confirm_hold!(token, slot_start: "2026-06-23T10:00:00+09:00",
+                                      attrs: {}, now: after_ttl)).to be_nil
   end
 
   it "all は新しい順で、保存ドキュメントは暗号化され平文が露出しない" do

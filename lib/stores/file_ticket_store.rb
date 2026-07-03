@@ -7,19 +7,25 @@ require "time"
 require "openssl"
 require_relative "../cross_process_lock"
 require_relative "../ticket_status"
+require_relative "../ticket_transitions"
 
 # チケットのファイル永続化アダプタ（STORE_BACKEND=file）。
 #
 # 週次ローテーションのため、ISO 週ごとのファイル（tickets-YYYY-Www.json）に分割して保存する。
-# - 検索は「今週・先週」の 2 ファイル、一覧は直近 RETENTION_DAYS（30日）分のみを対象とし、古い週ファイルは自動削除する。
+# - 検索・更新は直近 SEARCH_WEEKS（3 週）のファイル、一覧は直近 RETENTION_DAYS（30日）分のみを対象とし、
+#   古い週ファイルは自動削除する。
 # - 保存内容（トークン・依頼者名・予定名・参加者など）は TokenCipher で暗号化し、0600 で保存する。
 # - read-modify-write は CrossProcessLock（Mutex＋flock）で直列化する。書き込みはアトミック（tmp→rename）なので、
 #   読み取り（find/all）はロック不要。
+# - 状態遷移の内容判定・組み立ては TicketTransitions（純粋ロジック）に委譲する。
 class FileTicketStore
   RETENTION_DAYS = 30 # 管理画面の一覧対象（直近 30 日）
   # 物理保持する週ファイル数。当週＋過去 5 週＝6 バケットを保持し、6 週以上前の週ファイルは prune! で物理削除する。
   # 30 日表示を確実にカバーするための最小バケット数でもある（ISO 週境界の最悪ケースで 6 バケット必要）。
   KEEP_WEEKS = 6
+  # 検索・更新で探す週ファイル数。チケットの寿命は最長「発行 24h ＋仮押さえ 7 日 ≒ 8 日」で、
+  # ISO 週境界の最悪ケースで 3 バケットにまたがるため 3 週分を見る。
+  SEARCH_WEEKS = 3
 
   def initialize(cipher:, dir: nil)
     @cipher = cipher
@@ -49,7 +55,7 @@ class FileTicketStore
   end
 
   def find(token, now: Time.now)
-    recent_bucket_keys(now, 2).each do |key|
+    recent_bucket_keys(now, SEARCH_WEEKS).each do |key|
       data = load_bucket(key)
       return data[token.to_s] if data.key?(token.to_s)
     end
@@ -68,27 +74,39 @@ class FileTicketStore
 
   # 使用可能なら使用済みにして true。使えない場合は false。
   def use!(token, attrs:, now: Time.now)
-    update(token, now: now) do |ticket|
-      return false unless TicketStatus.active?(ticket, now: now)
-
-      ticket.merge(attrs).merge("status" => "used", "used_at" => now.iso8601)
-    end
+    apply_transition(token, now: now) { |t| TicketTransitions.use(t, attrs: attrs, now: now) } || false
   end
 
   # 登録に失敗したときなど、使用可能状態へ戻す。
   def reactivate!(token, now: Time.now)
-    update(token, now: now) do |ticket|
-      ticket.except("status", "used_at", "requester", "title", "slot_start", "slot_end", "attendees")
-            .merge("status" => "active")
+    apply_transition(token, now: now) { |t| TicketTransitions.reactivate(t) } || false
+  end
+
+  # 仮押さえ（active → held）。attrs には requester/title/holds/holder_key を渡す。
+  def hold!(token, attrs:, now: Time.now)
+    apply_transition(token, now: now) { |t| TicketTransitions.hold(t, attrs: attrs, now: now) } || false
+  end
+
+  # 仮押さえから 1 件を選んで確定（held → used）。成功時は確定前の holds を返す（失敗は nil）。
+  def confirm_hold!(token, slot_start:, attrs:, now: Time.now)
+    apply_transition(token, now: now) do |t|
+      TicketTransitions.confirm_hold(t, slot_start: slot_start, attrs: attrs, now: now)
     end
   end
 
-  def revoke(token, now: Time.now)
-    update(token, now: now) do |ticket|
-      return false unless TicketStatus.active?(ticket, now: now)
+  # 仮押さえから 1 件を取り除く（最後の 1 件なら cancelled へ）。取り除いたエントリを返す（失敗は nil）。
+  def remove_hold!(token, slot_start:, now: Time.now)
+    apply_transition(token, now: now) { |t| TicketTransitions.remove_hold(t, slot_start: slot_start, now: now) }
+  end
 
-      ticket.merge("status" => "revoked")
-    end
+  # 仮押さえをすべて取りやめて終了（held → cancelled）。取りやめた holds を返す（失敗は nil）。
+  def cancel_hold!(token, now: Time.now)
+    apply_transition(token, now: now) { |t| TicketTransitions.cancel_hold(t, now: now) }
+  end
+
+  # 管理者による無効化（active/held → revoked）。成功時は遷移前のチケットを返す（失敗は false）。
+  def revoke(token, now: Time.now)
+    apply_transition(token, now: now) { |t| TicketTransitions.revoke(t, now: now) } || false
   end
 
   # 保持対象（直近 KEEP_WEEKS 週）以外の週ファイルを削除する。
@@ -102,18 +120,24 @@ class FileTicketStore
 
   private
 
-  def update(token, now:)
+  # 状態遷移を read-modify-write で適用する。ブロックは TicketTransitions の規約
+  # （[遷移後チケット, 戻り値] または nil）で応答し、nil（遷移不可）なら何も書かず nil を返す。
+  def apply_transition(token, now:)
+    value = nil
     @lock.synchronize do
-      recent_bucket_keys(now, 2).each do |key|
+      recent_bucket_keys(now, SEARCH_WEEKS).each do |key|
         data = load_bucket(key)
         next unless data.key?(token.to_s)
 
-        data[token.to_s] = yield(data[token.to_s])
+        updated, value = yield(data[token.to_s])
+        return nil if updated.nil?
+
+        data[token.to_s] = updated
         write_bucket(key, data)
-        return true
+        return value
       end
-      false
     end
+    nil
   end
 
   def created_after?(ticket, cutoff)

@@ -47,6 +47,15 @@ module TicketStore
   def reactivate!(token, now: Time.now) = backend.reactivate!(token, now: now)
   def revoke(token, now: Time.now) = backend.revoke(token, now: now)
   def prune!(now: Time.now) = backend.prune!(now: now)
+  # --- 仮押さえ（複数カレンダー仮押さえ機能） ---
+  def hold!(token, attrs:, now: Time.now) = backend.hold!(token, attrs: attrs, now: now)
+
+  def confirm_hold!(token, slot_start:, attrs:, now: Time.now)
+    backend.confirm_hold!(token, slot_start: slot_start, attrs: attrs, now: now)
+  end
+
+  def remove_hold!(token, slot_start:, now: Time.now) = backend.remove_hold!(token, slot_start: slot_start, now: now)
+  def cancel_hold!(token, now: Time.now) = backend.cancel_hold!(token, now: now)
   # 予約の臨界区間用ロック（backend ごとに適切なものを返す: file=flock / firestore=プロセス内 Mutex）。
   def booking_lock = backend.booking_lock
 
@@ -54,4 +63,5 @@ module TicketStore
   def status(ticket, now: Time.now) = TicketStatus.status(ticket, now: now)
   def expired?(ticket, now: Time.now) = TicketStatus.expired?(ticket, now: now)
   def active?(ticket, now: Time.now) = TicketStatus.active?(ticket, now: now)
+  def held?(ticket, now: Time.now) = TicketStatus.held?(ticket, now: now)
 end
