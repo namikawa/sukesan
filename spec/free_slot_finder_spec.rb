@@ -4,10 +4,10 @@ RSpec.describe FreeSlotFinder do
   let(:date) { Date.new(2026, 6, 22) }
 
   # 営業時間内のローカル時刻で予定を作るヘルパ。
-  def busy(start_h, start_m, end_h, end_m, all_day: false)
+  def busy(start_h, start_m, end_h, end_m, all_day: false, title: "予定")
     Event.new(
       source: "google",
-      title: "予定",
+      title: title,
       starts_at: Time.local(2026, 6, 22, start_h, start_m),
       ends_at: Time.local(2026, 6, 22, end_h, end_m),
       all_day: all_day
@@ -131,6 +131,49 @@ RSpec.describe FreeSlotFinder do
       slots = finder.find(date: date, duration_minutes: 60, busy_events: [busy(11, 0, 13, 0)])
 
       expect(slots.map(&:lunch)).to all(be(false))
+    end
+
+    it "既存のランチ予定があれば、それを昼休憩とみなし lunch フラグを立てない" do
+      finder = described_class.new(business_start: "11:00", business_end: "14:00")
+      # 「昼の連続1時間を潰す枠には〜」と同じ時間配置。件名がランチなら残り枠に警告しない。
+      slots = finder.find(date: date, duration_minutes: 60, busy_events: [busy(11, 0, 13, 0, title: "ランチ")])
+
+      expect(slots.map { |s| s.starts_at.strftime("%H:%M") }).to eq(["13:00"])
+      expect(slots.map(&:lunch)).to all(be(false))
+    end
+
+    it "件名の一致は「らんち」「lunch（大文字小文字問わず）」の部分一致でも成立する" do
+      ["チームらんち会", "Lunch break", "お客様とLUNCH"].each do |title|
+        finder = described_class.new(business_start: "11:00", business_end: "14:00")
+        slots = finder.find(date: date, duration_minutes: 60, busy_events: [busy(11, 0, 13, 0, title: title)])
+
+        expect(slots.map(&:lunch)).to all(be(false)), "「#{title}」で警告が抑制されていない"
+      end
+    end
+
+    it "昼休憩の時間帯の外でも、当日 10:00〜16:00 内のランチ予定なら警告を抑制する" do
+      finder = described_class.new(business_start: "11:00", business_end: "14:00")
+      # 休憩帯（11:00〜14:00）の外だが 10:00〜16:00 内の 14:00〜14:30 に lunch 予定がある。
+      events = [busy(11, 0, 13, 0), busy(14, 0, 14, 30, title: "lunch")]
+      slots = finder.find(date: date, duration_minutes: 60, busy_events: events)
+
+      expect(slots.map(&:lunch)).to all(be(false))
+    end
+
+    it "当日 10:00〜16:00 と重ならないランチ予定では警告を抑制しない" do
+      finder = described_class.new(business_start: "11:00", business_end: "14:00")
+      events = [busy(11, 0, 13, 0), busy(17, 0, 18, 0, title: "ランチ持ち越し")]
+      slots = finder.find(date: date, duration_minutes: 60, busy_events: events)
+
+      expect(slots.select(&:lunch).map { |s| s.starts_at.strftime("%H:%M") }).to eq(["13:00"])
+    end
+
+    it "終日のランチ予定（時間を確保しない）では警告を抑制しない" do
+      finder = described_class.new(business_start: "11:00", business_end: "14:00")
+      events = [busy(11, 0, 13, 0), busy(0, 0, 0, 0, all_day: true, title: "社内ランチ週間")]
+      slots = finder.find(date: date, duration_minutes: 60, busy_events: events)
+
+      expect(slots.select(&:lunch).map { |s| s.starts_at.strftime("%H:%M") }).to eq(["13:00"])
     end
   end
 end

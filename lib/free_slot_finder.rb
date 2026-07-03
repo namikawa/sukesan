@@ -9,8 +9,18 @@ require "time"
 # 「その枠を入れると休憩用の連続空きが lunch_minutes 分未満になる」候補には lunch フラグを立てる。
 # 候補自体は残す（急ぎの予定のために選択できる）が、UI 側で控えめに表示する想定。
 # 休憩時間帯・必要分数は設定から変更できる（lunch_minutes が 0 以下なら警告しない）。
+# 件名に「ランチ」「らんち」「lunch」を含む時間指定の予定が当日の 10:00〜16:00 に既にある日は、
+# その予定自体を昼休憩とみなし、候補への警告は行わない（確保済みのため）。
 class FreeSlotFinder
   Slot = Struct.new(:starts_at, :ends_at, :lunch, keyword_init: true)
+
+  # カレンダー上の既存ランチ予定とみなす件名のパターン（lunch は大文字小文字を問わない）。
+  LUNCH_TITLE_PATTERN = /ランチ|らんち|lunch/i
+  # 既存ランチ予定を探す当日の時間レンジ。設定の昼休憩時間帯（lunch_start〜lunch_end）より広い
+  # 固定レンジで見る（例: 休憩帯 11:00〜14:00 の外の 14:00〜14:30 のランチ予定でも、
+  # 本人がランチを確保済みなら警告は不要なため）。
+  LUNCH_EVENT_SCAN_START = "10:00"
+  LUNCH_EVENT_SCAN_END = "16:00"
 
   def initialize(business_start:, business_end:, business_days: (0..6).to_a,
                  lunch_start: "11:00", lunch_end: "14:00", lunch_minutes: 60, step_minutes: 30)
@@ -30,7 +40,7 @@ class FreeSlotFinder
 
     busy = busy_intervals(busy_events)
     slots = build_slots(date, duration_minutes * 60, busy)
-    flag_lunch(slots, date, busy)
+    flag_lunch(slots, date, busy, busy_events)
     slots
   end
 
@@ -53,14 +63,28 @@ class FreeSlotFinder
 
   # 休憩の連続確保ができなくなる候補に lunch フラグを立てる。
   # 設定が無効（分数 0 以下・時間帯未設定・開始>=終了）なら何もしない。
-  def flag_lunch(slots, date, busy)
+  # 当日の 10:00〜16:00 に既存のランチ予定があれば、それを昼休憩とみなして警告しない（確保済み）。
+  def flag_lunch(slots, date, busy, events)
     return unless lunch_enabled?
 
     lunch_start = at(date, @lunch_start)
     lunch_end = at(date, @lunch_end)
     return if lunch_end <= lunch_start
+    return if lunch_reserved?(events, date)
 
     mark_lunch(slots, lunch_start, lunch_end, busy)
+  end
+
+  # 件名が LUNCH_TITLE_PATTERN に一致する時間指定の予定が、当日の 10:00〜16:00 と重なって存在するか。
+  # 終日予定は時間を確保しないため対象外（busy_intervals と同じ扱い）。日付の絞り込みも
+  # この重なり判定が兼ねる（複数日分のイベントがまとめて渡される経路があるため）。
+  def lunch_reserved?(events, date)
+    scan_start = at(date, LUNCH_EVENT_SCAN_START)
+    scan_end = at(date, LUNCH_EVENT_SCAN_END)
+    events.reject(&:all_day).any? do |event|
+      LUNCH_TITLE_PATTERN.match?(event.title.to_s) &&
+        event.starts_at < scan_end && scan_start < (event.ends_at || event.starts_at)
+    end
   end
 
   def lunch_enabled?
