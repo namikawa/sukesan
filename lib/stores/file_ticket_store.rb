@@ -109,7 +109,9 @@ class FileTicketStore
     apply_transition(token, now: now) { |t| TicketTransitions.revoke(t, now: now) } || false
   end
 
-  # 保持対象（直近 KEEP_WEEKS 週）以外の週ファイルを削除する。
+  private
+
+  # 保持対象（直近 KEEP_WEEKS 週）以外の週ファイルを削除する（create 時に呼ぶ内部処理）。
   def prune!(now: Time.now)
     keep = recent_bucket_keys(now, KEEP_WEEKS)
     Dir.glob(File.join(dir, "tickets-*.json")).each do |file|
@@ -117,8 +119,6 @@ class FileTicketStore
       File.delete(file) unless keep.include?(key)
     end
   end
-
-  private
 
   # 状態遷移を read-modify-write で適用する。ブロックは TicketTransitions の規約
   # （[遷移後チケット, 戻り値] または nil）で応答し、nil（遷移不可）なら何も書かず nil を返す。

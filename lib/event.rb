@@ -32,34 +32,4 @@ Event = Struct.new(
   def time_key(time)
     time&.utc&.iso8601
   end
-
-  # セッションへ保存できるよう Time は ISO8601 文字列に変換する。
-  def to_h
-    {
-      source: source,
-      external_id: external_id,
-      title: title,
-      starts_at: starts_at&.iso8601,
-      ends_at: ends_at&.iso8601,
-      location: location,
-      all_day: all_day,
-      description: description,
-      cancelled: cancelled
-    }
-  end
-
-  def self.from_h(hash)
-    h = hash.transform_keys(&:to_sym)
-    new(
-      source: h[:source],
-      external_id: h[:external_id],
-      title: h[:title],
-      starts_at: h[:starts_at] && Time.parse(h[:starts_at]),
-      ends_at: h[:ends_at] && Time.parse(h[:ends_at]),
-      location: h[:location],
-      all_day: h[:all_day],
-      description: h[:description],
-      cancelled: h[:cancelled]
-    )
-  end
 end

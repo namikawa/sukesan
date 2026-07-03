@@ -46,7 +46,6 @@ module TicketStore
   def use!(token, attrs:, now: Time.now) = backend.use!(token, attrs: attrs, now: now)
   def reactivate!(token, now: Time.now) = backend.reactivate!(token, now: now)
   def revoke(token, now: Time.now) = backend.revoke(token, now: now)
-  def prune!(now: Time.now) = backend.prune!(now: now)
   # --- 仮押さえ（複数カレンダー仮押さえ機能） ---
   def hold!(token, attrs:, now: Time.now) = backend.hold!(token, attrs: attrs, now: now)
 

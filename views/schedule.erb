@@ -87,7 +87,7 @@
       </ul>
     </div>
 
-    <section id="tab-book" class="mode-panel">
+    <section id="tab-book">
       <p class="block">希望の時間帯を 1 つ選び、依頼者名と予定名を入力して「スケジュール登録する」を押してください。</p>
       <form method="post" action="/schedule" class="box">
         <input type="hidden" name="authenticity_token" value="<%= csrf_token %>">
@@ -134,7 +134,7 @@
       </form>
     </section>
 
-    <section id="tab-hold" class="mode-panel">
+    <section id="tab-hold">
       <p class="block">複数の日程（最大 <%= HoldService::MAX_HOLDS %> 件）を「[仮ブロック]」としてカレンダーに仮押さえできます。仮押さえ後、この URL から 7 日以内に 1 件へ決定してください。参加者やビデオ会議は決定時に指定できます。</p>
       <form method="post" action="/hold" class="box" id="hold-form" data-max-holds="<%= HoldService::MAX_HOLDS %>">
         <input type="hidden" name="authenticity_token" value="<%= csrf_token %>">

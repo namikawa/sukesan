@@ -18,7 +18,7 @@ require_relative "../ticket_transitions"
 # 状態遷移（use!/hold!/confirm_hold! 等）は Firestore トランザクションで「遷移可能なときだけ更新」を
 # Atomic に行うため、同一チケットの二重使用・二重決定はロック無しで防げる（flock 不要）。
 # 遷移の内容判定・組み立ては TicketTransitions（純粋ロジック）に委譲する。
-# 物理削除は Firestore の TTL ポリシー（purge_at）に委ね、prune! は no-op とする。
+# 物理削除は Firestore の TTL ポリシー（purge_at）に委ねる。
 class FirestoreTicketStore
   COLLECTION = "tickets"
   DISPLAY_DAYS = 30 # 管理画面の一覧対象（直近 30 日）
@@ -92,9 +92,6 @@ class FirestoreTicketStore
   def revoke(token, now: Time.now)
     apply_transition(token) { |t| TicketTransitions.revoke(t, now: now) } || false
   end
-
-  # 物理削除は Firestore の TTL ポリシー（purge_at）に委ねるため no-op。
-  def prune!(now: Time.now); end
 
   private
 

@@ -43,12 +43,4 @@ RSpec.describe Event do
       expect(a.match_key).to eq(b.match_key)
     end
   end
-
-  describe "#to_h / .from_h" do
-    it "シリアライズして復元しても match_key が保たれる" do
-      original = event
-      restored = described_class.from_h(original.to_h)
-      expect(restored.match_key).to eq(original.match_key)
-    end
-  end
 end
