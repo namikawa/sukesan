@@ -663,7 +663,7 @@ get "/sync" do
     @events = []
     @flash ||= "カレンダー連携の更新に失敗しました。お手数ですが、連携を解除して再度連携してください。"
   end
-  erb :index
+  erb :sync
 end
 
 # --- Google OAuth（連携は管理者のみ。トークンは共有保存する） ---
