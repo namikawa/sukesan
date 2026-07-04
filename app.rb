@@ -764,9 +764,22 @@ post "/sync" do
     redirect "/sync"
   end
 
+  # 反映は 1 件ずつ失敗を切り分け、部分失敗はエラーページでなく件数付きの通知で伝える
+  # （登録済み分は次回チェックの差分から自然に消えるため、再チェック→残りの再選択で復旧できる）。
   client = GoogleCalendarClient.new(google_access)
-  events.select { |event| selected.include?(event.external_id) }
-        .each { |event| client.create_event(event) }
-  session[:flash] = "選択したイベントを Google に同期しました。"
+  targets = events.select { |event| selected.include?(event.external_id) }
+  failed = targets.count do |event|
+    client.create_event(event)
+    false
+  rescue StandardError => e
+    warn "[sync] イベントの同期失敗: #{e.class}"
+    true
+  end
+  session[:flash] =
+    if failed.zero?
+      "選択したイベントを Google に同期しました。"
+    else
+      "#{targets.size - failed} 件を同期しました（#{failed} 件は失敗しました。もう一度チェックしてお試しください）。"
+    end
   redirect "/sync"
 end
