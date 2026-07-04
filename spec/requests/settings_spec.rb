@@ -23,4 +23,18 @@ RSpec.describe "設定保存" do
       expect(SettingsStore).not_to have_received(:save)
     end
   end
+
+  describe "POST /settings/google/disconnect" do
+    it "revoke がタイムアウトしてもローカル削除を完了する" do
+      allow(TokenStore).to receive(:load)
+        .and_return({ "access_token" => "at", "refresh_token" => "rt", "expires_at" => 4_102_444_800 })
+      allow(TokenStore).to receive(:clear)
+      stub_request(:post, "https://oauth2.googleapis.com/revoke").to_timeout
+
+      post "/settings/google/disconnect", authenticity_token: csrf_token
+      expect(last_response.status).to eq(302)
+      expect(TokenStore).to have_received(:clear)
+      expect(a_request(:post, "https://oauth2.googleapis.com/revoke")).to have_been_made
+    end
+  end
 end

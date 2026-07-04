@@ -39,12 +39,19 @@ module OAuthHelpers
   end
 
   # Google 側でもトークンを失効させる（解除時）。失敗してもローカル削除は続行する。
+  # タイムアウトは他の外部 API 呼び出し（OAuthClients）と同じ上限に揃え、Google 無応答時に
+  # 解除の管理操作が長時間ブロックしないようにする（Net::HTTP の既定は 60 秒）。
   def revoke_google_token
     hash = TokenStore.load
     token = hash && (hash["refresh_token"] || hash["access_token"])
     return if token.to_s.empty?
 
-    Net::HTTP.post_form(URI("https://oauth2.googleapis.com/revoke"), "token" => token)
+    uri = URI("https://oauth2.googleapis.com/revoke")
+    request = Net::HTTP::Post.new(uri)
+    request.set_form_data("token" => token)
+    Net::HTTP.start(uri.host, uri.port, use_ssl: true,
+                                        open_timeout: OAuthClients::OPEN_TIMEOUT,
+                                        read_timeout: OAuthClients::READ_TIMEOUT) { |http| http.request(request) }
   rescue StandardError
     nil
   end
