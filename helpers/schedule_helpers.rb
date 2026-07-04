@@ -7,6 +7,9 @@ module ScheduleHelpers
   # メールアドレス判定は標準の正規表現を使う（アンカー付きで制御文字・空白・不正形式を拒否）。
   EMAIL_PATTERN = URI::MailTo::EMAIL_REGEXP
 
+  # ビデオ会議 URL の最大長（DoS・誤入力対策）。検証ルール（valid_http_url?）と一体で持つ。
+  MAX_URL_LENGTH = 2048
+
   # 空き時間検索サービスを、管理者の Google カレンダーに接続して組み立てる。
   # token は呼び出し側で取得済みのものを渡す（refresh 失敗＝nil のガードは呼び出し側の責務）。
   def availability_search(settings, token)

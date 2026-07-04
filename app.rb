@@ -200,10 +200,6 @@ not_found do
   "ページが見つかりません。"
 end
 
-# Outlook 同期の日付範囲指定で許可する最大日数（開始〜終了の差）。
-# 日数指定の上限（SYNC_WINDOW_DAYS_RANGE）から導出し、二重定義を避ける。
-MAX_SYNC_RANGE_DAYS = SettingsParamsHelpers::SYNC_WINDOW_DAYS_RANGE.max
-
 # 公開フォーム（スケジュール調整）のスパム対策。IP ごとに 60 秒で 5 回まで。
 SCHEDULE_LIMITER = RateLimiter.new(max: 5, window_seconds: 60)
 
@@ -217,23 +213,11 @@ LOGIN_LIMITER = RateLimiter.new(max: 10, window_seconds: 300)
 # 実体は backend が用意する（file=flock のロックファイル / firestore=プロセス内 Mutex）。
 BOOKING_LOCK = TicketStore.booking_lock
 
-# 曜日の表示順とラベル（Ruby の wday: 0=日〜6=土）。月曜始まりで表示する。
-WEEKDAY_LABELS = { 0 => "日", 1 => "月", 2 => "火", 3 => "水", 4 => "木", 5 => "金", 6 => "土" }.freeze
-WEEKDAY_ORDER = [1, 2, 3, 4, 5, 6, 0].freeze
-
-# 予定名・依頼者名の最大文字数。
-# 営業日表示数・探索上限（MAX_BUSINESS_DAYS / MAX_SCAN_DAYS）は AvailabilitySearch に持つ。
+# ルートの入力検証で使う上限（DoS・誤入力対策）: 予定名・依頼者名の最大文字数と参加者の最大件数。
+# 表示・検証系の定数は使用ロジックの持ち主に置く方針（曜日ラベル・ステータス文言は FormatHelpers、
+# URL 長は ScheduleHelpers、同期の最大日数は SyncHelpers、営業日上限は AvailabilitySearch）。
 MAX_TEXT_LENGTH = 100
-
-# 参加者メールアドレスの最大件数と、ビデオ会議 URL の最大長（DoS・誤入力対策）。
 MAX_ATTENDEES = 50
-MAX_URL_LENGTH = 2048
-
-# 発行済みワンタイム URL の一覧表示に使うステータス文言。
-TICKET_STATUS_LABELS = {
-  "active" => "有効", "used" => "使用済み", "expired" => "期限切れ", "revoked" => "無効化",
-  "held" => "仮押さえ中", "cancelled" => "キャンセル"
-}.freeze
 
 helpers AuthHelpers, OAuthHelpers, FormatHelpers, SettingsParamsHelpers, SyncHelpers, ScheduleHelpers, HoldHelpers
 
@@ -465,7 +449,8 @@ post "/hold/confirm" do
   # エラー時に決定画面の入力値（任意項目・選択スロット）を復元する。
   @form_restore = {
     "slot" => params[:slot].to_s, "attendees" => params[:attendees].to_s[0, 2000],
-    "video_url" => params[:video_url].to_s[0, MAX_URL_LENGTH], "request_meet" => params[:request_meet].to_s
+    "video_url" => params[:video_url].to_s[0, ScheduleHelpers::MAX_URL_LENGTH],
+    "request_meet" => params[:request_meet].to_s
   }
 
   slot_start = params[:slot].to_s

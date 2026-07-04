@@ -1,7 +1,12 @@
 # frozen_string_literal: true
 
+require_relative "settings_params_helpers"
+
 # Outlook 同期（管理者専用）を支えるヘルパ。
 module SyncHelpers
+  # 日付範囲指定で許可する最大日数（開始〜終了の差）。日数指定の上限から導出し、二重定義を避ける。
+  MAX_SYNC_RANGE_DAYS = SettingsParamsHelpers::SYNC_WINDOW_DAYS_RANGE.max
+
   # チェック時のパラメータから取得期間 [time_min, time_max] とエラーメッセージを返す。
   # 戻り値: [window(=[min,max]) または nil, エラーメッセージ または nil]
   # 日数モードでは入力日数を既定値として保存する（前回値を覚える）。
@@ -11,8 +16,7 @@ module SyncHelpers
       window ? [window, nil] : [nil, "日付範囲が正しくありません（開始 ≤ 終了・最大 #{MAX_SYNC_RANGE_DAYS} 日）。"]
     else
       days = params[:sync_window_days].to_i
-      max_days = SettingsParamsHelpers::SYNC_WINDOW_DAYS_RANGE.max
-      return [nil, "取得日数は 1〜#{max_days} 日で入力してください。"] unless sync_window_days_valid?(days)
+      return [nil, "取得日数は 1〜#{MAX_SYNC_RANGE_DAYS} 日で入力してください。"] unless sync_window_days_valid?(days)
 
       SettingsStore.save(sync_window_days: days) # 日数モードのチェック時は既定値として保存
       [days_window(days), nil]

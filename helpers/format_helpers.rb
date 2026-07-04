@@ -2,6 +2,16 @@
 
 # 画面表示用の整形ヘルパ。
 module FormatHelpers
+  # 発行済みワンタイム URL の一覧表示に使うステータス文言。
+  TICKET_STATUS_LABELS = {
+    "active" => "有効", "used" => "使用済み", "expired" => "期限切れ", "revoked" => "無効化",
+    "held" => "仮押さえ中", "cancelled" => "キャンセル"
+  }.freeze
+
+  # 曜日の表示順とラベル（Ruby の wday: 0=日〜6=土）。月曜始まりで表示する。
+  WEEKDAY_LABELS = { 0 => "日", 1 => "月", 2 => "火", 3 => "水", 4 => "木", 5 => "金", 6 => "土" }.freeze
+  WEEKDAY_ORDER = [1, 2, 3, 4, 5, 6, 0].freeze
+
   # パーシャル（views/_*.erb）をレイアウト無しで描画する。
   # 描画結果は HTML のため、呼び出し側は <%== %>（エスケープ無し）で埋め込む。
   def partial(name, locals = {})
