@@ -99,6 +99,13 @@ if settings.production? && ENV["APP_BASE_URL"].to_s.strip.empty?
   raise "APP_BASE_URL must be set when APP_ENV/RACK_ENV=production"
 end
 
+# Google OAuth のクレデンシャル。本番は必須（未設定だと保存済みトークンの利用時＝公開ページで
+# 実行時 500 になるため、fail-fast で起動時に失敗させる）。Google 連携はアプリの中核機能。
+# Microsoft は Outlook 同期を使わない運用があり得るため対象外（連携操作時にのみ必要）。
+if settings.production? && (ENV["GOOGLE_CLIENT_ID"].to_s.empty? || ENV["GOOGLE_CLIENT_SECRET"].to_s.empty?)
+  raise "GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be set when APP_ENV/RACK_ENV=production"
+end
+
 # アクセスログの出力先は環境で切り替える。
 # - LOG_TO_STDOUT=true: $stdout へ出す（Cloud Run などコンテナ環境。プラットフォームが Cloud Logging に集約する。
 #   揮発ファイルに書いて取りこぼすのを防ぐ）。
