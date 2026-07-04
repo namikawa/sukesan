@@ -13,9 +13,9 @@ spec
 deploy
 CLAUDE.md
 *.md
+*.swp
 !README.md
 .rspec
 .rubocop.yml
 .DS_Store
-# 内部の監査・設計メモ（本番イメージに含めない）
-issue
+docs

@@ -6,5 +6,5 @@
 .DS_Store
 *.swp
 /data/
-/issue/
+/docs/
 /CLAUDE.md
