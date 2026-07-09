@@ -3,7 +3,7 @@
 # （コンテナはプレーン HTTP で $PORT を listen する。TLS はプラットフォームが終端）。
 
 # ---- builder: ネイティブ拡張（bcrypt 等）のビルドだけを行う ----
-FROM ruby:3.4.9-slim AS builder
+FROM ruby:3.4.10-slim AS builder
 
 # bcrypt のネイティブ拡張ビルドに必要（grpc 等は precompiled gem を利用）。
 RUN apt-get update -qq \
@@ -21,7 +21,7 @@ COPY Gemfile Gemfile.lock ./
 RUN bundle install && rm -rf /usr/local/bundle/cache
 
 # ---- runtime: compiler toolchain を含まない最終イメージ ----
-FROM ruby:3.4.9-slim
+FROM ruby:3.4.10-slim
 
 WORKDIR /app
 
