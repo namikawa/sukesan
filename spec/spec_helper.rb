@@ -20,6 +20,8 @@ ENV["ADMIN_PASSWORD_DIGEST"] = BCrypt::Password.create(ENV.fetch("ADMIN_PASSWORD
 ENV["SESSION_SECRET"] ||= "0123456789abcdef" * 4 # Rack::Session::Cookie は 64 文字以上必須
 # チケットの永続先を一時ディレクトリに隔離し、実データ（data/tickets）を汚さない。
 ENV["TICKETS_DIR"] ||= File.expand_path("../tmp/test-tickets", __dir__)
+# 他システム向け API のキー（"ラベル:キー"）。未設定時 404 のテストは stub_const で個別に上書きする。
+ENV["CALENDAR_API_KEYS"] ||= "test-sys:#{'k' * 32}"
 
 $LOAD_PATH.unshift File.expand_path("../lib", __dir__)
 
@@ -70,6 +72,7 @@ RSpec.configure do |config|
     SCHEDULE_LIMITER.reset!
     SEARCH_LIMITER.reset!
     LOGIN_LIMITER.reset!
+    API_LIMITER.reset!
     FileUtils.rm_rf(ENV.fetch("TICKETS_DIR"))
   end
 end
