@@ -107,10 +107,6 @@ if settings.production? && (ENV["GOOGLE_CLIENT_ID"].to_s.empty? || ENV["GOOGLE_C
   raise "GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be set when APP_ENV/RACK_ENV=production"
 end
 
-# 同一マシン上の他システム向け API のキー（"ラベル:キー" のカンマ区切り）。
-# 未設定なら nil ＝ API 無効（/api/ 配下は 404）。設定時は起動時に形式を検証し、不正なら起動失敗させる。
-CALENDAR_API_KEYS = ApiHelpers.parse_api_keys(ENV.fetch("CALENDAR_API_KEYS", nil))
-
 # アクセスログの出力先は環境で切り替える。
 # - LOG_TO_STDOUT=true: $stdout へ出す（Cloud Run などコンテナ環境。プラットフォームが Cloud Logging に集約する。
 #   揮発ファイルに書いて取りこぼすのを防ぐ）。
@@ -605,6 +601,8 @@ end
 get "/settings" do
   require_admin_page!
   @settings = SettingsStore.load
+  # 発行直後の API キーは本人セッションで一度だけ表示する（取り出しと同時に削除。再表示不可）。
+  @new_api_key = session.delete(:new_api_key)
   erb :settings
 end
 
@@ -648,6 +646,43 @@ post "/settings/google/disconnect" do
   TokenStore.clear
   AuditLog.record(:oauth_disconnect, ip: client_ip, target: "google")
   session[:flash] = "Google 連携を解除しました。"
+  redirect "/settings"
+end
+
+# 他システム向け API のキーを発行する（管理者専用）。
+# 生のキーは保存せず SHA-256 ダイジェストのみ SettingsStore に持つ。生のキーはセッション経由で
+# 発行直後の画面に一度だけ表示する（GET /settings 側で取り出しと同時に削除）。
+post "/settings/api_keys" do
+  require_admin!
+  label = params[:label].to_s.strip
+  keys = stored_api_keys
+  if (error = api_key_label_error(label, keys))
+    session[:flash] = error
+    redirect "/settings"
+  end
+
+  key = SecureRandom.hex(32)
+  entry = { "digest" => Digest::SHA256.hexdigest(key), "created_at" => Time.now.iso8601 }
+  SettingsStore.save("api_keys" => keys.merge(label => entry))
+  AuditLog.record(:api_key_issued, ip: client_ip, target: label)
+  session[:new_api_key] = { "label" => label, "key" => key }
+  session[:flash] = "API キーを発行しました。キーはこの画面でのみ表示されます。"
+  redirect "/settings"
+end
+
+# 発行済みの API キーを削除する（管理者専用）。削除したキーは即座に認証不可になる。
+# 対象ラベルはフォームパラメータで受け取る（URL パスに埋めない）。
+post "/settings/api_keys/delete" do
+  require_admin!
+  label = params[:label].to_s
+  keys = stored_api_keys
+  if keys.key?(label)
+    SettingsStore.save("api_keys" => keys.except(label))
+    AuditLog.record(:api_key_revoked, ip: client_ip, target: label)
+    session[:flash] = "API キーを削除しました。"
+  else
+    session[:flash] = "指定された API キーが見つかりません。"
+  end
   redirect "/settings"
 end
 
@@ -805,15 +840,16 @@ end
 # 認証・認可（deny-by-default）は before フィルタでまとめて行い、各ルートは業務ロジックに徹する。
 # セッションは使わない・変更しない（API はステートレス）。
 before "/api/*" do
-  # CALENDAR_API_KEYS 未設定なら API 自体が存在しない扱い（本番 Cloud Run に影響させないための仕様）。
+  # 発行済みキー（管理画面で発行・ダイジェスト保存）が 1 つもなければ API 自体が存在しない扱い。
   # 404 は not_found ハンドラが body を組み立てる（API パスなら JSON エンベロープ）。
-  halt 404 if CALENDAR_API_KEYS.nil?
+  api_keys = stored_api_keys
+  halt 404 if api_keys.empty?
 
   # loopback 限定。偽装できない REMOTE_ADDR で判定する（APP_TRUST_PROXY=true でも X-Forwarded-For は見ない）。
   api_error!(403, "forbidden", "この API はローカルホストからのみ利用できます。") unless loopback?
 
   # Authorization: Bearer <キー> のみ。一致したキーのラベルを以後の識別子（レート制限・監査）に使う。
-  @api_label = authenticate_api_key(CALENDAR_API_KEYS)
+  @api_label = authenticate_api_key(api_keys)
   if @api_label.nil?
     AuditLog.record(:api_auth_failed, ip: remote_addr)
     api_error!(401, "unauthorized", "認証に失敗しました。")

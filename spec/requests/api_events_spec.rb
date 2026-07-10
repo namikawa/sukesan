@@ -1,8 +1,11 @@
 # frozen_string_literal: true
 
 RSpec.describe "他システム向け API /api/v1/calendars/google/events" do
-  # spec_helper が設定するダミーキー（ラベル test-sys）と一致させる。
-  let(:api_key) { "k" * 32 }
+  # 発行済みキー: サーバ側には SHA-256 ダイジェストのみ保存されている（画面発行方式）。
+  let(:api_key) { "k" * 64 }
+  let(:api_keys) do
+    { "test-sys" => { "digest" => Digest::SHA256.hexdigest(api_key), "created_at" => "2026-07-01T09:00:00+09:00" } }
+  end
   let(:auth) { { "HTTP_AUTHORIZATION" => "Bearer #{api_key}" } }
   let(:token_hash) { { "access_token" => "fake", "expires_at" => 4_102_444_800, "admin_email" => "admin@example.com" } }
 
@@ -14,11 +17,12 @@ RSpec.describe "他システム向け API /api/v1/calendars/google/events" do
 
   before do
     allow(TokenStore).to receive(:load).and_return(token_hash)
+    allow(SettingsStore).to receive(:load).and_return(SettingsStore::DEFAULT.merge("api_keys" => api_keys))
   end
 
   describe "認証・認可" do
-    it "CALENDAR_API_KEYS 未設定なら 404（API 自体が存在しない扱い）" do
-      stub_const("CALENDAR_API_KEYS", nil)
+    it "発行済みキーが 1 つもなければ 404（API 自体が存在しない扱い）" do
+      allow(SettingsStore).to receive(:load).and_return(SettingsStore::DEFAULT.dup)
       get "/api/v1/calendars/google/events", {}, auth
       expect(last_response.status).to eq(404)
       expect(JSON.parse(last_response.body).dig("error", "code")).to eq("not_found")
@@ -146,32 +150,6 @@ RSpec.describe "他システム向け API /api/v1/calendars/google/events" do
       get "/api/v1/calendars/google/events", {}, auth
       expect(last_response.status).to eq(429)
       expect(JSON.parse(last_response.body).dig("error", "code")).to eq("rate_limited")
-    end
-  end
-
-  describe "起動時のキー検証（ApiHelpers.parse_api_keys）" do
-    it "未設定・空文字は nil（API 無効）" do
-      expect(ApiHelpers.parse_api_keys(nil)).to be_nil
-      expect(ApiHelpers.parse_api_keys("  ")).to be_nil
-    end
-
-    it "正常なエントリを { ラベル => キー } に解析する" do
-      raw = "sysA:#{'a' * 32},sysB:#{'b' * 40}"
-      expect(ApiHelpers.parse_api_keys(raw)).to eq("sysA" => "a" * 32, "sysB" => "b" * 40)
-    end
-
-    it "キーが 32 文字未満なら起動失敗（raise）" do
-      expect { ApiHelpers.parse_api_keys("sysA:#{'a' * 31}") }.to raise_error(/32 文字以上/)
-    end
-
-    it "ラベルまたはキーが欠落していれば raise" do
-      expect { ApiHelpers.parse_api_keys("only-label") }.to raise_error(/ラベル:キー/)
-      expect { ApiHelpers.parse_api_keys(":#{'a' * 32}") }.to raise_error(/ラベル:キー/)
-    end
-
-    it "ラベルが重複していれば raise" do
-      raw = "dup:#{'a' * 32},dup:#{'b' * 32}"
-      expect { ApiHelpers.parse_api_keys(raw) }.to raise_error(/重複/)
     end
   end
 end
