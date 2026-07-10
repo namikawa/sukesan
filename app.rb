@@ -40,6 +40,7 @@ require_relative "helpers/settings_params_helpers"
 require_relative "helpers/sync_helpers"
 require_relative "helpers/schedule_helpers"
 require_relative "helpers/hold_helpers"
+require_relative "helpers/api_helpers"
 
 # タイムゾーンを固定する（特定地域での運用前提。グローバル運用は想定しない）。
 # APP_TIMEZONE（既定 Asia/Tokyo）をプロセスの TZ に適用し、サーバ OS の設定に依存させない。
@@ -204,7 +205,15 @@ error do
 end
 
 not_found do
-  "ページが見つかりません。"
+  # API パスは HTML でなく統一エラーエンベロープ（JSON）で返す。
+  # 404 は Sinatra が not_found ハンドラで body を上書きするため、API の 404 はここで一元的に組み立てる。
+  if request.path_info.start_with?("/api/")
+    content_type :json
+    headers["Cache-Control"] = "no-store"
+    JSON.generate("error" => { "code" => "not_found", "message" => "見つかりません。" })
+  else
+    "ページが見つかりません。"
+  end
 end
 
 # 公開フォーム（スケジュール調整）のスパム対策。IP ごとに 60 秒で 5 回まで。
@@ -216,6 +225,9 @@ SEARCH_LIMITER = RateLimiter.new(max: 10, window_seconds: 60)
 # 管理者ログインのブルートフォース対策。IP ごとに「失敗」5 分で 10 回まで（成功は消費しない）。
 LOGIN_LIMITER = RateLimiter.new(max: 10, window_seconds: 300)
 
+# 他システム向け API の濫用対策。キーのラベルごとに 60 秒で 60 回まで。
+API_LIMITER = RateLimiter.new(max: 60, window_seconds: 60)
+
 # 予約の臨界区間（空き再確認〜カレンダー登録）を直列化し、別トークン同士による同一枠の二重予約を防ぐロック。
 # 実体は backend が用意する（file=flock のロックファイル / firestore=プロセス内 Mutex）。
 BOOKING_LOCK = TicketStore.booking_lock
@@ -226,7 +238,8 @@ BOOKING_LOCK = TicketStore.booking_lock
 MAX_TEXT_LENGTH = 100
 MAX_ATTENDEES = 50
 
-helpers AuthHelpers, OAuthHelpers, FormatHelpers, SettingsParamsHelpers, SyncHelpers, ScheduleHelpers, HoldHelpers
+helpers AuthHelpers, OAuthHelpers, FormatHelpers, SettingsParamsHelpers, SyncHelpers, ScheduleHelpers, HoldHelpers,
+        ApiHelpers
 
 helpers do
   # 監査ログでチケットを識別する短縮 ID（アクセスログの /t/~xxxxxxxx と同じ導出で相関できる）。
@@ -588,6 +601,8 @@ end
 get "/settings" do
   require_admin_page!
   @settings = SettingsStore.load
+  # 発行直後の API キーは本人セッションで一度だけ表示する（取り出しと同時に削除。再表示不可）。
+  @new_api_key = session.delete(:new_api_key)
   erb :settings
 end
 
@@ -631,6 +646,43 @@ post "/settings/google/disconnect" do
   TokenStore.clear
   AuditLog.record(:oauth_disconnect, ip: client_ip, target: "google")
   session[:flash] = "Google 連携を解除しました。"
+  redirect "/settings"
+end
+
+# 他システム向け API のキーを発行する（管理者専用）。
+# 生のキーは保存せず SHA-256 ダイジェストのみ SettingsStore に持つ。生のキーはセッション経由で
+# 発行直後の画面に一度だけ表示する（GET /settings 側で取り出しと同時に削除）。
+post "/settings/api_keys" do
+  require_admin!
+  label = params[:label].to_s.strip
+  keys = stored_api_keys
+  if (error = api_key_label_error(label, keys))
+    session[:flash] = error
+    redirect "/settings"
+  end
+
+  key = SecureRandom.hex(32)
+  entry = { "digest" => Digest::SHA256.hexdigest(key), "created_at" => Time.now.iso8601 }
+  SettingsStore.save("api_keys" => keys.merge(label => entry))
+  AuditLog.record(:api_key_issued, ip: client_ip, target: label)
+  session[:new_api_key] = { "label" => label, "key" => key }
+  session[:flash] = "API キーを発行しました。キーはこの画面でのみ表示されます。"
+  redirect "/settings"
+end
+
+# 発行済みの API キーを削除する（管理者専用）。削除したキーは即座に認証不可になる。
+# 対象ラベルはフォームパラメータで受け取る（URL パスに埋めない）。
+post "/settings/api_keys/delete" do
+  require_admin!
+  label = params[:label].to_s
+  keys = stored_api_keys
+  if keys.key?(label)
+    SettingsStore.save("api_keys" => keys.except(label))
+    AuditLog.record(:api_key_revoked, ip: client_ip, target: label)
+    session[:flash] = "API キーを削除しました。"
+  else
+    session[:flash] = "指定された API キーが見つかりません。"
+  end
   redirect "/settings"
 end
 
@@ -782,4 +834,63 @@ post "/sync" do
       "#{targets.size - failed} 件を同期しました（#{failed} 件は失敗しました。もう一度チェックしてお試しください）。"
     end
   redirect "/sync"
+end
+
+# --- 他システム向け API（/api/v1/…。同一マシン上の別システムから利用する JSON API） ---
+# 認証・認可（deny-by-default）は before フィルタでまとめて行い、各ルートは業務ロジックに徹する。
+# セッションは使わない・変更しない（API はステートレス）。
+before "/api/*" do
+  # 発行済みキー（管理画面で発行・ダイジェスト保存）が 1 つもなければ API 自体が存在しない扱い。
+  # 404 は not_found ハンドラが body を組み立てる（API パスなら JSON エンベロープ）。
+  api_keys = stored_api_keys
+  halt 404 if api_keys.empty?
+
+  # loopback 限定。偽装できない REMOTE_ADDR で判定する（APP_TRUST_PROXY=true でも X-Forwarded-For は見ない）。
+  api_error!(403, "forbidden", "この API はローカルホストからのみ利用できます。") unless loopback?
+
+  # Authorization: Bearer <キー> のみ。一致したキーのラベルを以後の識別子（レート制限・監査）に使う。
+  @api_label = authenticate_api_key(api_keys)
+  if @api_label.nil?
+    AuditLog.record(:api_auth_failed, ip: remote_addr)
+    api_error!(401, "unauthorized", "認証に失敗しました。")
+  end
+
+  # レート制限はキーのラベル単位（IP ではなくキーで数える）。
+  api_error!(429, "rate_limited", "リクエストが多すぎます。しばらく時間をおいてください。") unless API_LIMITER.allow?(@api_label)
+end
+
+# 指定日（既定は今日）の Google カレンダーのイベント一覧を返す。
+get "/api/v1/calendars/google/events" do
+  # date は任意。省略時はアプリのタイムゾーンでの「今日」。不正な形式は 400。
+  date_param = params[:date].to_s
+  date = if date_param.empty?
+           Date.today
+         else
+           begin
+             Date.iso8601(date_param)
+           rescue ArgumentError
+             api_error!(400, "invalid_date", "date は YYYY-MM-DD 形式で指定してください。")
+           end
+         end
+
+  # 対象期間はその日の 0:00 から翌日 0:00（ローカルタイム）。
+  time_min = Time.local(date.year, date.month, date.day)
+  time_max = time_min + (24 * 60 * 60)
+
+  # 保存済みトークンを使う（refresh 失敗・未連携は nil）。使えない場合は未連携として 503。
+  google_access = google_token
+  api_error!(503, "provider_not_connected", "Google カレンダーが連携されていません。") if google_access.nil?
+
+  # Google API 呼び出しの失敗は詳細を出さず upstream_error に丸める（トークン等を漏らさない）。
+  begin
+    events = GoogleCalendarClient.new(google_access).list_events(time_min: time_min, time_max: time_max)
+  rescue StandardError => e
+    warn "[api] Google イベント取得失敗: #{e.class}"
+    api_error!(502, "upstream_error", "カレンダーの取得に失敗しました。")
+  end
+
+  api_json(
+    "date" => date.strftime("%F"),
+    "events" => events.map { |event| api_event(event) }
+  )
 end

@@ -113,3 +113,57 @@
     </div>
   </div>
 </form>
+
+<h2 class="title is-5 mt-6">他システム向け API キー</h2>
+<p class="block"><small>同一マシン上の他システムからイベント一覧 API（<code>/api/v1/calendars/google/events</code>）を利用するためのキーです。キーは発行時に一度だけ表示され、サーバにはダイジェストのみ保存されます。</small></p>
+
+<% if @new_api_key %>
+  <div class="notification is-warning">
+    <p>「<%= @new_api_key["label"] %>」の API キーを発行しました。以下のキーをコピーして利用するシステムに設定してください。<strong>この画面を離れると再表示できません。</strong></p>
+    <p class="mt-2">
+      <code id="new-api-key"><%= @new_api_key["key"] %></code>
+      <button type="button" id="api-key-copy" data-target="new-api-key" class="button is-small ml-2">コピー</button>
+    </p>
+  </div>
+<% end %>
+
+<div class="box">
+  <form method="post" action="/settings/api_keys">
+    <input type="hidden" name="authenticity_token" value="<%= csrf_token %>">
+    <div class="field has-addons">
+      <div class="control">
+        <input class="input" type="text" name="label" placeholder="システム名（例: sysA）"
+               maxlength="<%= ApiHelpers::MAX_API_KEY_LABEL_LENGTH %>" required>
+      </div>
+      <div class="control">
+        <button type="submit" class="button is-primary">発行</button>
+      </div>
+    </div>
+  </form>
+
+  <% api_keys = @settings["api_keys"] || {} %>
+  <% if api_keys.any? %>
+    <table class="table is-fullwidth mt-4">
+      <thead>
+        <tr><th>システム名</th><th>作成日時</th><th></th></tr>
+      </thead>
+      <tbody>
+        <% api_keys.each do |label, info| %>
+          <tr>
+            <td><%= label %></td>
+            <td><%= format_iso(info["created_at"]) %></td>
+            <td class="has-text-right">
+              <form method="post" action="/settings/api_keys/delete">
+                <input type="hidden" name="authenticity_token" value="<%= csrf_token %>">
+                <input type="hidden" name="label" value="<%= label %>">
+                <button type="submit" class="button is-small is-light">削除</button>
+              </form>
+            </td>
+          </tr>
+        <% end %>
+      </tbody>
+    </table>
+  <% end %>
+</div>
+
+<script src="/settings.js"></script>
