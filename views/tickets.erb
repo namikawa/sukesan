@@ -97,8 +97,10 @@
                 <% if st == "active" %>
                   <button type="button" class="button is-small copy-btn" data-target="<%= field_id %>">コピー</button>
                 <% end %>
-                <form method="post" action="/tickets/<%= ticket["token"] %>/revoke" class="is-inline">
+                <%# token は URL でなく POST body で送る（アクセスログへの生 token 記録を防ぐ）。 %>
+                <form method="post" action="/tickets/revoke" class="is-inline">
                   <input type="hidden" name="authenticity_token" value="<%= csrf_token %>">
+                  <input type="hidden" name="token" value="<%= ticket["token"] %>">
                   <button type="submit" class="button is-small is-light">無効化</button>
                 </form>
               <% else %>
