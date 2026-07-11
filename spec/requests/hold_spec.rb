@@ -188,4 +188,32 @@ RSpec.describe "複数カレンダー仮押さえ /hold" do
     expect(last_response.status).to eq(410)
     expect(last_response.body).to include("この URL は無効か、期限切れです")
   end
+
+  # Cookie 溢れ（セッション全損）対策の回帰。
+  # 最大長の任意項目（参加者・URL）で決定エラーを起こすと form_restore が session に載る。上限（cap）が無いと
+  # session が 4096 バイトを超え、Rack::Session::Cookie は Set-Cookie を丸ごと落とす（＝flash_alert・holder_keys
+  # まで含む session 全損。Set-Cookie が空になる）。cap により form_restore は保存されず、session は
+  # 「書き込み可能（非空）かつ 4096 バイト未満」に保たれる。この両側（非空・上限内）を検証する。
+  describe "セッション Cookie の肥大化対策" do
+    def set_cookie_size = last_response.headers["Set-Cookie"].to_s.bytesize
+
+    it "最大長入力の決定エラーでも Set-Cookie は非空かつ 4096 バイト未満（session 全損しない）" do
+      allow(AuditLog).to receive(:record)
+
+      # 仮押さえで held 状態にし、holder_key を session に載せる。
+      create_holds(slots: [slot1])
+      expect(last_response.status).to eq(302)
+
+      # 最大長の任意項目（attendees は保存上限 2000・video_url は MAX_URL_LENGTH=2048）で決定エラーを起こす。
+      SCHEDULE_LIMITER.reset!
+      attendees = "a@example.com," * 200 # 2800 文字（アプリ側で [0, 2000] に切り詰め）
+      video_url = "https://example.com/#{'a' * 2100}" # MAX_URL_LENGTH 超（同様に切り詰め）
+      post "/hold/confirm", authenticity_token: csrf_token, token: ticket,
+                            slot: "#{date}T23:00:00+09:00", attendees: attendees, video_url: video_url
+
+      expect(last_response.status).to eq(302)
+      expect(set_cookie_size).to be_positive # session が丸ごと落ちていない（cap が無いと 0 になる）
+      expect(set_cookie_size).to be < 4096
+    end
+  end
 end
