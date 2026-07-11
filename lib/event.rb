@@ -25,8 +25,11 @@ Event = Struct.new(
     end
   end
 
+  # 終日予定の日付。各カレンダーは終日の開始をそれぞれのタイムゾーンの深夜 0 時として返すため
+  # （Google=ローカル深夜・Outlook=UTC 深夜）、UTC へ寄せず「その Time が指す日付」をそのまま使う。
+  # UTC 変換すると Google 側（JST 深夜 0 時）が前日にずれ、同一日の終日予定が突き合わせで一致しなくなる。
   def date_key(time)
-    time&.utc&.strftime("%F")
+    time&.strftime("%F")
   end
 
   def time_key(time)

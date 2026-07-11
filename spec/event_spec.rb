@@ -42,5 +42,13 @@ RSpec.describe Event do
       b = event(all_day: true, starts_at: Time.parse("2026-06-20T05:00:00+00:00"))
       expect(a.match_key).to eq(b.match_key)
     end
+
+    # Google の終日予定は「その日の深夜 0 時（JST）」、Outlook は Prefer:UTC で「深夜 0 時（UTC）」
+    # として渡ってくる。UTC へ寄せて日付を取ると Google 側が前日にずれ、同一日でも一致しなくなる（旧実装で落ちる）。
+    it "Google（JST 深夜 0 時）と Outlook（UTC 深夜 0 時）の同日終日予定は一致する" do
+      google = event(all_day: true, starts_at: Time.parse("2026-06-20T00:00:00+09:00"))
+      outlook = event(all_day: true, starts_at: Time.parse("2026-06-20T00:00:00+00:00"))
+      expect(google.match_key).to eq(outlook.match_key)
+    end
   end
 end
