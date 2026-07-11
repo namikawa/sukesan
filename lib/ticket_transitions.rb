@@ -18,8 +18,15 @@ module TicketTransitions
     [ticket.merge(attrs).merge("status" => "used", "used_at" => now.iso8601), true]
   end
 
-  # 予約失敗時の巻き戻し: used → active（保存した入力値・仮押さえ関連キーも消す）。
+  # 予約失敗時の巻き戻し: used / held → active（保存した入力値・仮押さえ関連キーも消す）。
+  # 遷移元を限定し、終端（revoked/cancelled）や不正状態からは戻せないようにする。
+  # - used: 通常予約（use! 後にカレンダー登録失敗）の巻き戻し（BookingService）。
+  # - held: 仮押さえイベントの作成が途中失敗したときの巻き戻し（HoldService.rollback_created）。
+  REACTIVATABLE_FROM = %w[used held].freeze
+
   def reactivate(ticket)
+    return nil unless REACTIVATABLE_FROM.include?(ticket["status"])
+
     updated = ticket.except("status", "used_at", "requester", "title", "slot_start", "slot_end",
                             "attendees", "holds", "held_at", "holder_key")
                     .merge("status" => "active")
