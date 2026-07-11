@@ -4,6 +4,18 @@ require "rack/utils"
 
 # 複数カレンダー仮押さえ（/hold 系ルート・決定画面）を支えるヘルパ。
 module HoldHelpers
+  # セッションに保持する holder_key の上限。仮押さえのたびに token => holder_key が増えるため、
+  # 上限を超えたら最も古いエントリから捨てる（FIFO）。セッションは暗号化 Cookie（実用上限 約 4KB）に
+  # 載るため、無制限に貯めると復元データ（form_restore）と合わせて Cookie 溢れ＝セッション全損になり得る。
+  MAX_HOLDER_KEYS = 10
+
+  # エラー時の入力復元データ（form_restore）の JSON サイズ上限（バイト）。これを超える場合は保存しない。
+  # 逆算の根拠: 暗号化 Cookie の実用上限 約 4096B。base64 化で約 1.33 倍に膨らむため、暗号化前 JSON は
+  # 約 3000B が上限。復元データ以外の最悪ケース（holder_keys 10 件で 約 900B ＋ CSRF/flash/admin_at 等で
+  # 約 600B ＝ 約 1500B）を差し引いた残り（約 1500B）を復元データの上限とする。超える入力（最大長の参加者
+  # 2000B ＋ URL 2048B 等）は、中途半端に切り詰めるより「復元しない」方が挙動が予測可能なため丸ごと捨てる。
+  MAX_FORM_RESTORE_BYTES = 1500
+
   # 仮押さえを実行したブラウザ（ホルダー）か。セッションの holder_key とチケットの保存値を
   # 定数時間比較で照合する。破壊的操作（決定・個別削除・全取りやめ）はホルダーのみに許可し、
   # URL だけを知る第三者は候補の閲覧のみ可能とする（設計上の第二要素。Cookie は URL と別経路）。
@@ -16,7 +28,11 @@ module HoldHelpers
   # Cookie 期限の延長は before フィルタが担うが、フィルタはリクエスト開始時点の holder_keys を見るため、
   # 記録した当のレスポンスにも効くようここでも延長する。
   def remember_holder!(token, holder_key)
-    session[:holder_keys] = (session[:holder_keys] || {}).merge(token => holder_key)
+    keys = (session[:holder_keys] || {}).merge(token => holder_key)
+    # 上限超過分は最も古いエントリ（挿入順の先頭）から捨てる。捨てられたホルダーは以後の破壊的操作が
+    # できなくなるが、Cookie 溢れによるセッション全損（全ホルダー消失）よりは影響が限定的。
+    keys = keys.to_a.last(MAX_HOLDER_KEYS).to_h if keys.size > MAX_HOLDER_KEYS
+    session[:holder_keys] = keys
     session.options[:expire_after] = TicketStatus::HOLD_TTL_SECONDS
   end
 
@@ -45,8 +61,15 @@ module HoldHelpers
   # 入力値も一時保存して復元させる（1 回で消費）。
   def redirect_with_alert!(token, message)
     session[:flash_alert] = message
-    session[:form_restore] = @form_restore if @form_restore
+    # 復元データが大きすぎる場合（最大長の参加者・URL 等）は保存しない。Cookie 溢れでセッション全損
+    # （flash_alert・holder_keys まで失う）になるくらいなら、入力復元だけ諦める方が予測可能。
+    session[:form_restore] = @form_restore if @form_restore && form_restore_small_enough?(@form_restore)
     redirect "/t/#{token}#{search_query_suffix}"
+  end
+
+  # 復元データが Cookie 予算（MAX_FORM_RESTORE_BYTES）に収まるか。JSON 化したバイト数で判定する。
+  def form_restore_small_enough?(data)
+    JSON.generate(data).bytesize <= MAX_FORM_RESTORE_BYTES
   end
 
   # 仮押さえフォームが hidden で引き回す検索条件（あれば ?start_date=... を付け直し、
