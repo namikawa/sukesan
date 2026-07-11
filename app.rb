@@ -617,11 +617,14 @@ end
 
 # 発行済みワンタイム URL を手動で無効化する（管理者専用）。
 # 仮押さえ中だったチケットは、残っている [仮ブロック] イベントも削除する（URL 漏えい・放置時の kill switch）。
-post "/tickets/:token/revoke" do
+# token は URL でなく POST body（hidden input）で受け取る。生 token は bearer 資格情報であり、
+# URL に載せるとアクセスログ（マスク対象は /t/<token> のみ）へそのまま記録されてしまうため。
+post "/tickets/revoke" do
   require_admin!
-  previous = TicketStore.revoke(params[:token].to_s)
+  token = params[:token].to_s
+  previous = TicketStore.revoke(token)
   failed = previous.is_a?(Hash) ? delete_hold_events(Array(previous["holds"])) : 0
-  AuditLog.record(:ticket_revoke, ip: client_ip, target: audit_ticket_id(params[:token].to_s))
+  AuditLog.record(:ticket_revoke, ip: client_ip, target: audit_ticket_id(token))
   session[:flash] = "ワンタイム URL を無効化しました。"
   session[:flash] += " ※#{failed} 件の仮押さえイベントを削除できませんでした。" if failed.positive?
   redirect "/tickets"

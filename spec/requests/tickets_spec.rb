@@ -136,20 +136,32 @@ RSpec.describe "ワンタイム URL" do
     end
   end
 
-  describe "無効化 POST /tickets/:token/revoke" do
-    it "管理者は有効なトークンを無効化できる" do
+  describe "無効化 POST /tickets/revoke" do
+    it "管理者は有効なトークンを無効化できる（token は POST body で送る）" do
       token = TicketStore.create
       login_admin!
-      post "/tickets/#{token}/revoke", authenticity_token: csrf_token
+      post "/tickets/revoke", authenticity_token: csrf_token, token: token
       expect(last_response.status).to eq(302)
       expect(TicketStore.status(TicketStore.find(token))).to eq("revoked")
     end
 
     it "未認証では無効化できない" do
       token = TicketStore.create
-      post "/tickets/#{token}/revoke", authenticity_token: csrf_token
+      post "/tickets/revoke", authenticity_token: csrf_token, token: token
       expect(last_response.status).to eq(302)
       expect(TicketStore.status(TicketStore.find(token))).to eq("active")
+    end
+
+    # 生 token は bearer 資格情報。無効化フォームの action に載せると、マスク対象外の URL として
+    # アクセスログへそのまま記録される。フォームは token を hidden input（POST body）で送る。
+    it "一覧の無効化フォームは action に生トークンを含めず、hidden input で送る" do
+      token = TicketStore.create
+      login_admin!
+      get "/tickets"
+
+      expect(last_response.body).to include('action="/tickets/revoke"')
+      expect(last_response.body).not_to include("/tickets/#{token}/revoke")
+      expect(last_response.body).to include(%(<input type="hidden" name="token" value="#{token}">))
     end
   end
 
@@ -188,7 +200,7 @@ RSpec.describe "ワンタイム URL" do
 
     it "無効化すると残りの仮押さえイベントも削除する（kill switch）" do
       login_admin!
-      post "/tickets/#{held_token}/revoke", authenticity_token: csrf_token
+      post "/tickets/revoke", authenticity_token: csrf_token, token: held_token
 
       expect(TicketStore.status(TicketStore.find(held_token))).to eq("revoked")
       expect(a_request(:delete, %r{googleapis\.com/calendar/v3/calendars/primary/events/}))
