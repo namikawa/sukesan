@@ -63,8 +63,10 @@
           <% st = TicketStore.status(ticket) %>
           <% field_id = "ticket-url-#{ticket["token"]}" %>
           <%# cancelled は修飾なし（既定のグレー）: is-light はテーマによって背景と同化して読めないため。 %>
+          <%# 未知の status（データ破損等）は "invalid"。未定義キーは既定のグレー（tag_class 空）にフォールバック。 %>
           <% tag_class = { "active" => "is-success", "used" => "is-info", "expired" => "is-warning",
-                           "revoked" => "is-danger", "held" => "is-link", "cancelled" => "" }[st] %>
+                           "revoked" => "is-danger", "held" => "is-link", "cancelled" => "",
+                           "invalid" => "is-danger" }.fetch(st, "") %>
           <tr>
             <td><span class="tag <%= tag_class %>"><%= ticket_status_label(ticket) %></span></td>
             <td class="is-size-7 has-text-grey"><%= format_iso(ticket["created_at"]) %></td>

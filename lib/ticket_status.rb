@@ -15,6 +15,10 @@ module TicketStatus
 
   TERMINAL_STATUSES = %w[used revoked cancelled].freeze
 
+  # 保存・遷移で扱う正規のステータス集合。これ以外の値（データ破損・改ざん）は "invalid" とみなす。
+  # active はハッシュ上では status キー未設定（nil）または "active" のどちらでも表す。
+  VALID_STATUSES = (TERMINAL_STATUSES + %w[held active]).freeze
+
   def expired?(ticket, now: Time.now)
     if ticket["status"] == "held"
       Time.iso8601(ticket["held_at"].to_s) + HOLD_TTL_SECONDS < now
@@ -25,12 +29,16 @@ module TicketStatus
     true
   end
 
-  # 表示用ステータス: used / revoked / cancelled / expired / held / active
+  # 表示用ステータス: used / revoked / cancelled / expired / held / active / invalid
+  # 未知の status 値（データ破損・改ざん）は fail-closed で "invalid" を返し、active?/held? を
+  # false にして操作（予約・仮押さえ・決定）を一切許さない。
   def status(ticket, now: Time.now)
-    return ticket["status"] if TERMINAL_STATUSES.include?(ticket["status"])
+    raw = ticket["status"]
+    return "invalid" unless raw.nil? || VALID_STATUSES.include?(raw)
+    return raw if TERMINAL_STATUSES.include?(raw)
     return "expired" if expired?(ticket, now: now)
 
-    ticket["status"] == "held" ? "held" : "active"
+    raw == "held" ? "held" : "active"
   end
 
   def active?(ticket, now: Time.now)
