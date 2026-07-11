@@ -57,5 +57,17 @@ RSpec.describe EventDiffer do
       result = described_class.outlook_only(google_events: [], outlook_events: outlook)
       expect(result.size).to eq(2)
     end
+
+    # 同一件名・同一時刻の重複を件数で突き合わせる（Boolean 判定だと 2 件とも既存扱いで 1 件取りこぼす）。
+    it "Outlook に同内容が 2 件・Google に 1 件なら、差分は 1 件だけ返す" do
+      google = [event(source: "google", title: "定例MTG", start: "2026-06-20T10:00:00+09:00")]
+      outlook = [
+        event(source: "outlook", title: "定例MTG", start: "2026-06-20T10:00:00+09:00"),
+        event(source: "outlook", title: "定例MTG", start: "2026-06-20T10:00:00+09:00")
+      ]
+
+      result = described_class.outlook_only(google_events: google, outlook_events: outlook)
+      expect(result.size).to eq(1)
+    end
   end
 end
