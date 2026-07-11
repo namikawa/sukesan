@@ -1,0 +1,47 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# Ruby 版数の固定が全ソースで一致しているか検証する（不一致なら非ゼロ終了）。
+#
+# 固定箇所:
+#   - .ruby-version                  … host / ローカルの Ruby 選択
+#   - Gemfile の ruby "..."          … Bundler の完全一致固定
+#   - Gemfile.lock の RUBY VERSION   … bundle install で解決された版
+#   - Dockerfile の ARG RUBY_VERSION … コンテナのベースイメージ（builder / runtime 共有）
+#
+# Dependabot が Dockerfile だけを更新すると CI が緑のまま不整合が入る事故を防ぐため、
+# CI（.github/workflows/ci.yml）で本スクリプトを実行する。ローカルでも `ruby bin/check_ruby_version` で確認可。
+
+root = File.expand_path("..", __dir__)
+
+def read(path)
+  File.read(path)
+rescue Errno::ENOENT
+  abort "見つかりません: #{path}"
+end
+
+# 各ソースから版数（例 "3.4.10"）を取り出す。取れなければ nil。
+lock = read(File.join(root, "Gemfile.lock"))
+sources = {
+  ".ruby-version" => read(File.join(root, ".ruby-version"))[/\d+\.\d+\.\d+/],
+  'Gemfile (ruby "...")' => read(File.join(root, "Gemfile"))[/^\s*ruby\s+["'](\d+\.\d+\.\d+)["']/, 1],
+  "Gemfile.lock (RUBY VERSION)" => lock[/RUBY VERSION\s*\n\s*ruby\s+(\d+\.\d+\.\d+)/, 1],
+  "Dockerfile (ARG RUBY_VERSION)" => read(File.join(root, "Dockerfile"))[/^ARG\s+RUBY_VERSION=(\d+\.\d+\.\d+)/, 1]
+}
+
+missing = sources.select { |_, version| version.nil? }.keys
+unless missing.empty?
+  warn "Ruby 版数を読み取れませんでした: #{missing.join(', ')}"
+  exit 1
+end
+
+versions = sources.values.uniq
+if versions.size == 1
+  puts "Ruby 版数は一致しています: #{versions.first}"
+  exit 0
+end
+
+warn "Ruby 版数が一致していません:"
+sources.each { |name, version| warn "  #{name}: #{version}" }
+warn "4 箇所（.ruby-version / Gemfile / Gemfile.lock / Dockerfile の ARG）を揃えてください。"
+exit 1

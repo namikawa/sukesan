@@ -2,8 +2,12 @@
 # SUKESAN 本番イメージ。Cloud Run など前段で TLS 終端する環境を前提とする
 # （コンテナはプレーン HTTP で $PORT を listen する。TLS はプラットフォームが終端）。
 
+# Ruby 版数は 1 箇所（ここ）で定義し、builder / runtime の両 FROM で共有する。
+# .ruby-version / Gemfile / Gemfile.lock との一致は bin/check_ruby_version（CI）で検証する。
+ARG RUBY_VERSION=3.4.10
+
 # ---- builder: ネイティブ拡張（bcrypt 等）のビルドだけを行う ----
-FROM ruby:3.4.10-slim AS builder
+FROM ruby:${RUBY_VERSION}-slim AS builder
 
 # bcrypt のネイティブ拡張ビルドに必要（grpc 等は precompiled gem を利用）。
 RUN apt-get update -qq \
@@ -21,7 +25,7 @@ COPY Gemfile Gemfile.lock ./
 RUN bundle install && rm -rf /usr/local/bundle/cache
 
 # ---- runtime: compiler toolchain を含まない最終イメージ ----
-FROM ruby:3.4.10-slim
+FROM ruby:${RUBY_VERSION}-slim
 
 WORKDIR /app
 
