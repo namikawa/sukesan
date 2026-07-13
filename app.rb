@@ -32,6 +32,7 @@ require_relative "lib/hold_service"
 require_relative "lib/cross_process_lock"
 require_relative "lib/masked_access_logger"
 require_relative "lib/audit_log"
+require_relative "lib/slack_notifier"
 
 require_relative "helpers/auth_helpers"
 require_relative "helpers/oauth_helpers"
@@ -137,6 +138,10 @@ unless settings.test?
   # CommonLogger のサブクラス。/t/<token> の bearer token を HMAC 短縮 ID に、OAuth callback の
   # クエリ（code/state）を [FILTERED] に置換してから出力する（ログに秘密を残さない）。
   use MaskedAccessLogger, access_log, LOG_TOKEN_ID_KEY
+
+  # ゲスト操作を管理者の Slack へ通知する（任意）。SLACK_WEBHOOK_URL 未設定・空なら configure せず
+  # 通知無効のまま（deny-by-default）。テスト環境では configure しないため既定 no-op。
+  SlackNotifier.configure(ENV.fetch("SLACK_WEBHOOK_URL", nil))
 end
 
 # セッションは暗号化 Cookie（AES-CTR＋HMAC）に保持する（サーバ側状態を持たないため、複数インスタンス
@@ -245,6 +250,17 @@ helpers do
   # 監査ログでチケットを識別する短縮 ID（アクセスログの /t/~xxxxxxxx と同じ導出で相関できる）。
   def audit_ticket_id(token)
     "~#{MaskedAccessLogger.token_short_id(LOG_TOKEN_ID_KEY, token)}"
+  end
+
+  # Slack 通知用のスロット表示。「7/15（水） 14:00〜15:00」の形式（APP_TIMEZONE のローカル時刻）。
+  # 日付ラベルは FormatHelpers を再利用。管理者宛のため依頼者名・件名は含めてよいが、生 token・
+  # チケット URL は載せない（漏えい経路にしないため）。
+  def slack_slot_label(start_iso, end_iso)
+    starts = Time.iso8601(start_iso.to_s).getlocal
+    ends = Time.iso8601(end_iso.to_s).getlocal
+    "#{format_date_label(starts.to_date)} #{format_time(starts)}〜#{format_time(ends)}"
+  rescue ArgumentError
+    ""
   end
 end
 
@@ -395,6 +411,10 @@ post "/schedule" do
   end
 
   AuditLog.record(:booking_created, ip: client_ip, target: audit_ticket_id(token))
+  slot_label = slack_slot_label(event.starts_at.iso8601, event.ends_at.iso8601)
+  SlackNotifier.notify(
+    "スケジュールに新規予約が追加されました\n依頼者: #{requester}\n件名: #{title}\n日時: #{slot_label}"
+  )
   # 会議情報は登録直後の本人セッションでだけ完了画面に表示する（チケットには残さない）。
   session[:completion] = { "token" => token, "meet_link" => result.meet_link, "video_url" => video_url }
   session[:flash] = "#{requester} さんの「#{title}」を #{format_dt(event.starts_at)} に登録しました。"
@@ -453,6 +473,10 @@ post "/hold" do
 
   remember_holder!(token, holder_key)
   AuditLog.record(:hold_created, ip: client_ip, target: "#{audit_ticket_id(token)} count=#{slots.size}")
+  slot_lines = slots.map { |s, e| "・#{slack_slot_label(s.iso8601, e.iso8601)}" }.join("\n")
+  SlackNotifier.notify(
+    "仮押さえが入りました（#{slots.size} 件）\n依頼者: #{requester}\n件名: #{title}\n候補日時:\n#{slot_lines}"
+  )
   session[:flash] = "#{slots.size} 件の日程を仮押さえしました。この画面から 7 日以内に 1 件へ決定してください。"
   redirect "/t/#{token}"
 end
@@ -498,6 +522,11 @@ post "/hold/confirm" do
 
   forget_holder!(token)
   AuditLog.record(:hold_confirmed, ip: client_ip, target: audit_ticket_id(token))
+  chosen = ticket["holds"].find { |h| h["slot_start"] == slot_start }
+  chosen_label = slack_slot_label(slot_start, chosen&.fetch("slot_end", nil))
+  SlackNotifier.notify(
+    "仮押さえから 1 件に決定しました\n依頼者: #{ticket['requester']}\n件名: #{ticket['title']}\n日時: #{chosen_label}"
+  )
   # 会議情報は決定直後の本人セッションでだけ完了画面に表示する（チケットには残さない）。
   session[:completion] = { "token" => token, "meet_link" => result.meet_link, "video_url" => video_url }
   session[:flash] = "「#{ticket['title']}」を #{format_iso(slot_start)} に決定しました。#{hold_result_notes(result)}".strip
@@ -546,6 +575,10 @@ post "/hold/cancel" do
 
   forget_holder!(token)
   AuditLog.record(:hold_cancelled, ip: client_ip, target: audit_ticket_id(token))
+  slot_lines = Array(ticket["holds"]).map { |h| "・#{slack_slot_label(h['slot_start'], h['slot_end'])}" }.join("\n")
+  SlackNotifier.notify(
+    "仮押さえがすべて取りやめられました\n依頼者: #{ticket['requester']}\n件名: #{ticket['title']}\n取りやめた候補:\n#{slot_lines}"
+  )
   session[:flash] = "仮押さえをすべて取りやめました。#{hold_result_notes(result)}".strip
   redirect "/t/#{token}"
 end

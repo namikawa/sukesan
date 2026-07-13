@@ -180,4 +180,38 @@ RSpec.describe "予定作成 /schedule" do
     expect(last_response.body).to include("完了")
     expect(last_response.body).not_to include("meet.google.com")
   end
+
+  # Slack 通知はテスト環境では既定で無効（configure しない）。通知テストのときだけ configure する。
+  context "Slack 通知" do
+    let(:webhook) { "https://hooks.slack.com/services/T00/B00/xxxx" }
+
+    before do
+      SlackNotifier.configure(webhook)
+      stub_request(:post, %r{googleapis\.com/calendar/v3/calendars/primary/events})
+        .to_return(status: 200, body: "{}", headers: { "Content-Type" => "application/json" })
+    end
+    after { SlackNotifier.configure(nil) } # テスト既定（no-op）へ戻す
+
+    it "予約完了時に依頼者名・日時を含む text を webhook へ POST する" do
+      stub_request(:post, webhook).to_return(status: 200, body: "ok")
+      post "/schedule", authenticity_token: csrf_token, token: token,
+                        title: "打合せ", requester: "山田", slot: valid_slot
+      expect(last_response.status).to eq(302)
+      expect(
+        a_request(:post, webhook).with do |req|
+          text = JSON.parse(req.body)["text"]
+          text.include?("スケジュールに新規予約が追加されました") && text.include?("山田") && text.include?("打合せ") &&
+            text.match?(%r{\d{1,2}/\d{1,2}（.）\s\d{2}:\d{2}〜\d{2}:\d{2}})
+        end
+      ).to have_been_made
+    end
+
+    it "通知先が 500 を返しても予約自体は成功する（通知はベストエフォート）" do
+      stub_request(:post, webhook).to_return(status: 500, body: "error")
+      post "/schedule", authenticity_token: csrf_token, token: token,
+                        title: "打合せ", requester: "山田", slot: valid_slot
+      expect(last_response.status).to eq(302)
+      expect(TicketStore.status(TicketStore.find(token))).to eq("used")
+    end
+  end
 end
