@@ -130,6 +130,36 @@ RSpec.describe "予定作成 /schedule" do
     expect(last_response.status).to eq(400)
   end
 
+  it "既定（チェックなし）では sendUpdates=none で登録する（招待メールを送らない・回帰）" do
+    create = stub_request(:post, %r{googleapis\.com/calendar/v3/calendars/primary/events})
+             .with(query: hash_including("sendUpdates" => "none"))
+             .to_return(status: 200, body: "{}", headers: { "Content-Type" => "application/json" })
+    post "/schedule", authenticity_token: csrf_token, token: token, title: "打合せ", requester: "山田",
+                      slot: valid_slot, attendees: "a@example.com"
+    expect(last_response.status).to eq(302)
+    expect(create).to have_been_requested
+  end
+
+  it "「参加者に招待メールを送る」をチェックすると sendUpdates=all で登録する" do
+    create = stub_request(:post, %r{googleapis\.com/calendar/v3/calendars/primary/events})
+             .with(query: hash_including("sendUpdates" => "all"))
+             .to_return(status: 200, body: "{}", headers: { "Content-Type" => "application/json" })
+    post "/schedule", authenticity_token: csrf_token, token: token, title: "打合せ", requester: "山田",
+                      slot: valid_slot, attendees: "a@example.com", send_invites: "1"
+    expect(last_response.status).to eq(302)
+    expect(create).to have_been_requested
+  end
+
+  it "チェック値が「1」以外の任意文字列なら sendUpdates=none のまま（true 扱いしない）" do
+    create = stub_request(:post, %r{googleapis\.com/calendar/v3/calendars/primary/events})
+             .with(query: hash_including("sendUpdates" => "none"))
+             .to_return(status: 200, body: "{}", headers: { "Content-Type" => "application/json" })
+    post "/schedule", authenticity_token: csrf_token, token: token, title: "打合せ", requester: "山田",
+                      slot: valid_slot, attendees: "a@example.com", send_invites: "true"
+    expect(last_response.status).to eq(302)
+    expect(create).to have_been_requested
+  end
+
   it "ビデオ会議 URL を説明欄に登録する" do
     create = stub_request(:post, %r{googleapis\.com/calendar/v3/calendars/primary/events})
              .with(body: hash_including("description" => "依頼者: 山田\nビデオ会議: https://zoom.us/j/1"))

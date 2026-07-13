@@ -352,10 +352,12 @@ post "/schedule" do
   # 過去・直前すぎる時間帯は、空き再計算（Google 取得）の前に明示的に弾く。
   halt 422, "過去の時間帯は予約できません。お手数ですが再度空き時間をチェックしてください。" if AvailabilitySearch.too_soon?(starts_at)
 
-  # 任意項目: 参加者メールアドレス・ビデオ会議 URL・Google Meet 発行。
+  # 任意項目: 参加者メールアドレス・招待メール送付・ビデオ会議 URL・Google Meet 発行。
+  # チェック値は "1" のみ true（任意の文字列を true 扱いにしない）。
   attendees = parse_attendees(params[:attendees])
   video_url = params[:video_url].to_s.strip
   request_meet = params[:request_meet].to_s == "1"
+  send_invites = params[:send_invites].to_s == "1"
 
   halt 400, "参加者は最大 #{MAX_ATTENDEES} 件までです" if attendees.size > MAX_ATTENDEES
   halt 400, "参加者メールアドレスの形式が正しくありません" unless attendees.all? { |email| valid_email?(email) }
@@ -398,7 +400,7 @@ post "/schedule" do
     calendar_client: GoogleCalendarClient.new(google_access),
     event_id_key: EVENT_ID_KEY
   ).call(token: token, event: event, ticket_attrs: ticket_attrs,
-         attendees: event_attendees, request_meet: request_meet)
+         attendees: event_attendees, request_meet: request_meet, send_invites: send_invites)
 
   case result.status
   when :slot_taken
@@ -494,15 +496,17 @@ post "/hold/confirm" do
   @form_restore = {
     "slot" => params[:slot].to_s, "attendees" => params[:attendees].to_s[0, 2000],
     "video_url" => params[:video_url].to_s[0, ScheduleHelpers::MAX_URL_LENGTH],
-    "request_meet" => params[:request_meet].to_s
+    "request_meet" => params[:request_meet].to_s, "send_invites" => params[:send_invites].to_s
   }
 
   slot_start = params[:slot].to_s
   redirect_with_alert!(token, "決定する日程を選択してください。") if ticket["holds"].none? { |h| h["slot_start"] == slot_start }
 
+  # チェック値は "1" のみ true（任意の文字列を true 扱いにしない）。
   attendees = parse_attendees(params[:attendees])
   video_url = params[:video_url].to_s.strip
   request_meet = params[:request_meet].to_s == "1"
+  send_invites = params[:send_invites].to_s == "1"
   redirect_with_alert!(token, "参加者は最大 #{MAX_ATTENDEES} 件までです。") if attendees.size > MAX_ATTENDEES
   redirect_with_alert!(token, "参加者メールアドレスの形式が正しくありません。") unless attendees.all? { |email| valid_email?(email) }
   unless video_url.empty? || valid_http_url?(video_url)
@@ -517,7 +521,7 @@ post "/hold/confirm" do
   event_attendees = ([google_admin_email.to_s] + attendees).reject(&:empty?).uniq(&:downcase)
   result = hold_service(google_access).confirm(token: token, slot_start: slot_start,
                                                attendees: event_attendees, video_url: video_url,
-                                               request_meet: request_meet)
+                                               request_meet: request_meet, send_invites: send_invites)
   redirect_with_alert!(token, "この操作は完了済みか、期限切れです。画面を再読み込みしてください。") if result.status == :not_held
 
   forget_holder!(token)

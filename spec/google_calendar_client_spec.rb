@@ -37,24 +37,34 @@ RSpec.describe GoogleCalendarClient do
   describe "#create_event のクエリパラメータ" do
     let(:event) { Event.new(source: "google", title: "x", starts_at: t, ends_at: t + 1800, all_day: false) }
 
-    def captured_params(request_meet:)
+    def captured_params(request_meet: false, **)
       params = nil
       token = double
       allow(token).to receive(:post) do |*_args, **kwargs|
         params = kwargs[:params]
         double(body: "{}")
       end
-      described_class.new(token).create_event(event, request_meet: request_meet)
+      described_class.new(token).create_event(event, request_meet: request_meet, **)
       params
     end
 
-    it "通知抑止のため sendUpdates=none を常に指定する" do
+    it "既定では sendUpdates=none（招待メールを送らない）を指定する" do
       expect(captured_params(request_meet: false)).to include(sendUpdates: "none")
       expect(captured_params(request_meet: false)).not_to include(:conferenceDataVersion)
     end
 
     it "request_meet 時は conferenceDataVersion を追加する" do
       expect(captured_params(request_meet: true)).to include(sendUpdates: "none", conferenceDataVersion: 1)
+    end
+
+    it "send_updates: all を指定すると sendUpdates=all になる" do
+      expect(captured_params(send_updates: "all")).to include(sendUpdates: "all")
+    end
+
+    it "許可値（none/all）以外の send_updates は none に落とす（fail-closed）" do
+      expect(captured_params(send_updates: "externalOnly")).to include(sendUpdates: "none")
+      expect(captured_params(send_updates: "evil<script>")).to include(sendUpdates: "none")
+      expect(captured_params(send_updates: nil)).to include(sendUpdates: "none")
     end
   end
 
@@ -117,6 +127,14 @@ RSpec.describe GoogleCalendarClient do
       expect(captured[:body]["attendees"]).to eq([{ "email" => "a@example.com" }])
       expect(captured[:body]["conferenceData"]).to have_key("createRequest")
       expect(response["hangoutLink"]).to eq("https://meet.google.com/abc")
+    end
+
+    it "send_updates: all を指定すると sendUpdates=all、許可値以外は none に落とす" do
+      captured, = captured_patch(summary: "x", send_updates: "all")
+      expect(captured[:params]).to include(sendUpdates: "all")
+
+      captured, = captured_patch(summary: "x", send_updates: "externalOnly")
+      expect(captured[:params]).to include(sendUpdates: "none")
     end
   end
 end

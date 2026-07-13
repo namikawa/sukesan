@@ -17,6 +17,11 @@ class GoogleCalendarClient
   PAGE_SIZE = 2500
   MAX_PAGES = 50 # 暴走防止の backstop（現実的なデータでは到達前に完了する）
 
+  # sendUpdates として Google API へ渡してよい値（サーバ側で統制）。
+  # none = 招待メールを送らない（既定）/ all = 参加者全員へ Google の標準招待メールを送る。
+  # 許可値以外（externalOnly や不正な文字列）は none に落とす（fail-closed）。
+  SEND_UPDATES_MODES = %w[none all].freeze
+
   def initialize(access_token)
     @token = access_token
   end
@@ -36,16 +41,17 @@ class GoogleCalendarClient
   end
 
   # Google カレンダーへイベントを作成する。
-  # attendees: 参加者メールアドレスの配列（招待メールは送らず参加者として登録するだけ）。
+  # attendees: 参加者メールアドレスの配列（参加者として登録する）。
   # request_meet: true なら Google Meet のリンクを発行する。
+  # send_updates: 招待メールの送信モード（SEND_UPDATES_MODES 参照。既定 none＝送らない）。
   # 戻り値は作成された API レスポンス（JSON をパースしたハッシュ。Meet リンク取得に使う）。
   # id: を渡すとクライアント指定のイベント ID で作成する（決定的 ID による冪等再試行に使う）。
   # 既に同じ ID が存在する場合（409）は Conflict を送出する。
-  def create_event(event, attendees: [], request_meet: false, id: nil)
+  def create_event(event, attendees: [], request_meet: false, id: nil, send_updates: "none")
     response = @token.post(
       "#{BASE}/calendars/#{CALENDAR_ID}/events",
       headers: { "Content-Type" => "application/json" },
-      params: insert_params(request_meet),
+      params: insert_params(request_meet, send_updates),
       body: JSON.generate(create_payload(event, attendees, request_meet, id))
     )
     JSON.parse(response.body)
@@ -67,13 +73,15 @@ class GoogleCalendarClient
   end
 
   # イベントの一部項目を更新する（仮押さえの確定で使用: 件名の prefix 除去・説明の差し替え・
-  # 参加者/Google Meet の追加）。指定した項目だけを送る。戻り値は更新後の API レスポンス
+  # 参加者/Google Meet の追加）。指定した項目だけを送る。send_updates は create_event と同じ
+  # 送信モード（既定 none）。戻り値は更新後の API レスポンス
   # （JSON をパースしたハッシュ。Meet リンク取得に使う）。
-  def patch_event(event_id, summary: nil, description: nil, attendees: [], request_meet: false)
+  def patch_event(event_id, summary: nil, description: nil, attendees: [], request_meet: false,
+                  send_updates: "none")
     response = @token.patch(
       "#{BASE}/calendars/#{CALENDAR_ID}/events/#{event_id}",
       headers: { "Content-Type" => "application/json" },
-      params: insert_params(request_meet),
+      params: insert_params(request_meet, send_updates),
       body: JSON.generate(patch_payload(summary, description, attendees, request_meet))
     )
     JSON.parse(response.body)
@@ -123,9 +131,11 @@ class GoogleCalendarClient
     value && Time.parse(value)
   end
 
-  # events.insert のクエリパラメータ。sendUpdates=none で参加者への通知（招待メール）を送らない意図を明示する。
-  def insert_params(request_meet)
-    params = { sendUpdates: "none" }
+  # events.insert / events.patch のクエリパラメータ。sendUpdates は既定 none（招待メールを送らない）で、
+  # ゲストが明示的にオプトインしたときのみ all。許可値以外は none に落とし、Google API へ渡す値を
+  # サーバ側で統制する（クライアント提示値をそのまま流さない）。
+  def insert_params(request_meet, send_updates)
+    params = { sendUpdates: SEND_UPDATES_MODES.include?(send_updates) ? send_updates : "none" }
     params[:conferenceDataVersion] = 1 if request_meet
     params
   end

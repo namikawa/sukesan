@@ -128,6 +128,19 @@ RSpec.describe HoldService do
       expect(confirm(request_meet: true).meet_link).to eq("https://meet.google.com/abc")
     end
 
+    it "既定は send_updates=none、send_invites 時のみ all で更新する（招待メールのオプトイン）" do
+      allow(calendar_client).to receive(:patch_event).and_return({})
+      allow(calendar_client).to receive(:delete_event)
+
+      confirm
+      expect(calendar_client).to have_received(:patch_event)
+        .with("ev1", hash_including(send_updates: "none"))
+
+      confirm(send_invites: true)
+      expect(calendar_client).to have_received(:patch_event)
+        .with("ev1", hash_including(send_updates: "all"))
+    end
+
     it "決定できない状態（期限切れ・二重決定など）は :not_held" do
       allow(TicketStore).to receive(:confirm_hold!).and_return(nil)
       expect(confirm.status).to eq(:not_held)

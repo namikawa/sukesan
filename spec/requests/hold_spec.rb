@@ -113,6 +113,25 @@ RSpec.describe "複数カレンダー仮押さえ /hold" do
     expect(last_response.body).to include("決定しました")
   end
 
+  it "決定時に「参加者に招待メールを送る」をチェックすると sendUpdates=all で更新する" do
+    create_holds
+    post "/hold/confirm", authenticity_token: csrf_token, token: ticket,
+                          slot: "#{date}T09:00:00+09:00", attendees: "a@example.com", send_invites: "1"
+    expect(last_response.status).to eq(302)
+    expect(TicketStore.status(TicketStore.find(ticket))).to eq("used")
+    expect(a_request(:patch, %r{googleapis\.com/calendar/v3/calendars/primary/events/})
+      .with(query: hash_including("sendUpdates" => "all"))).to have_been_made.once
+  end
+
+  it "決定時にチェックが無ければ従来どおり sendUpdates=none で更新する（回帰）" do
+    create_holds
+    post "/hold/confirm", authenticity_token: csrf_token, token: ticket,
+                          slot: "#{date}T09:00:00+09:00", attendees: "a@example.com"
+    expect(last_response.status).to eq(302)
+    expect(a_request(:patch, %r{googleapis\.com/calendar/v3/calendars/primary/events/})
+      .with(query: hash_including("sendUpdates" => "none"))).to have_been_made.once
+  end
+
   it "holds に無いスロットでは決定できず、決定画面に警告を表示する" do
     create_holds
     post "/hold/confirm", authenticity_token: csrf_token, token: ticket, slot: "#{date}T13:00:00+09:00"

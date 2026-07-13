@@ -47,7 +47,9 @@ class HoldService
 
   # 仮押さえから 1 件を決定する（held → used）。決定イベントを確定形へ更新し、他の候補を削除する。
   # 仮押さえイベント自体が枠を専有しているため、空きの再検証は不要（他チケットと競合しない）。
-  def confirm(token:, slot_start:, attendees: [], video_url: "", request_meet: false, now: Time.now)
+  # send_invites: true ならゲストのオプトインとして参加者へ Google の標準招待メールを送る（既定は送らない）。
+  def confirm(token:, slot_start:, attendees: [], video_url: "", request_meet: false, send_invites: false,
+              now: Time.now)
     @lock.synchronize do
       attrs = attendees.empty? ? {} : { "attendees" => attendees }
       holds = TicketStore.confirm_hold!(token, slot_start: slot_start, attrs: attrs, now: now)
@@ -55,7 +57,9 @@ class HoldService
 
       chosen = holds.find { |h| h["slot_start"] == slot_start }
       ticket = TicketStore.find(token, now: now)
-      meet_link, patch_failed = patch_chosen(chosen, ticket, video_url, attendees, request_meet)
+      meet_link, patch_failed = patch_chosen(chosen, ticket, video_url: video_url, attendees: attendees,
+                                                             request_meet: request_meet,
+                                                             send_invites: send_invites)
       failed = delete_events(holds - [chosen])
       Result.new(status: :ok, meet_link: meet_link, failed_deletes: failed, patch_failed: patch_failed)
     end
@@ -126,13 +130,14 @@ class HoldService
   # 決定イベントを確定形（prefix 無しの件名・任意項目）へ更新する。戻り値は [meet_link, patch_failed]。
   # 更新に失敗しても決定（used への遷移）は取り消さない: 予定自体は正しい枠に存在しており、
   # 件名の [仮ブロック] 残りは運用で修正できる。ここで巻き戻すと二重決定の余地が生まれる方が害が大きい。
-  def patch_chosen(chosen, ticket, video_url, attendees, request_meet)
+  def patch_chosen(chosen, ticket, video_url:, attendees:, request_meet:, send_invites:)
     description = "依頼者: #{ticket['requester']}"
     description += "\nビデオ会議: #{video_url}" unless video_url.to_s.empty?
     response = @calendar_client.patch_event(
       chosen["event_id"],
       summary: "#{ticket['title']} - #{ticket['requester']} (from 調整ツール)",
-      description: description, attendees: attendees, request_meet: request_meet
+      description: description, attendees: attendees, request_meet: request_meet,
+      send_updates: send_invites ? "all" : "none"
     )
     [request_meet ? GoogleCalendarClient.meet_link(response) : nil, false]
   rescue StandardError => e

@@ -29,13 +29,23 @@ RSpec.describe BookingService do
     service.call(token: "tok", event: event, ticket_attrs: ticket_attrs)
   end
 
-  it "空きあり・チケット有効なら登録して :ok を返す（決定的 event id を付ける）" do
+  it "空きあり・チケット有効なら登録して :ok を返す（決定的 event id・既定 sendUpdates=none）" do
     expect(calendar_client).to receive(:create_event)
-      .with(event, attendees: [], request_meet: false, id: a_string_matching(/\Asukesan[0-9a-f]{40}\z/))
+      .with(event, attendees: [], request_meet: false, send_updates: "none",
+                   id: a_string_matching(/\Asukesan[0-9a-f]{40}\z/))
       .and_return({})
     expect(TicketStore).to receive(:use!).with("tok", attrs: ticket_attrs).and_return(true)
 
     expect(call.status).to eq(:ok)
+  end
+
+  it "send_invites 時は send_updates=all で登録する（招待メールのオプトイン）" do
+    expect(calendar_client).to receive(:create_event)
+      .with(event, attendees: [], request_meet: false, send_updates: "all", id: anything)
+      .and_return({})
+
+    result = service.call(token: "tok", event: event, ticket_attrs: ticket_attrs, send_invites: true)
+    expect(result.status).to eq(:ok)
   end
 
   it "同じ token は同じ event id を生成する（再試行の冪等性）" do
@@ -83,7 +93,7 @@ RSpec.describe BookingService do
   it "request_meet 時は応答から Meet リンクを取り出して返す" do
     response = { "hangoutLink" => "https://meet.google.com/abc-defg-hij" }
     allow(calendar_client).to receive(:create_event)
-      .with(event, attendees: [], request_meet: true, id: anything).and_return(response)
+      .with(event, attendees: [], request_meet: true, send_updates: "none", id: anything).and_return(response)
 
     result = service.call(token: "tok", event: event, ticket_attrs: ticket_attrs, request_meet: true)
     expect(result.status).to eq(:ok)
