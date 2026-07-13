@@ -12,6 +12,8 @@
 
 <form method="post" action="/settings/login">
   <input type="hidden" name="authenticity_token" value="<%= csrf_token %>">
+  <%# ログイン成功後に元いた管理ページへ戻すための戻り先。サーバ側で許可リスト照合してから使う。 %>
+  <input type="hidden" name="return_to" value="<%= request.path %>">
   <div class="field">
     <label class="label">パスワード</label>
     <div class="control">

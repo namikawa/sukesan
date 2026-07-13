@@ -26,6 +26,18 @@ module AuthHelpers
     halt erb(:login) unless admin?
   end
 
+  # ログイン後の戻り先として許可する管理ページ（完全一致のみ）。
+  LOGIN_RETURN_PATHS = ["/admin", "/tickets", "/settings", "/sync"].freeze
+
+  # ログインフォームの return_to（hidden フィールド）を検証して戻り先パスを返す。
+  # 許可リストと完全一致する値のみ受け入れ、それ以外（空・外部 URL・`//evil.example` の
+  # ようなプロトコル相対・許可外パス・クエリ付き）はすべて /admin にフォールバックする
+  # （deny-by-default。open redirect をここで構造的に防ぐ）。
+  def login_return_to(value)
+    path = value.to_s
+    LOGIN_RETURN_PATHS.include?(path) ? path : "/admin"
+  end
+
   # 入力されたパスワードを、ENV の bcrypt ダイジェスト（ADMIN_PASSWORD_DIGEST）と照合する。
   # ダイジェスト未設定・不正な形式の場合はログイン不可（false）。
   # BCrypt::Password#is_password? は定数時間で比較する。

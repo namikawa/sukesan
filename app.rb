@@ -565,7 +565,10 @@ post "/settings/login" do
     AuditLog.record(:login_failure, ip: client_ip)
     session[:flash] = "パスワードが正しくありません。"
   end
-  redirect "/admin"
+  # 成功時はログイン画面を出した元の管理ページへ戻す。失敗時も同じページへ戻し、
+  # 未認証のため再びログイン画面が描画される（return_to も自然に維持される）。
+  # 戻り先は許可リストで検証し、許可外は /admin へフォールバック（open redirect 防止）。
+  redirect login_return_to(params[:return_to])
 end
 
 post "/settings/logout" do
