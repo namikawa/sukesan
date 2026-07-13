@@ -47,8 +47,16 @@ RSpec.describe "FirestoreTicketStore", :firestore do
 
   it "期限切れトークンは使用できない" do
     token = store.create(now: now)
-    later = now + TicketStatus::TTL_SECONDS + 1
+    later = now + (TicketStatus::DEFAULT_TTL_HOURS * 3600) + 1
     expect(store.use!(token, attrs: {}, now: later)).to be(false)
+  end
+
+  it "ttl_hours 付きで発行でき、選んだ期限まで使用できる（24 時間を超えても有効）" do
+    token = store.create(now: now, ttl_hours: 168)
+    expect(store.find(token)["ttl_hours"]).to eq(168)
+
+    later = now + (72 * 3600) # 既定 24h なら期限切れの時刻
+    expect(store.use!(token, attrs: {}, now: later)).to be(true)
   end
 
   it "reactivate! で使用済みから active へ戻し、保存値を消す" do
@@ -129,7 +137,7 @@ RSpec.describe "FirestoreTicketStore", :firestore do
 
   it "held は held_at から 7 日で期限切れになる（発行 24 時間は超えても有効）" do
     token = hold_ticket
-    within = now + TicketStatus::TTL_SECONDS + 3600
+    within = now + (TicketStatus::DEFAULT_TTL_HOURS * 3600) + 3600
     expect(TicketStatus.held?(store.find(token), now: within)).to be(true)
 
     after_ttl = now + TicketStatus::HOLD_TTL_SECONDS + 60

@@ -1,7 +1,7 @@
 <%== page_header(title: "SUKESAN", subtitle: "スケジュール管理ツール") %>
 
 <p class="block">調整したい期間と必要な時間を入力すると、空き時間の候補から希望の枠を選んで予定を登録できます。</p>
-<p class="block is-size-7 has-text-grey">このページは 1 回限りの調整用 URL です。予定を登録すると、この URL は使えなくなります（発行から 24 時間で期限切れ）。</p>
+<p class="block is-size-7 has-text-grey">このページは 1 回限りの調整用 URL です。予定を登録すると、この URL は使えなくなります<% unless @expires_label.to_s.empty? %>（<%= @expires_label %> まで有効）<% end %>。</p>
 <p class="block is-size-7 has-text-grey">※ 表示・入力の時刻はすべて <strong><%= APP_TIMEZONE %></strong> です。</p>
 
 <%== flash_messages %>

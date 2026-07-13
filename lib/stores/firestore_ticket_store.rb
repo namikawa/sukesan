@@ -37,9 +37,11 @@ class FirestoreTicketStore
   # スケールする場合はスロット予約 document（slot_reservations）等による分散排他が別途必要。
   def booking_lock = (@booking_lock ||= Mutex.new)
 
-  def create(now: Time.now)
+  # ttl_hours は発行時に選んだ有効期間（時間）。最長 168h（7 日）＋仮押さえ 7 日 = 14 日の寿命でも
+  # purge_at（created + PURGE_DAYS = 42 日）より十分手前なので、TTL ポリシーの導出は変えない。
+  def create(now: Time.now, ttl_hours: TicketStatus::DEFAULT_TTL_HOURS)
     token = SecureRandom.urlsafe_base64(32)
-    ticket = { "token" => token, "created_at" => now.iso8601, "status" => "active" }
+    ticket = { "token" => token, "created_at" => now.iso8601, "status" => "active", "ttl_hours" => ttl_hours }
     doc(token).set(fields(ticket))
     token
   end

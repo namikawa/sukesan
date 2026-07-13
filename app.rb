@@ -300,6 +300,7 @@ get "/t/:token" do
     halt erb(:ticket_invalid)
   end
 
+  @expires_label = ticket_expires_label(ticket) # 発行時に選んだ有効期限をゲストへ表示する
   @settings = SettingsStore.load
   @start_date = params[:start_date].to_s
   @end_date = params[:end_date].to_s
@@ -649,7 +650,9 @@ end
 # 1回限りのスケジュール調整 URL を発行する（管理者専用）。
 post "/tickets" do
   require_admin!
-  token = TicketStore.create
+  # 有効期限は許可値（24/72/168 時間）のみ受け付け、許可外・欠落は既定の 24 時間に落とす（fail-closed）。
+  ttl_hours = TicketStatus.normalize_ttl_hours(params[:ttl_hours])
+  token = TicketStore.create(ttl_hours: ttl_hours)
   AuditLog.record(:ticket_create, ip: client_ip, target: audit_ticket_id(token))
   session[:flash] = "ワンタイム URL を発行しました。"
   redirect "/tickets"

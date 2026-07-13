@@ -40,7 +40,8 @@ module TicketStore
   end
 
   # --- 永続化（アダプタへ委譲） ---
-  def create(now: Time.now) = backend.create(now: now)
+  # ttl_hours: 発行時に選んだ有効期間（許可値の検証は呼び出し側で TicketStatus.normalize_ttl_hours を通す）。
+  def create(now: Time.now, ttl_hours: TicketStatus::DEFAULT_TTL_HOURS) = backend.create(now: now, ttl_hours: ttl_hours)
   def find(token, now: Time.now) = backend.find(token, now: now)
   def all(now: Time.now) = backend.all(now: now)
   def use!(token, attrs:, now: Time.now) = backend.use!(token, attrs: attrs, now: now)

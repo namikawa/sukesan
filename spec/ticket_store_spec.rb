@@ -81,8 +81,16 @@ RSpec.describe TicketStore do
 
     it "期限切れのトークンは使用できない" do
       token = described_class.create(now: now)
-      later = now + TicketStatus::TTL_SECONDS + 1
+      later = now + (TicketStatus::DEFAULT_TTL_HOURS * 3600) + 1
       expect(described_class.use!(token, attrs: {}, now: later)).to be(false)
+    end
+
+    it "ttl_hours 付きで発行すると、選んだ期限まで使用できる（既定の 24 時間を超えても有効）" do
+      token = described_class.create(now: now, ttl_hours: 168)
+      expect(described_class.find(token, now: now)["ttl_hours"]).to eq(168)
+
+      later = now + (72 * 3600) # 既定 24h なら期限切れの時刻
+      expect(described_class.use!(token, attrs: {}, now: later)).to be(true)
     end
   end
 
@@ -168,7 +176,7 @@ RSpec.describe TicketStore do
 
     it "発行から 24 時間を過ぎても、仮押さえ済みなら held のまま有効" do
       token = hold_ticket
-      later = now + TicketStatus::TTL_SECONDS + 3600 # 発行 25 時間後（held_at からは 7 日以内）
+      later = now + (TicketStatus::DEFAULT_TTL_HOURS * 3600) + 3600 # 発行 25 時間後（held_at からは 7 日以内）
       expect(described_class.held?(described_class.find(token, now: later), now: later)).to be(true)
     end
   end
@@ -272,7 +280,7 @@ RSpec.describe TicketStore do
     it "TTL を過ぎると expired になる" do
       token = described_class.create(now: now)
       ticket = described_class.find(token, now: now)
-      later = now + TicketStatus::TTL_SECONDS + 1
+      later = now + (TicketStatus::DEFAULT_TTL_HOURS * 3600) + 1
       expect(described_class.status(ticket, now: later)).to eq("expired")
     end
   end

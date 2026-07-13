@@ -23,8 +23,9 @@ class FileTicketStore
   # 物理保持する週ファイル数。当週＋過去 5 週＝6 バケットを保持し、6 週以上前の週ファイルは prune! で物理削除する。
   # 30 日表示を確実にカバーするための最小バケット数でもある（ISO 週境界の最悪ケースで 6 バケット必要）。
   KEEP_WEEKS = 6
-  # 検索・更新で探す週ファイル数。チケットの寿命は最長「発行 24h ＋仮押さえ 7 日 ≒ 8 日」で、
-  # ISO 週境界の最悪ケースで 3 バケットにまたがるため 3 週分を見る。
+  # 検索・更新で探す週ファイル数。チケットの寿命は最長「発行 TTL 7 日（168h）＋仮押さえ 7 日 = 14 日」。
+  # 14 日間は ISO 週で最大 3 バケットにまたがり、now / now-7d / now-14d の週が連続してそれを全部
+  # カバーするため 3 週分で足りる（TTL の許可値を延ばす場合はここも見直す）。
   SEARCH_WEEKS = 3
 
   def initialize(cipher:, dir: nil)
@@ -41,13 +42,14 @@ class FileTicketStore
   # ディレクトリにロックファイルを置く。Mutex＋flock で同一ホスト上の複数プロセスでも有効。
   def booking_lock = (@booking_lock ||= CrossProcessLock.new(-> { File.join(dir, ".booking.lock") }))
 
-  # 新しいワンタイム URL を発行し、トークンを返す。
-  def create(now: Time.now)
+  # 新しいワンタイム URL を発行し、トークンを返す。ttl_hours は発行時に選んだ有効期間（時間）。
+  def create(now: Time.now, ttl_hours: TicketStatus::DEFAULT_TTL_HOURS)
     token = SecureRandom.urlsafe_base64(32)
     @lock.synchronize do
       key = bucket_key(now)
       data = load_bucket(key)
-      data[token] = { "token" => token, "created_at" => now.iso8601, "status" => "active" }
+      data[token] = { "token" => token, "created_at" => now.iso8601, "status" => "active",
+                      "ttl_hours" => ttl_hours }
       write_bucket(key, data)
       prune!(now: now)
     end

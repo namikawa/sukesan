@@ -12,6 +12,9 @@ module FormatHelpers
   WEEKDAY_LABELS = { 0 => "日", 1 => "月", 2 => "火", 3 => "水", 4 => "木", 5 => "金", 6 => "土" }.freeze
   WEEKDAY_ORDER = [1, 2, 3, 4, 5, 6, 0].freeze
 
+  # ワンタイム URL 発行時に選べる有効期限のラベル（キーは TicketStatus::ALLOWED_TTL_HOURS と揃える）。
+  TICKET_TTL_OPTIONS = { 24 => "24 時間", 72 => "72 時間", 168 => "7 日" }.freeze
+
   # パーシャル（views/_*.erb）をレイアウト無しで描画する。
   # 描画結果は HTML のため、呼び出し側は <%== %>（エスケープ無し）で埋め込む。
   def partial(name, locals = {})
@@ -37,6 +40,13 @@ module FormatHelpers
 
   def ticket_status_label(ticket)
     TICKET_STATUS_LABELS.fetch(TicketStore.status(ticket), "不明")
+  end
+
+  # チケットの有効期限（active は発行時に選んだ期間、held は仮押さえ期限）。日時が不正なら空。
+  def ticket_expires_label(ticket)
+    format_dt(TicketStatus.expires_at(ticket))
+  rescue ArgumentError
+    ""
   end
 
   # 保存された ISO8601 文字列を表示用の日時に整える。

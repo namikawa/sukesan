@@ -38,6 +38,35 @@ RSpec.describe "ワンタイム URL" do
       expect(last_response.body).to include("/t/#{token}")
       expect(last_response.body).to include("copy-btn")
     end
+
+    it "発行フォームに有効期限のセレクト（24 時間・72 時間・7 日）がある" do
+      login_admin!
+      get "/tickets"
+      expect(last_response.body).to include('name="ttl_hours"')
+      %w[24 72 168].each { |v| expect(last_response.body).to include(%(value="#{v}")) }
+    end
+
+    it "有効期限を選んで発行でき、一覧に期限の日時が表示される" do
+      login_admin!
+      post "/tickets", authenticity_token: csrf_token, ttl_hours: "168"
+
+      ticket = TicketStore.all.first
+      expect(ticket["ttl_hours"]).to eq(168)
+
+      get "/tickets"
+      expected = (Time.iso8601(ticket["created_at"]) + (168 * 3600)).getlocal.strftime("%Y-%m-%d %H:%M")
+      expect(last_response.body).to include(expected)
+    end
+
+    it "許可外の有効期限（48・abc・欠落）は既定の 24 時間で発行する（fail-closed）" do
+      login_admin!
+      post "/tickets", authenticity_token: csrf_token, ttl_hours: "48"
+      post "/tickets", authenticity_token: csrf_token, ttl_hours: "abc"
+      post "/tickets", authenticity_token: csrf_token
+
+      expect(TicketStore.all.size).to eq(3)
+      expect(TicketStore.all.map { |t| t["ttl_hours"] }).to all(eq(24))
+    end
   end
 
   describe "一覧のページネーション GET /tickets" do

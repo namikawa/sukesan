@@ -17,9 +17,17 @@
 <%== flash_messages %>
 
 <h2 class="title is-5">Google カレンダー登録用ワンタイム URL</h2>
-<p class="block">調整したい相手に渡す「1 回限り・24 時間有効」の URL を発行します。1 度予定が登録されると、その URL は使えなくなります。</p>
-<form method="post" action="/tickets">
+<p class="block">調整したい相手に渡す 1 回限りの URL を発行します。有効期限は 24 時間・72 時間・7 日から選べます。1 度予定が登録されると、その URL は使えなくなります。</p>
+<form method="post" action="/tickets" class="is-flex is-align-items-center">
   <input type="hidden" name="authenticity_token" value="<%= csrf_token %>">
+  <label class="mr-2" for="ttl-hours">有効期限</label>
+  <div class="select mr-2">
+    <select id="ttl-hours" name="ttl_hours">
+      <% FormatHelpers::TICKET_TTL_OPTIONS.each do |hours, label| %>
+        <option value="<%= hours %>"<%= " selected" if hours == TicketStatus::DEFAULT_TTL_HOURS %>><%= label %></option>
+      <% end %>
+    </select>
+  </div>
   <button type="submit" class="button is-primary"<%= " disabled" unless google_connected? %>>新しいワンタイム URL を発行</button>
 </form>
 <% unless google_connected? %>
@@ -54,6 +62,7 @@
         <tr>
           <th>ステータス</th>
           <th>発行日時</th>
+          <th>有効期限</th>
           <th>URL / 登録内容</th>
           <th>操作</th>
         </tr>
@@ -70,6 +79,7 @@
           <tr>
             <td><span class="tag <%= tag_class %>"><%= ticket_status_label(ticket) %></span></td>
             <td class="is-size-7 has-text-grey"><%= format_iso(ticket["created_at"]) %></td>
+            <td class="is-size-7 has-text-grey"><%= ticket_expires_label(ticket) %></td>
             <td>
               <% if st == "active" %>
                 <input id="<%= field_id %>" class="input is-small ticket-url" type="text" value="<%= ticket_url(ticket["token"]) %>" readonly>
@@ -83,7 +93,6 @@
                 <span class="is-size-7">
                   <%= ticket["requester"] %> /「<%= ticket["title"] %>」/
                   仮押さえ 残 <%= Array(ticket["holds"]).size %> 件
-                  （期限: <%= format_dt(Time.iso8601(ticket["held_at"]) + TicketStatus::HOLD_TTL_SECONDS) %>）
                 </span>
                 <ul class="is-size-7 hold-slot-list">
                   <% Array(ticket["holds"]).sort_by { |h| h["slot_start"] }.each do |hold| %>
