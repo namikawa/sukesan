@@ -415,7 +415,7 @@ post "/schedule" do
   AuditLog.record(:booking_created, ip: client_ip, target: audit_ticket_id(token))
   slot_label = slack_slot_label(event.starts_at.iso8601, event.ends_at.iso8601)
   SlackNotifier.notify(
-    "スケジュールに新規予約が追加されました\n依頼者: #{requester}\n件名: #{title}\n日時: #{slot_label}"
+    "新規のスケジュールが追加されました\n依頼者: #{requester}\n件名: #{title}\n日時: #{slot_label}"
   )
   # 会議情報は登録直後の本人セッションでだけ完了画面に表示する（チケットには残さない）。
   session[:completion] = { "token" => token, "meet_link" => result.meet_link, "video_url" => video_url }

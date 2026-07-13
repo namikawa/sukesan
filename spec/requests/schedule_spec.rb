@@ -230,7 +230,7 @@ RSpec.describe "予定作成 /schedule" do
       expect(
         a_request(:post, webhook).with do |req|
           text = JSON.parse(req.body)["text"]
-          text.include?("スケジュールに新規予約が追加されました") && text.include?("山田") && text.include?("打合せ") &&
+          text.include?("新規のスケジュールが追加されました") && text.include?("山田") && text.include?("打合せ") &&
             text.match?(%r{\d{1,2}/\d{1,2}（.）\s\d{2}:\d{2}〜\d{2}:\d{2}})
         end
       ).to have_been_made
