@@ -44,15 +44,17 @@ class GoogleCalendarClient
   # attendees: 参加者メールアドレスの配列（参加者として登録する）。
   # request_meet: true なら Google Meet のリンクを発行する。
   # send_updates: 招待メールの送信モード（SEND_UPDATES_MODES 参照。既定 none＝送らない）。
+  # private_event: true のときだけ visibility=private を付ける（カレンダー共有相手には「予定あり」とだけ
+  #   表示される）。false ならフィールド自体を送らず Google の既定に委ねる。
   # 戻り値は作成された API レスポンス（JSON をパースしたハッシュ。Meet リンク取得に使う）。
   # id: を渡すとクライアント指定のイベント ID で作成する（決定的 ID による冪等再試行に使う）。
   # 既に同じ ID が存在する場合（409）は Conflict を送出する。
-  def create_event(event, attendees: [], request_meet: false, id: nil, send_updates: "none")
+  def create_event(event, attendees: [], request_meet: false, id: nil, send_updates: "none", private_event: false)
     response = @token.post(
       "#{BASE}/calendars/#{CALENDAR_ID}/events",
       headers: { "Content-Type" => "application/json" },
       params: insert_params(request_meet, send_updates),
-      body: JSON.generate(create_payload(event, attendees, request_meet, id))
+      body: JSON.generate(create_payload(event, attendees, request_meet, id, private_event))
     )
     JSON.parse(response.body)
   rescue OAuth2::Error => e
@@ -151,11 +153,14 @@ class GoogleCalendarClient
   end
 
   # events.insert に送る JSON ボディを組み立てる（任意項目は指定があるときだけ含める）。
-  def create_payload(event, attendees, request_meet, id)
+  # visibility は private_event のときだけ送る（patch_event は visibility に触れないため、
+  # 作成時の指定が決定（patch）後も維持される）。
+  def create_payload(event, attendees, request_meet, id, private_event)
     payload = event_payload(event)
     payload[:id] = id if id
     payload[:attendees] = attendees.map { |email| { email: email } } unless attendees.empty?
     payload[:conferenceData] = meet_create_request if request_meet
+    payload[:visibility] = "private" if private_event
     payload
   end
 

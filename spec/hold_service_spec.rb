@@ -20,16 +20,16 @@ RSpec.describe HoldService do
     allow(availability).to receive(:slot_available?).and_return(true)
   end
 
-  def hold
+  def hold(**)
     service.hold(token: "tok", requester: "山田", title: "打合せ", slots: slots,
-                 holder_key: "holder-secret", now: now)
+                 holder_key: "holder-secret", now: now, **)
   end
 
   describe "#hold" do
     it "チケット遷移後に prefix 付きイベントをスロットごとの決定的 ID で作成する" do
       created = []
       allow(TicketStore).to receive(:hold!).and_return(true)
-      allow(calendar_client).to receive(:create_event) do |event, id:|
+      allow(calendar_client).to receive(:create_event) do |event, id:, **|
         created << [event, id]
         {}
       end
@@ -43,6 +43,22 @@ RSpec.describe HoldService do
       ids = created.map { |_, id| id }
       expect(ids).to all(match(/\Asukesan[0-9a-f]{40}\z/))
       expect(ids.uniq.size).to eq(2) # スロットごとに異なる ID
+    end
+
+    it "既定は private_event=false、指定時は全イベントを private_event=true で作成する（非公開のオプトイン）" do
+      allow(TicketStore).to receive(:hold!).and_return(true)
+      flags = []
+      allow(calendar_client).to receive(:create_event) do |_event, private_event:, **|
+        flags << private_event
+        {}
+      end
+
+      hold
+      expect(flags).to eq([false, false])
+
+      flags.clear
+      hold(private_event: true)
+      expect(flags).to eq([true, true])
     end
 
     it "いずれかの空きが埋まっていれば :slot_taken（チケットに触れない）" do

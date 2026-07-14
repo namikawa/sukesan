@@ -68,6 +68,29 @@ RSpec.describe GoogleCalendarClient do
     end
   end
 
+  describe "#create_event の visibility（非公開オプション）" do
+    let(:event) { Event.new(source: "google", title: "x", starts_at: t, ends_at: t + 1800, all_day: false) }
+
+    def captured_body(**)
+      body = nil
+      token = double
+      allow(token).to receive(:post) do |*_args, **kwargs|
+        body = JSON.parse(kwargs[:body])
+        double(body: "{}")
+      end
+      described_class.new(token).create_event(event, **)
+      body
+    end
+
+    it "既定では visibility フィールド自体を送らない（Google の既定に委ねる）" do
+      expect(captured_body).not_to have_key("visibility")
+    end
+
+    it "private_event: true のときだけ visibility=private を送る" do
+      expect(captured_body(private_event: true)).to include("visibility" => "private")
+    end
+  end
+
   # response.status を持つ OAuth2::Error を作るヘルパ（initialize はレスポンス解析を要するため回避）。
   def oauth2_error(status)
     error = OAuth2::Error.allocate

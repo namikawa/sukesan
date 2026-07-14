@@ -23,7 +23,9 @@ class BookingService
   # token を消費し、event を Google カレンダーへ登録する。予約は 1 件ずつ直列化し、別トークン同士が
   # 同じ枠をほぼ同時に予約しても、後続はロック内の再確認で先行予約を検知して弾ける。
   # send_invites: true ならゲストのオプトインとして参加者へ Google の標準招待メールを送る（既定は送らない）。
-  def call(token:, event:, ticket_attrs:, attendees: [], request_meet: false, send_invites: false)
+  # private_event: true なら visibility=private で作成する（共有相手には「予定あり」とだけ表示）。
+  def call(token:, event:, ticket_attrs:, attendees: [], request_meet: false, send_invites: false,
+           private_event: false)
     @lock.synchronize do
       # ロック内で最新の空き状況を取り直して再検証する（依頼者が見た古い結果は信用しない）。
       return Result.new(status: :slot_taken) unless @availability.slot_available?(event.starts_at, event.ends_at)
@@ -32,15 +34,17 @@ class BookingService
       # 同時送信で既に使われていれば false（登録は行わない）。
       return Result.new(status: :ticket_used) unless TicketStore.use!(token, attrs: ticket_attrs)
 
-      register(token, event, attendees, request_meet, send_invites)
+      register(token, event, attendees, request_meet: request_meet, send_invites: send_invites,
+                                        private_event: private_event)
     end
   end
 
   private
 
-  def register(token, event, attendees, request_meet, send_invites)
+  def register(token, event, attendees, request_meet:, send_invites:, private_event:)
     response = @calendar_client.create_event(event, attendees: attendees, request_meet: request_meet,
                                                     send_updates: send_invites ? "all" : "none",
+                                                    private_event: private_event,
                                                     id: event_id_for(token))
     meet_link = request_meet ? GoogleCalendarClient.meet_link(response) : nil
     Result.new(status: :ok, meet_link: meet_link)

@@ -83,6 +83,10 @@
           <label class="label">予定名</label>
           <div class="control"><input class="input" type="text" name="title" placeholder="例: 打ち合わせ" required></div>
         </div>
+        <label class="checkbox mb-4">
+          <input type="checkbox" name="private_event" value="1">
+          予定を非公開にする <span class="has-text-grey is-size-7">（任意・カレンダー上で他の人には「予定あり」とだけ表示されます）</span>
+        </label>
         <div class="field">
           <label class="label">参加者メールアドレス <span class="has-text-grey is-size-7">（任意）</span></label>
           <div class="control"><textarea class="textarea" name="attendees" rows="3" placeholder="複数可。改行・カンマ・スペース区切りで入力できます"></textarea></div>
@@ -138,6 +142,10 @@
           <label class="label">予定名</label>
           <div class="control"><input class="input" type="text" name="title" value="<%= @form_restore["title"] %>" placeholder="例: 打ち合わせ" required></div>
         </div>
+        <label class="checkbox mb-4">
+          <input type="checkbox" name="private_event" value="1" <%= "checked" if @form_restore["private_event"] == "1" %>>
+          予定を非公開にする <span class="has-text-grey is-size-7">（任意・カレンダー上で他の人には「予定あり」とだけ表示されます）</span>
+        </label>
 
         <% @results.each do |date, slots| %>
           <% next if slots.empty? %>

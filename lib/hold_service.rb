@@ -33,7 +33,9 @@ class HoldService
 
   # 仮押さえを作成する（active → held）。slots は [[Time, Time], ...]（件数・重複はルート側で検証済み）。
   # ロック内で最新の空きを再検証し、チケット遷移 → イベント作成×N の順で行う。
-  def hold(token:, requester:, title:, slots:, holder_key:, now: Time.now)
+  # private_event: true なら [仮ブロック] イベント全件を visibility=private で作成する（センシティブな
+  # 件名は仮押さえの時点で露出するため、作成時に指定する。決定は patch で visibility に触れず維持される）。
+  def hold(token:, requester:, title:, slots:, holder_key:, private_event: false, now: Time.now)
     @lock.synchronize do
       return Result.new(status: :slot_taken) unless slots.all? { |s, e| @availability.slot_available?(s, e) }
 
@@ -41,7 +43,7 @@ class HoldService
       attrs = { "requester" => requester, "title" => title, "holder_key" => holder_key, "holds" => holds }
       return Result.new(status: :ticket_used) unless TicketStore.hold!(token, attrs: attrs, now: now)
 
-      create_hold_events(token, requester, title, holds, now)
+      create_hold_events(token, requester, title, holds, now, private_event: private_event)
     end
   end
 
@@ -95,10 +97,10 @@ class HoldService
       "slot_start" => starts_at.iso8601, "slot_end" => ends_at.iso8601 }
   end
 
-  def create_hold_events(token, requester, title, holds, now)
+  def create_hold_events(token, requester, title, holds, now, private_event:)
     created = []
     holds.each do |entry|
-      create_hold_event(entry, requester, title, now)
+      create_hold_event(entry, requester, title, now, private_event: private_event)
       created << entry
     end
     Result.new(status: :ok)
@@ -109,8 +111,9 @@ class HoldService
     Result.new(status: :api_failure)
   end
 
-  def create_hold_event(entry, requester, title, now)
-    @calendar_client.create_event(hold_event(entry, requester, title, now), id: entry["event_id"])
+  def create_hold_event(entry, requester, title, now, private_event:)
+    @calendar_client.create_event(hold_event(entry, requester, title, now),
+                                  id: entry["event_id"], private_event: private_event)
   rescue GoogleCalendarClient::Conflict
     # 決定的 ID が既に存在＝前回の試行で作成済み。成功として扱う（冪等な再試行）。
   end

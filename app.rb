@@ -353,12 +353,13 @@ post "/schedule" do
   # 過去・直前すぎる時間帯は、空き再計算（Google 取得）の前に明示的に弾く。
   halt 422, "過去の時間帯は予約できません。お手数ですが再度空き時間をチェックしてください。" if AvailabilitySearch.too_soon?(starts_at)
 
-  # 任意項目: 参加者メールアドレス・招待メール送付・ビデオ会議 URL・Google Meet 発行。
+  # 任意項目: 参加者メールアドレス・招待メール送付・ビデオ会議 URL・Google Meet 発行・非公開。
   # チェック値は "1" のみ true（任意の文字列を true 扱いにしない）。
   attendees = parse_attendees(params[:attendees])
   video_url = params[:video_url].to_s.strip
   request_meet = params[:request_meet].to_s == "1"
   send_invites = params[:send_invites].to_s == "1"
+  private_event = params[:private_event].to_s == "1"
 
   halt 400, "参加者は最大 #{MAX_ATTENDEES} 件までです" if attendees.size > MAX_ATTENDEES
   halt 400, "参加者メールアドレスの形式が正しくありません" unless attendees.all? { |email| valid_email?(email) }
@@ -401,7 +402,8 @@ post "/schedule" do
     calendar_client: GoogleCalendarClient.new(google_access),
     event_id_key: EVENT_ID_KEY
   ).call(token: token, event: event, ticket_attrs: ticket_attrs,
-         attendees: event_attendees, request_meet: request_meet, send_invites: send_invites)
+         attendees: event_attendees, request_meet: request_meet, send_invites: send_invites,
+         private_event: private_event)
 
   case result.status
   when :slot_taken
@@ -435,7 +437,7 @@ post "/hold" do
   # 入力値はエラー後の画面で復元する（redirect_with_alert! が一時保存。文字数はコピー上限で抑える）。
   @form_restore = {
     "requester" => params[:requester].to_s[0, 200], "title" => params[:title].to_s[0, 200],
-    "slots" => Array(params[:slots]).map(&:to_s)
+    "slots" => Array(params[:slots]).map(&:to_s), "private_event" => params[:private_event].to_s
   }
   redirect_with_alert!(token, "この URL は無効か、期限切れです。管理者に新しい URL の発行を依頼してください。") unless TicketStore.active?(ticket)
   redirect_with_alert!(token, "Google の連携が必要です。管理者にお問い合わせください。") unless google_connected?
@@ -462,8 +464,10 @@ post "/hold" do
 
   # ホルダーキー: 決定・削除の操作をこのブラウザに限定するための第二要素（チケットとセッションの両方へ保存）。
   holder_key = SecureRandom.urlsafe_base64(32)
+  private_event = params[:private_event].to_s == "1" # チェック値は "1" のみ true
   result = hold_service(google_access).hold(token: token, requester: requester, title: title,
-                                            slots: slots, holder_key: holder_key)
+                                            slots: slots, holder_key: holder_key,
+                                            private_event: private_event)
 
   case result.status
   when :slot_taken

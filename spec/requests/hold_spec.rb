@@ -34,9 +34,9 @@ RSpec.describe "複数カレンダー仮押さえ /hold" do
       .to_return(status: 204, body: "")
   end
 
-  def create_holds(slots: [slot1, slot2])
+  def create_holds(slots: [slot1, slot2], **extra)
     post "/hold", authenticity_token: csrf_token, token: ticket,
-                  requester: "山田", title: "打合せ", slots: slots
+                  requester: "山田", title: "打合せ", slots: slots, **extra
   end
 
   it "選択した日程を [仮ブロック] として作成し、チケットを仮押さえ状態にする" do
@@ -132,6 +132,30 @@ RSpec.describe "複数カレンダー仮押さえ /hold" do
       .with(query: hash_including("sendUpdates" => "none"))).to have_been_made.once
   end
 
+  it "「予定を非公開にする」で仮押さえすると [仮ブロック] 全件を visibility=private で作成する" do
+    create_holds(private_event: "1")
+    expect(last_response.status).to eq(302)
+    expect(TicketStore.status(TicketStore.find(ticket))).to eq("held")
+    expect(a_request(:post, %r{googleapis\.com/calendar/v3/calendars/primary/events})
+      .with(body: hash_including("visibility" => "private"))).to have_been_made.times(2)
+  end
+
+  it "チェックなしの仮押さえは visibility を付けない（Google の既定に委ねる・回帰）" do
+    create_holds
+    expect(last_response.status).to eq(302)
+    expect(a_request(:post, %r{googleapis\.com/calendar/v3/calendars/primary/events})
+      .with { |req| !JSON.parse(req.body).key?("visibility") }).to have_been_made.times(2)
+  end
+
+  it "非公開で仮押さえ→決定の patch は visibility に触れない（作成時の指定が維持される）" do
+    create_holds(private_event: "1")
+    post "/hold/confirm", authenticity_token: csrf_token, token: ticket, slot: "#{date}T09:00:00+09:00"
+    expect(last_response.status).to eq(302)
+    expect(TicketStore.status(TicketStore.find(ticket))).to eq("used")
+    expect(a_request(:patch, %r{googleapis\.com/calendar/v3/calendars/primary/events/})
+      .with { |req| !JSON.parse(req.body).key?("visibility") }).to have_been_made.once
+  end
+
   it "holds に無いスロットでは決定できず、決定画面に警告を表示する" do
     create_holds
     post "/hold/confirm", authenticity_token: csrf_token, token: ticket, slot: "#{date}T13:00:00+09:00"
@@ -165,16 +189,17 @@ RSpec.describe "複数カレンダー仮押さえ /hold" do
       .to have_been_made.times(2)
   end
 
-  it "入力エラー後も依頼者名・予定名・選択済みスロットを復元し、仮押さえタブを初期表示にする" do
+  it "入力エラー後も依頼者名・予定名・非公開チェック・選択済みスロットを復元し、仮押さえタブを初期表示にする" do
     six = (0...6).map do |i|
       "#{date}T#{format('%02d', 9 + i)}:00:00+09:00/#{date}T#{format('%02d', 9 + i)}:30:00+09:00"
     end
     post "/hold", authenticity_token: csrf_token, token: ticket, requester: "山田", title: "打合せ",
-                  slots: six, start_date: date.to_s, end_date: date.to_s, duration: "30"
+                  slots: six, private_event: "1", start_date: date.to_s, end_date: date.to_s, duration: "30"
     follow_redirect!
 
     expect(last_response.body).to include('value="山田"')
     expect(last_response.body).to include('value="打合せ"')
+    expect(last_response.body).to match(/name="private_event" value="1" checked/)
     expect(last_response.body).to match(/value="#{Regexp.escape(six.first)}" checked/)
     expect(last_response.body).to include('class="is-active" data-tab="tab-hold"')
   end
