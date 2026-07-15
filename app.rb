@@ -141,7 +141,9 @@ unless settings.test?
 
   # ゲスト操作を管理者の Slack へ通知する（任意）。SLACK_WEBHOOK_URL 未設定・空なら configure せず
   # 通知無効のまま（deny-by-default）。テスト環境では configure しないため既定 no-op。
-  SlackNotifier.configure(ENV.fetch("SLACK_WEBHOOK_URL", nil))
+  # SLACK_MENTION で通知本文の先頭に付けるメンションを指定できる（channel / here / メンバー ID。
+  # 未設定・不正値ならメンションなし）。
+  SlackNotifier.configure(ENV.fetch("SLACK_WEBHOOK_URL", nil), mention: ENV.fetch("SLACK_MENTION", nil))
 end
 
 # セッションは暗号化 Cookie（AES-CTR＋HMAC）に保持する（サーバ側状態を持たないため、複数インスタンス

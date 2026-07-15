@@ -52,4 +52,58 @@ RSpec.describe SlackNotifier do
 
     expect { described_class.notify("x") }.to output(/\A(?!.*hooks\.slack\.com).*\z/m).to_stderr
   end
+
+  describe "メンション（SLACK_MENTION）" do
+    it "channel 指定なら text 先頭に <!channel> が付く（大文字小文字不問）" do
+      stub = stub_request(:post, webhook)
+             .with(body: { "text" => "<!channel> 予約が入りました" }.to_json)
+             .to_return(status: 200)
+      described_class.configure(webhook, mention: "Channel")
+      described_class.notify("予約が入りました")
+
+      expect(stub).to have_been_requested
+    end
+
+    it "here 指定なら text 先頭に <!here> が付く" do
+      stub = stub_request(:post, webhook)
+             .with(body: { "text" => "<!here> 予約が入りました" }.to_json)
+             .to_return(status: 200)
+      described_class.configure(webhook, mention: "here")
+      described_class.notify("予約が入りました")
+
+      expect(stub).to have_been_requested
+    end
+
+    it "メンバー ID 指定なら text 先頭に <@ID>（upcase 済み）が付く" do
+      stub = stub_request(:post, webhook)
+             .with(body: { "text" => "<@U0ABC123> 予約が入りました" }.to_json)
+             .to_return(status: 200)
+      described_class.configure(webhook, mention: "u0abc123")
+      described_class.notify("予約が入りました")
+
+      expect(stub).to have_been_requested
+    end
+
+    it "不正値ならメンションを付けず、値を出さず warn する（fail-safe）" do
+      stub = stub_request(:post, webhook)
+             .with(body: { "text" => "予約が入りました" }.to_json)
+             .to_return(status: 200)
+
+      expect { described_class.configure(webhook, mention: "@secret-team") }
+        .to output(/\[SlackNotifier\] SLACK_MENTION の値が不正/).to_stderr
+      described_class.notify("予約が入りました")
+
+      expect(stub).to have_been_requested
+    end
+
+    it "未設定（nil）ならメンションを付けない" do
+      stub = stub_request(:post, webhook)
+             .with(body: { "text" => "予約が入りました" }.to_json)
+             .to_return(status: 200)
+      described_class.configure(webhook)
+      described_class.notify("予約が入りました")
+
+      expect(stub).to have_been_requested
+    end
+  end
 end

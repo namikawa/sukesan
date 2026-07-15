@@ -22,18 +22,42 @@ module SlackNotifier
   OPEN_TIMEOUT = 3 # 秒
   READ_TIMEOUT = 3 # 秒
 
-  # 起動時に Incoming Webhook の URL を設定する。nil/空なら configure せず通知無効のまま。
-  # テスト環境では呼ばない（AuditLog と同じく既定 no-op）。
-  def configure(webhook_url)
+  # Slack メンバー ID の形式（ユーザー U… / ワークスペース間ユーザー W…）。任意文字列を
+  # Slack 記法として素通しさせないため、この形式だけをメンションとして受け付ける。
+  MEMBER_ID_PATTERN = /\A[UW][A-Z0-9]+\z/i
+
+  # 起動時に Incoming Webhook の URL とメンション指定を設定する。nil/空なら configure せず
+  # 通知無効のまま。テスト環境では呼ばない（AuditLog と同じく既定 no-op）。
+  def configure(webhook_url, mention: nil)
     url = webhook_url.to_s.strip
     @uri = url.empty? ? nil : URI.parse(url)
+    @mention = normalize_mention(mention)
+  end
+
+  # SLACK_MENTION の値を Slack Incoming Webhook が解釈する記法へ正規化する。
+  # 未設定・空・不正値はメンションなし（nil）にフォールバックする（fail-safe）。
+  def normalize_mention(mention)
+    value = mention.to_s.strip
+    return nil if value.empty?
+
+    case value.downcase
+    when "channel" then "<!channel>"
+    when "here" then "<!here>"
+    else
+      return "<@#{value.upcase}>" if MEMBER_ID_PATTERN.match?(value)
+
+      # 任意文字列を Slack 記法として送らない。値そのものはログに出さない。
+      warn "[SlackNotifier] SLACK_MENTION の値が不正なためメンションなしで通知します"
+      nil
+    end
   end
 
   def notify(text)
     return if @uri.nil?
 
+    body = @mention ? "#{@mention} #{text}" : text.to_s
     request = Net::HTTP::Post.new(@uri.request_uri, "Content-Type" => "application/json")
-    request.body = JSON.generate("text" => text.to_s)
+    request.body = JSON.generate("text" => body)
     http_client.request(request)
     nil
   rescue StandardError => e
