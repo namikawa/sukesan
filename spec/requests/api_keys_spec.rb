@@ -46,8 +46,8 @@ RSpec.describe "API キーの発行・削除 /settings/api_keys" do
       expect(last_response.body).to include("sysA")
 
       # コピーボタンは外部 JS ファイル経由（CSP 維持のためインラインスクリプト・イベントハンドラは使わない）。
-      expect(last_response.body).to include('<script src="/settings.js"></script>')
-      expect(last_response.body).to include('id="api-key-copy"')
+      expect(last_response.body).to include('<script src="/copy.js"></script>')
+      expect(last_response.body).to include('class="button is-small ml-2 copy-btn"')
       expect(last_response.body).to include('data-target="new-api-key"')
       expect(last_response.body).not_to include("onclick=")
       expect(last_response.body).not_to include("<script>") # インラインスクリプトの直書き禁止

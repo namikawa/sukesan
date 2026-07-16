@@ -122,7 +122,7 @@
     <p>「<%= @new_api_key["label"] %>」の API キーを発行しました。以下のキーをコピーして利用するシステムに設定してください。<strong>この画面を離れると再表示できません。</strong></p>
     <p class="mt-2">
       <code id="new-api-key"><%= @new_api_key["key"] %></code>
-      <button type="button" id="api-key-copy" data-target="new-api-key" class="button is-small ml-2">コピー</button>
+      <button type="button" data-target="new-api-key" class="button is-small ml-2 copy-btn">コピー</button>
     </p>
   </div>
 <% end %>
@@ -167,4 +167,4 @@
   <% end %>
 </div>
 
-<script src="/settings.js"></script>
+<script src="/copy.js"></script>
