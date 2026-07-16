@@ -8,7 +8,7 @@ require_relative "stores/file_ticket_store"
 # 1回限りのスケジュール調整 URL（チケット）ストアのファサード。
 #
 # 公開 API は変えず、STORE_BACKEND（file/firestore）で永続化の実装（アダプタ）を切り替える。
-# 状態判定（status/expired?/active?）は永続化に依存しない純粋ロジック（TicketStatus）へ委譲する。
+# 状態判定（status/active?/held?）は永続化に依存しない純粋ロジック（TicketStatus）へ委譲する。
 module TicketStore
   module_function
 
@@ -61,7 +61,6 @@ module TicketStore
 
   # --- 状態判定（純粋ロジックへ委譲） ---
   def status(ticket, now: Time.now) = TicketStatus.status(ticket, now: now)
-  def expired?(ticket, now: Time.now) = TicketStatus.expired?(ticket, now: now)
   def active?(ticket, now: Time.now) = TicketStatus.active?(ticket, now: now)
   def held?(ticket, now: Time.now) = TicketStatus.held?(ticket, now: now)
 end

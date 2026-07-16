@@ -141,7 +141,8 @@
     </div>
   </form>
 
-  <% api_keys = @settings["api_keys"] || {} %>
+  <%# ヘルパ側の型検証（Hash 以外は空扱い）を通す。ルートの検証・認証と同じ読み出し経路に揃える。 %>
+  <% api_keys = stored_api_keys %>
   <% if api_keys.any? %>
     <table class="table is-fullwidth mt-4">
       <thead>

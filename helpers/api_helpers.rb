@@ -17,8 +17,6 @@ module ApiHelpers
   # loopback とみなす接続元アドレス（REMOTE_ADDR）。IPv4/IPv6 のループバックのみ許可する。
   LOOPBACK_ADDRS = ["127.0.0.1", "::1"].freeze
 
-  module_function
-
   # 保存済みの発行キー一覧（{ ラベル => { "digest" =>…, "created_at" =>… } }）。未発行なら空ハッシュ。
   def stored_api_keys
     keys = SettingsStore.load["api_keys"]
