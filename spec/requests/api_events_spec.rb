@@ -26,12 +26,16 @@ RSpec.describe "他システム向け API /api/v1/calendars/google/events" do
       get "/api/v1/calendars/google/events", {}, auth
       expect(last_response.status).to eq(404)
       expect(JSON.parse(last_response.body).dig("error", "code")).to eq("not_found")
+      # エラー応答も after フィルタで no-store が付く（not_found ハンドラ経路）。
+      expect(last_response.headers["Cache-Control"]).to eq("no-store")
     end
 
     it "Authorization ヘッダなしは 401" do
       get "/api/v1/calendars/google/events"
       expect(last_response.status).to eq(401)
       expect(JSON.parse(last_response.body).dig("error", "code")).to eq("unauthorized")
+      # エラー応答も after フィルタで no-store が付く（api_error! 経路）。
+      expect(last_response.headers["Cache-Control"]).to eq("no-store")
     end
 
     it "不正なキーは 401 で、監査ログに api_auth_failed を記録する" do

@@ -213,9 +213,9 @@ end
 not_found do
   # API パスは HTML でなく統一エラーエンベロープ（JSON）で返す。
   # 404 は Sinatra が not_found ハンドラで body を上書きするため、API の 404 はここで一元的に組み立てる。
+  # no-store は after フィルタ（AuthHelpers#no_store?）が一元的に付与する。
   if request.path_info.start_with?("/api/")
     content_type :json
-    headers["Cache-Control"] = "no-store"
     JSON.generate("error" => { "code" => "not_found", "message" => "見つかりません。" })
   else
     "ページが見つかりません。"
@@ -246,21 +246,12 @@ MAX_TEXT_LENGTH = 100
 helpers AuthHelpers, OAuthHelpers, FormatHelpers, SettingsParamsHelpers, SyncHelpers, ScheduleHelpers, HoldHelpers,
         ApiHelpers
 
+# app.rb 固有の鍵定数（LOG_TOKEN_ID_KEY）に依存するヘルパのみをここに置く。
+# 表示整形の共通ヘルパは helpers/*.rb（例: Slack 通知の slack_slot_label は FormatHelpers）に置く。
 helpers do
   # 監査ログでチケットを識別する短縮 ID（アクセスログの /t/~xxxxxxxx と同じ導出で相関できる）。
   def audit_ticket_id(token)
     "~#{MaskedAccessLogger.token_short_id(LOG_TOKEN_ID_KEY, token)}"
-  end
-
-  # Slack 通知用のスロット表示。「7/15（水） 14:00〜15:00」の形式（APP_TIMEZONE のローカル時刻）。
-  # 日付ラベルは FormatHelpers を再利用。管理者宛のため依頼者名・件名は含めてよいが、生 token・
-  # チケット URL は載せない（漏えい経路にしないため）。
-  def slack_slot_label(start_iso, end_iso)
-    starts = Time.iso8601(start_iso.to_s).getlocal
-    ends = Time.iso8601(end_iso.to_s).getlocal
-    "#{format_date_label(starts.to_date)} #{format_time(starts)}〜#{format_time(ends)}"
-  rescue ArgumentError
-    ""
   end
 end
 

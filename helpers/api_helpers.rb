@@ -56,18 +56,16 @@ module ApiHelpers
   end
 
   # 統一エラーエンベロープ（{"error": {"code", "message"}}）で JSON 応答を返して中断する。
-  # 応答はキャッシュさせない（no-store）。code は呼び出し側が使い分ける。
+  # code は呼び出し側が使い分ける。no-store は after フィルタ（AuthHelpers#no_store?）が一元的に付与する。
   # 404 は Sinatra が not_found ハンドラで body を上書きするため、ここでは扱わない（404 は halt 404 + not_found 側）。
   def api_error!(status_code, code, message)
     content_type :json
-    headers["Cache-Control"] = "no-store"
     halt status_code, JSON.generate("error" => { "code" => code, "message" => message })
   end
 
-  # 成功時の JSON 応答（Content-Type と no-store を付ける）。
+  # 成功時の JSON 応答（Content-Type を付ける）。no-store は after フィルタ（AuthHelpers#no_store?）が一元的に付与する。
   def api_json(payload)
     content_type :json
-    headers["Cache-Control"] = "no-store"
     JSON.generate(payload)
   end
 

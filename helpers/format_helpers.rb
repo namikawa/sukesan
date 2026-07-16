@@ -83,4 +83,15 @@ module FormatHelpers
   def format_date_label(date)
     "#{date.month}/#{date.day}（#{WEEKDAY_LABELS[date.wday]}）"
   end
+
+  # Slack 通知用のスロット表示。「7/15（水） 14:00〜15:00」の形式（APP_TIMEZONE のローカル時刻）。
+  # 日付ラベルは format_date_label を再利用。管理者宛のため依頼者名・件名は含めてよいが、生 token・
+  # チケット URL は載せない（漏えい経路にしないため）。
+  def slack_slot_label(start_iso, end_iso)
+    starts = Time.iso8601(start_iso.to_s).getlocal
+    ends = Time.iso8601(end_iso.to_s).getlocal
+    "#{format_date_label(starts.to_date)} #{format_time(starts)}〜#{format_time(ends)}"
+  rescue ArgumentError
+    ""
+  end
 end
