@@ -10,6 +10,9 @@ module ScheduleHelpers
   # ビデオ会議 URL の最大長（DoS・誤入力対策）。検証ルール（valid_http_url?）と一体で持つ。
   MAX_URL_LENGTH = 2048
 
+  # 参加者の最大件数（DoS・誤入力対策）。検証ロジック（optional_event_error）と一体で持つ。
+  MAX_ATTENDEES = 50
+
   # 空き時間検索サービスを、管理者の Google カレンダーに接続して組み立てる。
   # token は呼び出し側で取得済みのものを渡す（refresh 失敗＝nil のガードは呼び出し側の責務）。
   def availability_search(settings, token)
@@ -20,6 +23,26 @@ module ScheduleHelpers
   # 改行・カンマ・スペース（タブ等の空白）を区切りとして扱い、空要素と重複を除く。
   def parse_attendees(raw)
     raw.to_s.split(/[\s,]+/).reject(&:empty?).uniq
+  end
+
+  # 任意項目（参加者・ビデオ会議 URL・Meet 発行）の検証。最初に見つかったエラー文言を返し、
+  # 問題なければ nil。予約（/schedule）と決定（/hold/confirm）で同一の検証・文言を使う
+  # （エラーの伝え方＝halt か redirect かは呼び出し側の責務）。
+  def optional_event_error(attendees:, video_url:, request_meet:)
+    return "参加者は最大 #{MAX_ATTENDEES} 件までです。" if attendees.size > MAX_ATTENDEES
+    return "参加者メールアドレスの形式が正しくありません。" unless attendees.all? { |email| valid_email?(email) }
+    return nil if video_url.empty? # ビデオ会議 URL 未指定なら以降の URL 検証は不要
+
+    return "ビデオ会議 URL の形式が正しくありません（http/https の URL）。" unless valid_http_url?(video_url)
+    return "ビデオ会議 URL の指定と Google Meet の発行は同時に指定できません。" if request_meet
+
+    nil
+  end
+
+  # 主催者（管理者自身）を参加者に含める。連携時に取得・保存したメールを先頭に足し、
+  # 空要素と（大文字小文字を無視した）重複を除く。取得できていなければ依頼者入力分のみ。
+  def attendees_with_admin(attendees)
+    ([google_admin_email.to_s] + attendees).reject(&:empty?).uniq(&:downcase)
   end
 
   def valid_email?(value)

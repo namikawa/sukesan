@@ -32,16 +32,17 @@ RSpec.describe "OAuth トークン更新失敗時のフォールバック" do
     expect(last_response.body).to include("連携に問題があるため検索できません")
   end
 
-  it "予約登録は 502 と案内を返し、チケットを消費しない" do
+  it "予約登録は元画面に案内を返し、チケットを消費しない" do
     token = TicketStore.create
     slot = "2099-01-04T10:00:00+09:00/2099-01-04T10:30:00+09:00"
     expect do
       post "/schedule", authenticity_token: csrf_token, token: token,
                         title: "打合せ", requester: "山田", slot: slot
     end.to output(/\[oauth\]/).to_stderr
-    expect(last_response.status).to eq(502)
-    expect(last_response.body).to include("連携に問題があるため登録できません")
+    expect(last_response.status).to eq(302)
     expect(TicketStore.status(TicketStore.find(token))).to eq("active")
+    follow_redirect!
+    expect(last_response.body).to include("連携に問題があるため登録できません")
   end
 
   it "同期チェック結果の表示は 500 にせず「該当なし」と誤認させない形で再連携を促す" do

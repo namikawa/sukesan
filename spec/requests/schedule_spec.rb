@@ -38,38 +38,59 @@ RSpec.describe "予定作成 /schedule" do
     expect(last_response.status).to eq(403)
   end
 
-  it "token が無い（または無効）と 403" do
+  it "token が無い（未指定）と予定を作成せずリダイレクトする" do
+    create = stub_request(:post, %r{googleapis\.com/calendar/v3/calendars/primary/events})
+             .to_return(status: 200, body: "{}", headers: { "Content-Type" => "application/json" })
     post "/schedule", authenticity_token: csrf_token, title: "t", requester: "r", slot: valid_slot
-    expect(last_response.status).to eq(403)
+    expect(last_response.status).to eq(302)
+    expect(create).not_to have_been_requested
   end
 
-  it "不正な slot 形式は 400" do
+  it "無効化された token では登録できず、案内ページに警告を表示する" do
+    TicketStore.revoke(token)
+    post "/schedule", authenticity_token: csrf_token, token: token, title: "t", requester: "r", slot: valid_slot
+    expect(last_response.status).to eq(302)
+    follow_redirect!
+    expect(last_response.body).to include("この URL は無効か、期限切れです")
+  end
+
+  it "不正な slot 形式は元画面上部に警告を表示する" do
     post "/schedule", authenticity_token: csrf_token, token: token, title: "t", requester: "r", slot: "notatime"
-    expect(last_response.status).to eq(400)
+    expect(last_response.status).to eq(302)
+    follow_redirect!
+    expect(last_response.body).to include("依頼者名・予定名・希望の時間帯を入力してください")
   end
 
-  it "依頼者名が無いと 400" do
+  it "依頼者名が無いと元画面上部に警告を表示する" do
     post "/schedule", authenticity_token: csrf_token, token: token, title: "t", slot: valid_slot
-    expect(last_response.status).to eq(400)
+    expect(last_response.status).to eq(302)
+    follow_redirect!
+    expect(last_response.body).to include("依頼者名・予定名・希望の時間帯を入力してください")
   end
 
-  it "15 の倍数でない長さ（UI 迂回の1分枠）は 422" do
+  it "15 の倍数でない長さ（UI 迂回の1分枠）は予約できず警告を表示する" do
     post "/schedule", authenticity_token: csrf_token, token: token, title: "t", requester: "r",
                       slot: "#{slot_date}T09:00:00+09:00/#{slot_date}T09:01:00+09:00"
-    expect(last_response.status).to eq(422)
+    expect(last_response.status).to eq(302)
+    follow_redirect!
+    expect(last_response.body).to include("選択した時間帯は予約できません")
   end
 
-  it "候補に無い時間帯（営業時間外）は 422" do
+  it "候補に無い時間帯（営業時間外）は予約できず警告を表示する" do
     post "/schedule", authenticity_token: csrf_token, token: token, title: "t", requester: "r",
                       slot: "#{slot_date}T03:00:00+09:00/#{slot_date}T04:00:00+09:00"
-    expect(last_response.status).to eq(422)
+    expect(last_response.status).to eq(302)
+    follow_redirect!
+    expect(last_response.body).to include("選択した時間帯は予約できません")
   end
 
-  it "過去の時間帯は 422" do
+  it "過去の時間帯は予約できず警告を表示する" do
     past = past_weekday
     post "/schedule", authenticity_token: csrf_token, token: token, title: "t", requester: "r",
                       slot: "#{past}T09:00:00+09:00/#{past}T09:30:00+09:00"
-    expect(last_response.status).to eq(422)
+    expect(last_response.status).to eq(302)
+    follow_redirect!
+    expect(last_response.body).to include("過去の時間帯は予約できません")
   end
 
   it "正当な候補なら予定を作成して 302 を返し、token を使用済みにする" do
@@ -82,7 +103,7 @@ RSpec.describe "予定作成 /schedule" do
     expect(TicketStore.status(TicketStore.find(token))).to eq("used")
   end
 
-  it "使用済みの token では再登録できず 403" do
+  it "使用済みの token では再登録できず、案内ページに警告を表示する" do
     stub_request(:post, %r{googleapis\.com/calendar/v3/calendars/primary/events})
       .to_return(status: 200, body: "{}", headers: { "Content-Type" => "application/json" })
     post "/schedule", authenticity_token: csrf_token, token: token,
@@ -90,7 +111,9 @@ RSpec.describe "予定作成 /schedule" do
     # 同じ token で再登録を試みる（使用済みのため弾かれる）。
     post "/schedule", authenticity_token: csrf_token, token: token,
                       title: "打合せ2", requester: "佐藤", slot: valid_slot
-    expect(last_response.status).to eq(403)
+    expect(last_response.status).to eq(302)
+    follow_redirect!
+    expect(last_response.body).to include("この URL は無効か、期限切れです")
   end
 
   it "参加者（改行・カンマ・スペース区切り）と主催者を attendees に登録する" do
@@ -118,16 +141,20 @@ RSpec.describe "予定作成 /schedule" do
     expect(create).to have_been_requested
   end
 
-  it "不正なメールアドレスは 400" do
+  it "不正なメールアドレスは警告を表示する" do
     post "/schedule", authenticity_token: csrf_token, token: token, title: "t", requester: "r",
                       slot: valid_slot, attendees: "not-an-email"
-    expect(last_response.status).to eq(400)
+    expect(last_response.status).to eq(302)
+    follow_redirect!
+    expect(last_response.body).to include("参加者メールアドレスの形式が正しくありません")
   end
 
-  it "制御文字を含むメールアドレスは 400" do
+  it "制御文字を含むメールアドレスは警告を表示する" do
     post "/schedule", authenticity_token: csrf_token, token: token, title: "t", requester: "r",
                       slot: valid_slot, attendees: "a\u0000b@example.com"
-    expect(last_response.status).to eq(400)
+    expect(last_response.status).to eq(302)
+    follow_redirect!
+    expect(last_response.body).to include("参加者メールアドレスの形式が正しくありません")
   end
 
   it "既定（チェックなし）では sendUpdates=none で登録する（招待メールを送らない・回帰）" do
@@ -200,16 +227,20 @@ RSpec.describe "予定作成 /schedule" do
     expect(create).to have_been_requested
   end
 
-  it "http/https でないビデオ会議 URL は 400" do
+  it "http/https でないビデオ会議 URL は警告を表示する" do
     post "/schedule", authenticity_token: csrf_token, token: token, title: "t", requester: "r",
                       slot: valid_slot, video_url: "javascript:alert(1)"
-    expect(last_response.status).to eq(400)
+    expect(last_response.status).to eq(302)
+    follow_redirect!
+    expect(last_response.body).to include("ビデオ会議 URL の形式が正しくありません")
   end
 
-  it "ビデオ会議 URL と Meet 発行の同時指定は 400" do
+  it "ビデオ会議 URL と Meet 発行の同時指定は警告を表示する" do
     post "/schedule", authenticity_token: csrf_token, token: token, title: "t", requester: "r",
                       slot: valid_slot, video_url: "https://zoom.us/j/1", request_meet: "1"
-    expect(last_response.status).to eq(400)
+    expect(last_response.status).to eq(302)
+    follow_redirect!
+    expect(last_response.body).to include("ビデオ会議 URL の指定と Google Meet の発行は同時に指定できません")
   end
 
   it "Meet 発行時はリンクを発行し、完了画面（本人セッション）に表示する" do
@@ -239,6 +270,27 @@ RSpec.describe "予定作成 /schedule" do
     expect(last_response.status).to eq(410)
     expect(last_response.body).to include("完了")
     expect(last_response.body).not_to include("meet.google.com")
+  end
+
+  it "入力エラー後も登録フォームの入力値を復元し、登録タブを初期表示にする" do
+    # 不正な slot で入力欠落エラーにし、その他の入力（依頼者名・予定名・任意項目）を復元させる。
+    # 検索条件（start_date 等）を引き回すことで、リダイレクト後も候補一覧＝登録フォームが再表示される。
+    post "/schedule", authenticity_token: csrf_token, token: token, title: "打合せ", requester: "山田",
+                      slot: "notatime", attendees: "a@example.com", video_url: "https://zoom.us/j/1",
+                      private_event: "1", send_invites: "1",
+                      start_date: slot_date.to_s, end_date: slot_date.to_s, duration: "30"
+    expect(last_response.status).to eq(302)
+    follow_redirect!
+
+    expect(last_response.body).to include('value="山田"')
+    expect(last_response.body).to include('value="打合せ"')
+    expect(last_response.body).to include("a@example.com</textarea>")
+    expect(last_response.body).to include('value="https://zoom.us/j/1"')
+    expect(last_response.body).to match(/name="private_event" value="1" checked/)
+    expect(last_response.body).to match(/name="send_invites" value="1" checked/)
+    # 復元は登録タブ（tab-book）側で、仮押さえタブ（tab-hold）は初期表示にしない。
+    expect(last_response.body).to include('class="is-active" data-tab="tab-book"')
+    expect(last_response.body).not_to include('class="is-active" data-tab="tab-hold"')
   end
 
   # Slack 通知はテスト環境では既定で無効（configure しない）。通知テストのときだけ configure する。

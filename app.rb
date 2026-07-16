@@ -238,11 +238,10 @@ API_LIMITER = RateLimiter.new(max: 60, window_seconds: 60)
 # 実体は backend が用意する（file=flock のロックファイル / firestore=プロセス内 Mutex）。
 BOOKING_LOCK = TicketStore.booking_lock
 
-# ルートの入力検証で使う上限（DoS・誤入力対策）: 予定名・依頼者名の最大文字数と参加者の最大件数。
+# ルートの入力検証で使う上限（DoS・誤入力対策）: 予定名・依頼者名の最大文字数。
 # 表示・検証系の定数は使用ロジックの持ち主に置く方針（曜日ラベル・ステータス文言は FormatHelpers、
-# URL 長は ScheduleHelpers、同期の最大日数は SyncHelpers、営業日上限は AvailabilitySearch）。
+# URL 長・参加者上限は ScheduleHelpers、同期の最大日数は SyncHelpers、営業日上限は AvailabilitySearch）。
 MAX_TEXT_LENGTH = 100
-MAX_ATTENDEES = 50
 
 helpers AuthHelpers, OAuthHelpers, FormatHelpers, SettingsParamsHelpers, SyncHelpers, ScheduleHelpers, HoldHelpers,
         ApiHelpers
@@ -341,18 +340,30 @@ post "/schedule" do
 
   token = params[:token].to_s
   ticket = TicketStore.find(token)
-  halt 403, "この URL は無効か、期限切れです。管理者に新しい URL の発行を依頼してください。" unless TicketStore.active?(ticket)
-  halt 400, "Google の連携が必要です" unless google_connected?
+  # 入力・状態のエラーはエラーページでなく、元画面上部の警告通知（flash_alert）で伝える（/hold と統一）。
+  # 入力値はエラー後の画面で復元する（redirect_with_alert! が一時保存。文字数はコピー上限で抑える）。
+  # "mode" はエラー後にどちらのタブ（登録／仮押さえ）を初期表示するかの判別に使う。
+  @form_restore = {
+    "mode" => "book",
+    "requester" => params[:requester].to_s[0, 200], "title" => params[:title].to_s[0, 200],
+    "attendees" => params[:attendees].to_s[0, 2000],
+    "video_url" => params[:video_url].to_s[0, ScheduleHelpers::MAX_URL_LENGTH],
+    "slot" => params[:slot].to_s,
+    "private_event" => params[:private_event].to_s, "send_invites" => params[:send_invites].to_s,
+    "request_meet" => params[:request_meet].to_s
+  }
+  redirect_with_alert!(token, "この URL は無効か、期限切れです。管理者に新しい URL の発行を依頼してください。") unless TicketStore.active?(ticket)
+  redirect_with_alert!(token, "Google の連携が必要です。管理者にお問い合わせください。") unless google_connected?
 
   title = params[:title].to_s.strip
   requester = params[:requester].to_s.strip
   starts_at, ends_at = parse_slot(params[:slot])
 
-  halt 400, "依頼者名・予定名・希望の時間帯を入力してください" if title.empty? || requester.empty? || starts_at.nil?
+  redirect_with_alert!(token, "依頼者名・予定名・希望の時間帯を入力してください。") if title.empty? || requester.empty? || starts_at.nil?
   too_long = title.length > MAX_TEXT_LENGTH || requester.length > MAX_TEXT_LENGTH
-  halt 400, "予定名・依頼者名が長すぎます（各 #{MAX_TEXT_LENGTH} 文字以内）" if too_long
+  redirect_with_alert!(token, "予定名・依頼者名が長すぎます（各 #{MAX_TEXT_LENGTH} 文字以内）。") if too_long
   # 過去・直前すぎる時間帯は、空き再計算（Google 取得）の前に明示的に弾く。
-  halt 422, "過去の時間帯は予約できません。お手数ですが再度空き時間をチェックしてください。" if AvailabilitySearch.too_soon?(starts_at)
+  redirect_with_alert!(token, "過去の時間帯は予約できません。お手数ですが再度空き時間をチェックしてください。") if AvailabilitySearch.too_soon?(starts_at)
 
   # 任意項目: 参加者メールアドレス・招待メール送付・ビデオ会議 URL・Google Meet 発行・非公開。
   # チェック値は "1" のみ true（任意の文字列を true 扱いにしない）。
@@ -362,17 +373,14 @@ post "/schedule" do
   send_invites = params[:send_invites].to_s == "1"
   private_event = params[:private_event].to_s == "1"
 
-  halt 400, "参加者は最大 #{MAX_ATTENDEES} 件までです" if attendees.size > MAX_ATTENDEES
-  halt 400, "参加者メールアドレスの形式が正しくありません" unless attendees.all? { |email| valid_email?(email) }
-  halt 400, "ビデオ会議 URL の形式が正しくありません（http/https の URL）" unless video_url.empty? || valid_http_url?(video_url)
-  halt 400, "ビデオ会議 URL の指定と Google Meet の発行は同時に指定できません" if request_meet && !video_url.empty?
+  if (error = optional_event_error(attendees: attendees, video_url: video_url, request_meet: request_meet))
+    redirect_with_alert!(token, error)
+  end
 
   description = "依頼者: #{requester}"
   description += "\nビデオ会議: #{video_url}" unless video_url.empty?
 
-  # 主催者（管理者自身）も参加者に含める。連携時に取得・保存したメールを使う
-  # （取得できていなければ依頼者入力分のみ）。
-  event_attendees = ([google_admin_email.to_s] + attendees).reject(&:empty?).uniq(&:downcase)
+  event_attendees = attendees_with_admin(attendees)
 
   # use! に保存する属性（任意項目は入力があるときだけ持たせる）。
   # 会議 URL（video_url / meet_link）はチケットに永続化しない（漏えい URL からの再露出を避ける）。
@@ -393,7 +401,7 @@ post "/schedule" do
 
   # 連携トークンが使えない（refresh 失敗など）場合は、チケットを消費する前に案内を返す。
   google_access = google_token
-  halt 502, "現在カレンダーとの連携に問題があるため登録できません。管理者にお問い合わせください。" if google_access.nil?
+  redirect_with_alert!(token, "現在カレンダーとの連携に問題があるため登録できません。管理者にお問い合わせください。") if google_access.nil?
 
   # 予約の中核トランザクション（空き再確認→token 消費→Google 登録→失敗時ロールバック）は
   # BookingService に委譲する。HTTP ステータスへの写像だけルート側で行う。
@@ -408,12 +416,12 @@ post "/schedule" do
 
   case result.status
   when :slot_taken
-    halt 422, "選択した時間帯は予約できません。お手数ですが再度空き時間をチェックしてください。"
+    redirect_with_alert!(token, "選択した時間帯は予約できません。お手数ですが再度空き時間をチェックしてください。")
   when :ticket_used
-    halt 409, "この URL は既に使用されています。"
+    redirect_with_alert!(token, "この URL は既に使用されています。")
   when :api_failure
     AuditLog.record(:booking_failed, ip: client_ip, target: audit_ticket_id(token))
-    halt 502, "予定の登録に失敗しました。お手数ですが、もう一度お試しください。"
+    redirect_with_alert!(token, "予定の登録に失敗しました。お手数ですが、もう一度お試しください。")
   end
 
   AuditLog.record(:booking_created, ip: client_ip, target: audit_ticket_id(token))
@@ -437,6 +445,7 @@ post "/hold" do
   # 入力・状態のエラーはエラーページでなく、元画面上部の警告通知（flash_alert）で伝える。
   # 入力値はエラー後の画面で復元する（redirect_with_alert! が一時保存。文字数はコピー上限で抑える）。
   @form_restore = {
+    "mode" => "hold",
     "requester" => params[:requester].to_s[0, 200], "title" => params[:title].to_s[0, 200],
     "slots" => Array(params[:slots]).map(&:to_s), "private_event" => params[:private_event].to_s
   }
@@ -513,18 +522,14 @@ post "/hold/confirm" do
   video_url = params[:video_url].to_s.strip
   request_meet = params[:request_meet].to_s == "1"
   send_invites = params[:send_invites].to_s == "1"
-  redirect_with_alert!(token, "参加者は最大 #{MAX_ATTENDEES} 件までです。") if attendees.size > MAX_ATTENDEES
-  redirect_with_alert!(token, "参加者メールアドレスの形式が正しくありません。") unless attendees.all? { |email| valid_email?(email) }
-  unless video_url.empty? || valid_http_url?(video_url)
-    redirect_with_alert!(token,
-                         "ビデオ会議 URL の形式が正しくありません（http/https の URL）。")
+  if (error = optional_event_error(attendees: attendees, video_url: video_url, request_meet: request_meet))
+    redirect_with_alert!(token, error)
   end
-  redirect_with_alert!(token, "ビデオ会議 URL の指定と Google Meet の発行は同時に指定できません。") if request_meet && !video_url.empty?
 
   google_access = google_token
   redirect_with_alert!(token, "現在カレンダーとの連携に問題があるため操作できません。管理者にお問い合わせください。") if google_access.nil?
 
-  event_attendees = ([google_admin_email.to_s] + attendees).reject(&:empty?).uniq(&:downcase)
+  event_attendees = attendees_with_admin(attendees)
   result = hold_service(google_access).confirm(token: token, slot_start: slot_start,
                                                attendees: event_attendees, video_url: video_url,
                                                request_meet: request_meet, send_invites: send_invites)
