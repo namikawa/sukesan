@@ -2,6 +2,7 @@
 
 require "date"
 require "time"
+require "holiday_jp"
 require_relative "free_slot_finder"
 
 # 管理者カレンダーの空き時間検索ロジック。
@@ -25,6 +26,14 @@ class AvailabilitySearch
   # 開始時刻が現在＋リードタイムより手前か（過去・直前すぎる予約か）。表示・予約の両方で弾く。
   def self.too_soon?(starts_at, now: Time.now)
     starts_at < now + (MIN_LEAD_MINUTES * 60)
+  end
+
+  # 調整可能な営業日か（設定曜日に一致 かつ 祝日でない）。日本の祝日は土日と同様に休日扱いにし、
+  # 月曜祝日などが空き候補に混ざらないようにする。表示・予約再検証の両方でこの述語を使う。
+  # 祝日は holiday_jp 同梱データ（ネットワーク不要）で判定する。gem のデータに未収録の遠い将来日は
+  # 祝日と見なされず平日扱いになる（実運用の予約範囲には十分なデータ年数が収録されている）。
+  def self.business_day?(date, business_days)
+    business_days.include?(date.wday) && !HolidayJp.holiday?(date)
   end
 
   # calendar_client は list_events(time_min:, time_max:) に応答するもの（例: GoogleCalendarClient）。
@@ -57,8 +66,11 @@ class AvailabilitySearch
   private
 
   # 送信枠が、サーバ側で再計算した当日の候補に（開始・終了が一致する形で）実在するか。
+  # UI を迂回した祝日・非営業日の POST もここで弾く（予約・仮押さえの再検証で共有）。
   def matches_candidate?(starts_at, ends_at, minutes)
     date = starts_at.getlocal.to_date
+    return false unless self.class.business_day?(date, @settings["business_days"])
+
     candidate_slots(date, minutes).any? do |slot|
       slot.starts_at.to_i == starts_at.to_i && slot.ends_at.to_i == ends_at.to_i
     end
@@ -81,7 +93,7 @@ class AvailabilitySearch
     date = start_date
     scanned = 0
     while date <= end_date && scanned < MAX_SCAN_DAYS
-      dates << date if @settings["business_days"].include?(date.wday)
+      dates << date if self.class.business_day?(date, @settings["business_days"])
       return [dates.first(MAX_BUSINESS_DAYS), true] if dates.size > MAX_BUSINESS_DAYS
 
       date += 1

@@ -53,13 +53,13 @@ module ScheduleHelpers
     value.length <= MAX_URL_LENGTH && value.match?(%r{\Ahttps?://[^\s]+\z})
   end
 
-  # 翌日以降で、調整可能な曜日（business_days）に該当する最初の日付。
-  # 曜日が未設定なら単純に翌日を返す。
+  # 翌日以降で、調整可能な営業日（曜日一致 かつ 祝日でない）に該当する最初の日付。
+  # 曜日が未設定なら無限ループを避けるため単純に翌日を返す。
   def next_business_day(business_days)
     date = Date.today + 1
     return date if business_days.empty?
 
-    date += 1 until business_days.include?(date.wday)
+    date += 1 until AvailabilitySearch.business_day?(date, business_days)
     date
   end
 

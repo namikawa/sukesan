@@ -53,6 +53,16 @@ RSpec.describe AvailabilitySearch do
       expect(starts).not_to be_empty
       expect(starts.min).to be >= midday + (described_class::MIN_LEAD_MINUTES * 60)
     end
+
+    # 2026-07-20 は月曜だが海の日（祝日）。曜日だけ見ると営業日だが休日扱いで候補から除く。
+    it "検索範囲に平日の祝日（海の日 2026-07-20 月曜）を含んでも、その日は候補に出ない" do
+      before_holiday = Time.iso8601("2026-07-17T08:00:00+09:00") # 直前の平日（金）
+      result = search.search(start_date: "2026-07-20", end_date: "2026-07-21",
+                             duration_minutes: 30, now: before_holiday)
+      dates = result.days.map(&:first)
+      expect(dates).not_to include(Date.new(2026, 7, 20)) # 祝日は除外
+      expect(dates).to include(Date.new(2026, 7, 21))     # 翌火曜は候補に出る
+    end
   end
 
   describe "#slot_available?" do
@@ -95,6 +105,13 @@ RSpec.describe AvailabilitySearch do
       starts = Time.iso8601("2026-06-22T09:00:00+09:00")
       ends = Time.iso8601("2026-06-22T09:30:00+09:00")
       expect(booked.slot_available?(starts, ends, now: now)).to be(false)
+    end
+
+    it "平日の祝日（海の日 2026-07-20 月曜）の枠は false（UI 迂回の祝日 POST を弾く）" do
+      before_holiday = Time.iso8601("2026-07-17T08:00:00+09:00")
+      starts = Time.iso8601("2026-07-20T09:00:00+09:00")
+      ends = Time.iso8601("2026-07-20T09:30:00+09:00")
+      expect(search.slot_available?(starts, ends, now: before_holiday)).to be(false)
     end
   end
 

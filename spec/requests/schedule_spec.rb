@@ -8,20 +8,20 @@ RSpec.describe "予定作成 /schedule" do
       "lunch_start" => "11:00", "lunch_end" => "14:00", "lunch_minutes" => 60
     }
   end
-  # 過去・直前拒否（リードタイム）に掛からないよう、十分先の営業日（平日）を使う。
-  def future_weekday
-    d = Date.today + 7
-    d += 1 until (1..5).cover?(d.wday)
-    d
-  end
-
+  # 過去（リードタイム）判定用の営業日。祝日も避け、実行日に依存させない。
   def past_weekday
     d = Date.today - 7
-    d -= 1 until (1..5).cover?(d.wday)
+    d -= 1 until AvailabilitySearch.business_day?(d, [1, 2, 3, 4, 5])
     d
   end
 
-  let(:slot_date) { future_weekday }
+  # 十分先の「平日にあたる祝日」（UI を迂回した祝日 POST を弾く回帰テスト用）。
+  def future_holiday_weekday(from: Date.today + 7)
+    HolidayJp.between(from, from + 400).map(&:date).find { |d| (1..5).cover?(d.wday) }
+  end
+
+  # 過去・直前拒否（リードタイム）に掛からないよう、十分先の営業日（週末・祝日を避ける）を使う。
+  let(:slot_date) { future_business_day }
   let(:valid_slot) { "#{slot_date}T09:00:00+09:00/#{slot_date}T09:30:00+09:00" }
   # 登録には有効なワンタイム URL（token）が必須。
   let(:token) { TicketStore.create }
@@ -82,6 +82,16 @@ RSpec.describe "予定作成 /schedule" do
     expect(last_response.status).to eq(302)
     follow_redirect!
     expect(last_response.body).to include("選択した時間帯は予約できません")
+  end
+
+  it "祝日（平日にあたる祝日）は UI を迂回しても予約できず、token を消費しない" do
+    holiday = future_holiday_weekday
+    post "/schedule", authenticity_token: csrf_token, token: token, title: "打合せ", requester: "山田",
+                      slot: "#{holiday}T09:00:00+09:00/#{holiday}T09:30:00+09:00"
+    expect(last_response.status).to eq(302)
+    follow_redirect!
+    expect(last_response.body).to include("選択した時間帯は予約できません")
+    expect(TicketStore.status(TicketStore.find(token))).to eq("active") # 消費されていない
   end
 
   it "過去の時間帯は予約できず警告を表示する" do

@@ -25,8 +25,7 @@ RSpec.describe "監査ログの記録" do
     result = BookingService::Result.new(status: :ok, meet_link: nil)
     allow(BookingService).to receive(:new).and_return(instance_double(BookingService, call: result))
     ticket = TicketStore.create
-    date = Date.today + 7
-    date += 1 until (1..5).cover?(date.wday)
+    date = future_business_day
 
     post "/schedule", authenticity_token: csrf_token, token: ticket, title: "打合せ", requester: "山田",
                       slot: "#{date}T10:00:00+09:00/#{date}T10:30:00+09:00"

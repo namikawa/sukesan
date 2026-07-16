@@ -32,8 +32,7 @@ RSpec.describe "XSS（出力の自動エスケープ）" do
   def create_booking_with(text)
     stub_google_calendar_api
     ticket = TicketStore.create
-    date = Date.today + 7
-    date += 1 until (1..5).cover?(date.wday)
+    date = future_business_day
     post "/schedule", authenticity_token: csrf_token, token: ticket, title: text, requester: text,
                       slot: "#{date}T10:00:00+09:00/#{date}T10:30:00+09:00"
     expect(last_response.status).to eq(302) # 予約自体は成立していること（前提の検証）

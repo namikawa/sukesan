@@ -9,14 +9,8 @@ RSpec.describe "複数カレンダー仮押さえ /hold" do
     }
   end
 
-  # 過去・直前拒否（リードタイム）に掛からない、十分先の営業日（平日）。
-  def future_weekday
-    d = Date.today + 7
-    d += 1 until (1..5).cover?(d.wday)
-    d
-  end
-
-  let(:date) { future_weekday }
+  # 過去・直前拒否（リードタイム）に掛からない、十分先の営業日（週末・祝日を避ける）。
+  let(:date) { future_business_day }
   let(:slot1) { "#{date}T09:00:00+09:00/#{date}T09:30:00+09:00" }
   let(:slot2) { "#{date}T10:00:00+09:00/#{date}T10:30:00+09:00" }
   let(:ticket) { TicketStore.create }
