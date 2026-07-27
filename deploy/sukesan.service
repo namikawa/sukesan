@@ -19,6 +19,9 @@ Type=simple
 User=__USER__
 WorkingDirectory=__APP_DIR__
 Environment=APP_ENV=production
+# systemd は LANG を渡さない。未設定だと Ruby の既定外部エンコーディングが US-ASCII になり、
+# 日本語を含む data/*.json の読み込みが落ちる（ロケール生成に依存しない C.UTF-8 を使う）。
+Environment=LANG=C.UTF-8
 # .env は dotenv によりアプリ起動時に読み込まれる
 ExecStart=__APP_DIR__/bin/server run
 Restart=on-failure

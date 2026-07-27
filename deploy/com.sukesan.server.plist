@@ -1,17 +1,18 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
-  launchd の例（macOS）。
-  使い方:
-    1. __APP_DIR__ をアプリの絶対パスに置き換える
-    2. cp deploy/com.sukesan.server.plist ~/Library/LaunchAgents/
-       （常時起動のデーモンにする場合は sudo で /Library/LaunchDaemons/ へ）
-    3. launchctl load ~/Library/LaunchAgents/com.sukesan.server.plist
-    状態確認: launchctl list | grep com.sukesan.server
-    停止/解除: launchctl unload ~/Library/LaunchAgents/com.sukesan.server.plist
+  launchd（macOS）の LaunchAgent テンプレート。ログイン時に自動起動し、落ちたら再起動する。
+  アプリのパスと PATH はプレースホルダで、bin/server install が実体に置換して
+  ~/Library/LaunchAgents/ に設置する。手動で cp せず次のコマンドを使う:
 
-  注意: rbenv / rvm 等を使う場合、ruby/bundle を見つけられるよう
-        EnvironmentVariables の PATH を環境に合わせて調整する。
+    bin/server install     設置して launchd に登録・起動（冪等）
+    bin/server status      稼働状態の確認
+    bin/server restart     再起動（このテンプレートを書き換えた場合は restart では
+                           反映されない。install が設置と再読込まで行う）
+    bin/server uninstall   登録解除して plist を削除
+
+  APP_ENV はここで指定しない（環境の切替は .env に任せる）。本番設定にする場合は
+  .env の APP_ENV=production と、あわせて必須の APP_BASE_URL 等を設定すること。
 -->
 <plist version="1.0">
 <dict>
@@ -26,10 +27,15 @@
   <string>__APP_DIR__</string>
   <key>EnvironmentVariables</key>
   <dict>
-    <key>APP_ENV</key>
-    <string>production</string>
+    <!-- launchd はログインシェルの PATH を引き継がないため明示する（rbenv 等の shims を含む） -->
     <key>PATH</key>
-    <string>/usr/local/bin:/usr/bin:/bin</string>
+    <string>__PATH__</string>
+    <!--
+      LANG も引き継がれない。未設定だと Ruby の既定外部エンコーディングが US-ASCII になり、
+      日本語を含む data/*.json の読み込みが Encoding::InvalidByteSequenceError で落ちる。
+    -->
+    <key>LANG</key>
+    <string>ja_JP.UTF-8</string>
   </dict>
   <key>RunAtLoad</key>
   <true/>

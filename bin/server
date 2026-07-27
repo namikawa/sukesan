@@ -1,11 +1,16 @@
 #!/usr/bin/env bash
 # SUKESAN のアプリサーバを制御する。
 #
-#   bin/server start     起動（バックグラウンド）
-#   bin/server stop      停止
-#   bin/server restart   再起動
-#   bin/server status    起動状態の確認
-#   bin/server run       フォアグラウンド実行（systemd / launchd などのサービス管理用）
+#   bin/server start      起動（バックグラウンド）
+#   bin/server stop       停止
+#   bin/server restart    再起動
+#   bin/server status     起動状態の確認
+#   bin/server run        フォアグラウンド実行（systemd / launchd などのサービス管理用）
+#   bin/server install    launchd に登録して常駐・自動起動させる（macOS 専用・冪等）
+#   bin/server uninstall  launchd の登録を解除する（macOS 専用）
+#
+# launchd にロード済み（install 済み）なら start/stop/restart/status は launchctl に
+# 委譲する。未ロードなら従来どおり PID ファイルで管理する（systemd 運用・Linux もこちら）。
 #
 # 環境変数で上書き可能:
 #   PORT       待ち受けポート（既定 3000）
@@ -24,6 +29,13 @@ LOG_FILE="${LOG_FILE:-$ROOT/log/server.log}"
 # アクセスログは app.rb 内の Rack::CommonLogger が週次ローテーションの log/access.log に出す。
 START_CMD=(bundle exec ruby app.rb)
 
+LABEL="com.sukesan.server"
+PLIST_TEMPLATE="$ROOT/deploy/$LABEL.plist"
+PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
+GUI_DOMAIN="gui/$(id -u)"
+
+# --- PID ファイル方式 ---------------------------------------------------------
+
 current_pid() { cat "$PID_FILE" 2>/dev/null || true; }
 
 is_running() {
@@ -32,7 +44,7 @@ is_running() {
   [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null
 }
 
-start() {
+pidfile_start() {
   if is_running; then
     echo "$APP_NAME は既に起動しています (PID $(current_pid))。"
     return 0
@@ -54,7 +66,7 @@ start() {
   fi
 }
 
-stop() {
+pidfile_stop() {
   if ! is_running; then
     echo "$APP_NAME は起動していません。"
     rm -f "$PID_FILE"
@@ -79,13 +91,157 @@ stop() {
   echo "停止しました。"
 }
 
-status() {
+pidfile_status() {
   if is_running; then
     echo "$APP_NAME: 起動中 (PID $(current_pid), PORT $PORT)"
   else
     echo "$APP_NAME: 停止中"
     return 1 # サービス管理の慣例に合わせ、停止時は非 0 を返す
   fi
+}
+
+# --- launchd（macOS）---------------------------------------------------------
+
+has_launchctl() { command -v launchctl >/dev/null 2>&1; }
+
+# launchd に登録済みか（稼働の有無ではなく登録の有無）
+is_loaded() { has_launchctl && launchctl list "$LABEL" >/dev/null 2>&1; }
+
+# 稼働中の PID（未稼働・未ロードなら空）
+launchd_pid() {
+  launchctl list 2>/dev/null | awk -v l="$LABEL" '$3 == l && $1 != "-" { print $1 }'
+}
+
+require_launchctl() {
+  if ! has_launchctl; then
+    echo "launchctl が見つかりません。install / uninstall は macOS 専用です。" >&2
+    exit 1
+  fi
+}
+
+# 登録解除する。bootout は非同期なので完了（＝プロセス終了）を待つ。
+launchd_bootout() {
+  launchctl bootout "$GUI_DOMAIN/$LABEL" 2>/dev/null || true
+  for _ in $(seq 1 10); do
+    is_loaded || break
+    sleep 1
+  done
+  if is_loaded; then
+    echo "停止要求を送りましたが完了確認がタイムアウトしました（status で確認してください）。" >&2
+    return 1
+  fi
+}
+
+launchd_start() {
+  launchctl bootstrap "$GUI_DOMAIN" "$PLIST"
+  sleep 1
+  local pid
+  pid="$(launchd_pid)"
+  echo "launchd で起動しました (PID ${pid:-不明})。ログ: $LOG_FILE"
+}
+
+install_agent() {
+  require_launchctl
+  if [ ! -f "$PLIST_TEMPLATE" ]; then
+    echo "plist テンプレートがありません: $PLIST_TEMPLATE" >&2
+    exit 1
+  fi
+
+  local bundle_bin bin_path
+  bundle_bin="$(command -v bundle || true)"
+  if [ -z "$bundle_bin" ]; then
+    echo "bundle が見つかりません。bundle install 済みの環境で実行してください。" >&2
+    exit 1
+  fi
+  # launchd はログインシェルの PATH を引き継がないため、bundle の実体から組み立てて渡す。
+  bin_path="$(cd "$(dirname "$bundle_bin")" && pwd):/usr/bin:/bin:/usr/sbin:/sbin"
+
+  # 手動起動のプロセスが残っているとポートが衝突し、KeepAlive で再起動ループになる。
+  if is_running; then
+    pidfile_stop
+  fi
+
+  mkdir -p "$(dirname "$PLIST")"
+  sed -e "s|__APP_DIR__|$ROOT|g" -e "s|__PATH__|$bin_path|g" "$PLIST_TEMPLATE" >"$PLIST"
+  echo "plist を設置しました: $PLIST"
+
+  # ロード済みなら読み込み直す。kickstart（restart）は plist を読み直さないため、
+  # 設置した内容を反映するには一度 bootout してから bootstrap する必要がある。
+  if is_loaded; then
+    echo "ロード済みのため読み込み直します ..."
+    launchd_bootout || exit 1
+  fi
+  launchd_start
+}
+
+uninstall_agent() {
+  require_launchctl
+  if is_loaded; then
+    echo "launchd の登録を解除します ..."
+    launchd_bootout || exit 1
+    echo "停止しました。"
+  else
+    echo "launchd にロードされていません。"
+  fi
+  if [ -f "$PLIST" ]; then
+    rm -f "$PLIST"
+    echo "plist を削除しました: $PLIST"
+  fi
+}
+
+# --- サブコマンド（launchd 管理中は launchctl に委譲）-------------------------
+
+start() {
+  if is_loaded; then
+    local pid
+    pid="$(launchd_pid)"
+    echo "$APP_NAME は既に launchd で起動しています (PID ${pid:-不明})。"
+    return 0
+  fi
+  if has_launchctl && [ -f "$PLIST" ]; then
+    launchd_start
+    return 0
+  fi
+  pidfile_start
+}
+
+stop() {
+  if is_loaded; then
+    # KeepAlive があるため kill では復活する。登録解除で止める（plist は残す）。
+    echo "$APP_NAME を停止します (launchd) ..."
+    launchd_bootout || return 1
+    echo "停止しました（自動起動の設定は残っています。再開は bin/server start）。"
+    return 0
+  fi
+  pidfile_stop
+}
+
+restart() {
+  if is_loaded; then
+    launchctl kickstart -k "$GUI_DOMAIN/$LABEL"
+    sleep 1
+    local pid
+    pid="$(launchd_pid)"
+    echo "再起動しました (PID ${pid:-不明})。"
+    return 0
+  fi
+  stop
+  start
+}
+
+status() {
+  if is_loaded; then
+    local pid
+    pid="$(launchd_pid)"
+    if [ -n "$pid" ]; then
+      echo "$APP_NAME: launchd 管理・稼働中 (PID $pid)"
+    else
+      echo "$APP_NAME: launchd 管理・停止中（ロード済み・プロセスなし。ログを確認: $LOG_FILE）"
+      return 1
+    fi
+    return 0
+  fi
+  pidfile_status
 }
 
 run() {
@@ -96,14 +252,13 @@ run() {
 case "${1:-}" in
 start) start ;;
 stop) stop ;;
-restart)
-  stop
-  start
-  ;;
+restart) restart ;;
 status) status ;;
 run) run ;;
+install) install_agent ;;
+uninstall) uninstall_agent ;;
 *)
-  echo "使い方: bin/server {start|stop|restart|status|run}" >&2
+  echo "使い方: bin/server {start|stop|restart|status|run|install|uninstall}" >&2
   exit 64
   ;;
 esac

@@ -20,7 +20,9 @@ class FileSettingsStore
   def load
     return @defaults.dup unless File.exist?(@path)
 
-    @defaults.merge(JSON.parse(File.read(@path)))
+    # encoding 指定は必須。省略するとロケール依存（LANG 未設定の launchd / systemd 配下では
+    # US-ASCII）になり、日本語を含む設定の JSON.parse が Encoding::InvalidByteSequenceError で落ちる。
+    @defaults.merge(JSON.parse(File.read(@path, encoding: "UTF-8")))
   rescue JSON::ParserError
     @defaults.dup
   end
