@@ -260,6 +260,12 @@ helpers do
   def audit_ticket_id(token)
     "~#{MaskedAccessLogger.token_short_id(LOG_TOKEN_ID_KEY, token)}"
   end
+
+  # 短縮 ID（API のチケット識別子）から実チケットを引く。ID から生 token は復元できないため、
+  # 一覧と同じ直近 30 日分を走査して照合する（件数が限られるため線形で十分）。
+  def find_ticket_by_api_id(id)
+    TicketStore.all.find { |ticket| audit_ticket_id(ticket["token"]) == id }
+  end
 end
 
 # --- トップ画面（利用案内のみ。調整はワンタイム URL から行う） ---
@@ -950,4 +956,58 @@ get "/api/v1/calendars/google/events" do
     "date" => date.strftime("%F"),
     "events" => events.map { |event| api_event(event) }
   )
+end
+
+# 指定期間・所要時間の空き候補を返す（ゲスト画面の検索と同じロジック・制約）。
+get "/api/v1/availability" do
+  start_date = api_date_param!(:start_date)
+  end_date = api_date_param!(:end_date)
+  duration_minutes = api_duration_param!(:duration_minutes)
+
+  # 保存済みトークンを使う（refresh 失敗・未連携は nil）。使えない場合は未連携として 503。
+  google_access = google_token
+  api_error!(503, "provider_not_connected", "Google カレンダーが連携されていません。") if google_access.nil?
+
+  settings = SettingsStore.load
+  begin
+    result = availability_search(settings, google_access)
+             .search(start_date: start_date.to_s, end_date: end_date.to_s, duration_minutes: duration_minutes)
+  rescue StandardError => e
+    warn "[api] 空き候補の検索失敗: #{e.class}"
+    api_error!(502, "upstream_error", "空き候補の取得に失敗しました。")
+  end
+
+  api_json(api_availability(result, duration_minutes))
+end
+
+# 発行済みチケットの一覧（管理画面 /tickets の API 版。予約・仮押さえも内部チケットとしてここに並ぶ）。
+# 対象は TicketStore.all と同じ直近 30 日分（新しい順）。
+get "/api/v1/tickets" do
+  status_filter = api_ticket_status_param!(:status)
+  tickets = TicketStore.all
+  tickets = tickets.select { |ticket| TicketStore.status(ticket) == status_filter } if status_filter
+
+  # ページングは管理画面と同じ流儀（件数はホワイトリスト照合、ページは 1 以上・範囲内へクランプ）。
+  per = PER_PAGE_OPTIONS.include?(params[:per].to_i) ? params[:per].to_i : DEFAULT_PER_PAGE
+  total_pages = [(tickets.size.to_f / per).ceil, 1].max
+  page = params[:page].to_i.clamp(1, total_pages)
+  page_items = tickets.slice((page - 1) * per, per) || []
+
+  api_json(
+    "tickets" => page_items.map { |ticket| api_ticket(ticket, id: audit_ticket_id(ticket["token"])) },
+    "page" => page,
+    "total_pages" => total_pages
+  )
+end
+
+# チケット 1 件の詳細（識別子は一覧と同じ HMAC 短縮 ID）。
+get "/api/v1/tickets/:id" do
+  ticket = find_ticket_by_api_id(params[:id].to_s)
+  halt 404 if ticket.nil? # body は not_found ハンドラが JSON エンベロープで組み立てる
+
+  payload = api_ticket(ticket, id: audit_ticket_id(ticket["token"]))
+  # ワンタイム URL（生 token）を返すのは write スコープかつ未使用（active）のときだけ。
+  # 依頼者へ URL を渡し直すユースケース向けで、read キー・使用済みには含めない。
+  payload["url"] = ticket_url(ticket["token"]) if @api_scope == "write" && payload["status"] == "active"
+  api_json(payload)
 end

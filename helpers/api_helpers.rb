@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require "date"
 require "digest"
 
 # 同一マシン上の他システム向け JSON API（/api/v1/…）の認証・認可・応答ヘルパ。
@@ -21,6 +22,10 @@ module ApiHelpers
 
   # loopback とみなす接続元アドレス（REMOTE_ADDR）。IPv4/IPv6 のループバックのみ許可する。
   LOOPBACK_ADDRS = ["127.0.0.1", "::1"].freeze
+
+  # チケット一覧の status クエリで指定できる値（TicketStore.status の派生値）。
+  # 破損・改ざんを表す "invalid" は絞り込みの対象にしない。
+  API_TICKET_STATUSES = %w[active held used revoked cancelled expired].freeze
 
   # スコープを許可値に丸める。許可外・未指定・scope 未保存の既存キーはすべて read 扱い（fail-closed）。
   # 発行フォームの入力検証と、保存済みキーの読み出しの両方で使う。
@@ -92,6 +97,80 @@ module ApiHelpers
   def api_json(payload)
     content_type :json
     JSON.generate(payload)
+  end
+
+  # 必須の日付クエリ（YYYY-MM-DD）を Date へ変換する。欠落・不正形式は 400 invalid_params で中断する。
+  def api_date_param!(name)
+    Date.iso8601(params[name].to_s)
+  rescue ArgumentError
+    api_error!(400, "invalid_params", "#{name} は YYYY-MM-DD 形式で指定してください（必須）。")
+  end
+
+  # 必須の所要時間クエリ（分）を Integer へ変換する。許可するのは正かつ刻み（15 分）の倍数のみ
+  # （AvailabilitySearch の受け入れ条件と揃える）。不正は 400 invalid_params で中断する。
+  def api_duration_param!(name)
+    step = AvailabilitySearch::DURATION_STEP_MINUTES
+    minutes = Integer(params[name].to_s, 10, exception: false) # 10 進数のみ（"030" を 8 進数と解釈させない）
+    return minutes if minutes&.positive? && (minutes % step).zero?
+
+    api_error!(400, "invalid_params", "#{name} は #{step} 分単位の正の整数で指定してください（必須）。")
+  end
+
+  # チケット一覧の status クエリ（任意）。未指定は nil（絞り込みなし）、許可外は 400 invalid_params。
+  def api_ticket_status_param!(name)
+    value = params[name].to_s
+    return nil if value.empty?
+    return value if API_TICKET_STATUSES.include?(value)
+
+    api_error!(400, "invalid_params", "#{name} は #{API_TICKET_STATUSES.join(' / ')} のいずれかで指定してください。")
+  end
+
+  # 空き候補（AvailabilitySearch::Result）を API レスポンス用のハッシュに変換する。
+  def api_availability(result, duration_minutes)
+    {
+      "duration_minutes" => duration_minutes,
+      "capped" => result.capped,
+      "days" => result.days.map do |date, slots|
+        { "date" => date.strftime("%F"), "slots" => slots.map { |slot| api_slot(slot) } }
+      end
+    }
+  end
+
+  # 空き候補 1 件。lunch_warning は「その枠を取ると昼休憩の連続確保が崩れる」印（画面と同じ判定）。
+  def api_slot(slot)
+    {
+      "starts_at" => api_time(slot.starts_at),
+      "ends_at" => api_time(slot.ends_at),
+      "lunch_warning" => slot.lunch
+    }
+  end
+
+  # チケットを API レスポンス用のハッシュに変換する（一覧・詳細で共通のキーセット。値が無い項目は null）。
+  # 生 token・ワンタイム URL・仮押さえイベント ID は含めない（漏えい経路を作らない）。
+  # id は監査ログ・アクセスログと同じ HMAC 短縮 ID（呼び出し側が audit_ticket_id で導出して渡す）。
+  # 保存済みの日時（created_at / slot_start など）はローカルオフセット付き ISO8601 のためそのまま返す。
+  def api_ticket(ticket, id:)
+    status = TicketStore.status(ticket)
+    {
+      "id" => id,
+      "status" => status,
+      "created_at" => ticket["created_at"],
+      # 期限を持つのは未使用（active）と仮押さえ中（held）だけ。終端・期限切れは null。
+      "expires_at" => %w[active held].include?(status) ? api_time(TicketStatus.expires_at(ticket)) : nil,
+      "ttl_hours" => TicketStatus.ttl_hours(ticket),
+      "requester" => ticket["requester"],
+      "title" => ticket["title"],
+      "slot_start" => ticket["slot_start"],
+      "slot_end" => ticket["slot_end"],
+      "used_at" => ticket["used_at"],
+      "holds" => status == "held" ? api_holds(ticket["holds"]) : nil
+    }
+  end
+
+  # 仮押さえ中の候補一覧（開始時刻順）。イベント ID はクライアントへ渡さない（既存原則）。
+  def api_holds(holds)
+    Array(holds).sort_by { |hold| hold["slot_start"].to_s }
+                .map { |hold| { "slot_start" => hold["slot_start"], "slot_end" => hold["slot_end"] } }
   end
 
   # Event 構造体を API レスポンス用のハッシュに変換する。
