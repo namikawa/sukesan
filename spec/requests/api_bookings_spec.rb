@@ -435,4 +435,229 @@ RSpec.describe "他システム向け API /api/v1/bookings" do
       expect(a_request(:post, webhook)).to have_been_made.times(1)
     end
   end
+
+  # 取消は sukesan にとって新しい遷移（used → cancelled）。削除対象の event id はチケット保存値のみを使う。
+  describe "取消 POST /api/v1/bookings/:id/cancel" do
+    def event_url(event_id)
+      "https://www.googleapis.com/calendar/v3/calendars/primary/events/#{event_id}"
+    end
+
+    def post_cancel(id, body = {}, headers = write_auth)
+      post "/api/v1/bookings/#{id}/cancel", JSON.generate(body), headers.merge("CONTENT_TYPE" => "application/json")
+    end
+
+    def stub_delete(status: 204)
+      stub_request(:delete, events_url).to_return(status: status, body: "")
+    end
+
+    # 直接予約（POST /api/v1/bookings）で used のチケットを 1 枚作り、その短縮 ID を返す。
+    def create_booking!
+      stub_create
+      post_booking
+      JSON.parse(last_response.body).fetch("id")
+    end
+
+    it "200 で cancelled を返し、チケット保存値の event id を削除する（既定は通知なし）" do
+      id = create_booking!
+      event_id = stored_ticket["event_id"]
+      stub_delete
+      post_cancel(id)
+
+      expect(last_response.status).to eq(200)
+      expect(last_response.headers["Content-Type"]).to include("application/json")
+      expect(last_response.headers["Cache-Control"]).to eq("no-store")
+      expect(JSON.parse(last_response.body)).to eq("id" => id, "status" => "cancelled", "event_deleted" => true)
+      expect(a_request(:delete, event_url(event_id)).with(query: { "sendUpdates" => "none" })).to have_been_made
+    end
+
+    it "チケットを cancelled にし、取消日時と登録内容を残す（一覧 API でも cancelled で並ぶ）" do
+      id = create_booking!
+      stub_delete
+      post_cancel(id)
+
+      ticket = stored_ticket
+      expect(TicketStore.status(ticket)).to eq("cancelled")
+      expect(ticket["cancelled_at"]).not_to be_nil
+      # 登録内容は残るため、仮押さえの全取りやめ（slot_start を持たない cancelled）と区別できる。
+      expect(ticket["slot_start"]).to eq(slot["starts_at"])
+
+      get "/api/v1/tickets", { "status" => "cancelled" }, write_auth
+      expect(JSON.parse(last_response.body)["tickets"].map { |t| t["id"] }).to eq([id])
+    end
+
+    it "notify_attendees を指定すると参加者へキャンセル通知を送る（sendUpdates=all）" do
+      id = create_booking!
+      event_id = stored_ticket["event_id"]
+      stub_delete
+      post_cancel(id, { "notify_attendees" => true })
+
+      expect(last_response.status).to eq(200)
+      expect(a_request(:delete, event_url(event_id)).with(query: { "sendUpdates" => "all" })).to have_been_made
+    end
+
+    it "notify_attendees に真偽値以外を渡すと 400 で、チケットは used のまま" do
+      id = create_booking!
+      delete_stub = stub_delete
+      post_cancel(id, { "notify_attendees" => "1" })
+
+      expect(last_response.status).to eq(400)
+      expect(JSON.parse(last_response.body).dig("error", "message")).to include("notify_attendees")
+      expect(delete_stub).not_to have_been_requested
+      expect(TicketStore.status(stored_ticket)).to eq("used")
+    end
+
+    it "仮押さえから決定した予約も取り消せる（決定時に保存した event_id を削除する）" do
+      stub_create
+      stub_request(:patch, events_url)
+        .to_return(status: 200, body: "{}", headers: { "Content-Type" => "application/json" })
+      stub_delete
+      token = TicketStore.create
+      post "/hold", authenticity_token: csrf_token, token: token, requester: "山田", title: "打合せ",
+                    slots: ["#{slot_date}T09:00:00+09:00/#{slot_date}T09:30:00+09:00",
+                            "#{slot_date}T10:00:00+09:00/#{slot_date}T10:30:00+09:00"]
+      post "/hold/confirm", authenticity_token: csrf_token, token: token, slot: "#{slot_date}T10:00:00+09:00"
+
+      ticket = TicketStore.find(token)
+      expect(TicketStore.status(ticket)).to eq("used")
+      expect(ticket["event_id"]).to match(/\Asukesan[0-9a-f]{40}\z/) # 決定したイベントの ID を保存している
+
+      post_cancel(api_id(token))
+      expect(last_response.status).to eq(200)
+      expect(JSON.parse(last_response.body)["event_deleted"]).to be(true)
+      expect(TicketStore.status(TicketStore.find(token))).to eq("cancelled")
+      expect(a_request(:delete, event_url(ticket["event_id"])).with(query: { "sendUpdates" => "none" }))
+        .to have_been_made
+    end
+
+    it "event_id を保存していない used は取り消せない（409・event_id 保存前に登録された予約）" do
+      token = TicketStore.create
+      TicketStore.use!(token, attrs: { "requester" => "山田", "title" => "打合せ",
+                                       "slot_start" => slot["starts_at"], "slot_end" => slot["ends_at"] })
+      delete_stub = stub_delete
+      post_cancel(api_id(token))
+
+      expect(last_response.status).to eq(409)
+      expect(JSON.parse(last_response.body).dig("error", "code")).to eq("invalid_state")
+      expect(delete_stub).not_to have_been_requested
+      expect(TicketStore.status(TicketStore.find(token))).to eq("used")
+    end
+
+    it "未使用（active）は 409（invalid_state）" do
+      stub_delete
+      post_cancel(api_id(TicketStore.create))
+
+      expect(last_response.status).to eq(409)
+      expect(JSON.parse(last_response.body).dig("error", "code")).to eq("invalid_state")
+    end
+
+    it "取消済みは 409（二重取消はできない・Google も再度呼ばない）" do
+      id = create_booking!
+      delete_stub = stub_delete
+      post_cancel(id)
+      post_cancel(id)
+
+      expect(last_response.status).to eq(409)
+      expect(JSON.parse(last_response.body).dig("error", "code")).to eq("invalid_state")
+      expect(delete_stub).to have_been_requested.times(1)
+    end
+
+    it "該当が無い ID は 404（not_found）" do
+      create_booking!
+      post_cancel("~deadbeef")
+
+      expect(last_response.status).to eq(404)
+      expect(JSON.parse(last_response.body).dig("error", "code")).to eq("not_found")
+      expect(TicketStore.status(stored_ticket)).to eq("used")
+    end
+
+    it "未連携なら 503 で、チケットは used のまま（予定を消せないのに遷移だけ進めない）" do
+      id = create_booking!
+      allow(TokenStore).to receive(:load).and_return(nil)
+      delete_stub = stub_delete
+      post_cancel(id)
+
+      expect(last_response.status).to eq(503)
+      expect(JSON.parse(last_response.body).dig("error", "code")).to eq("provider_not_connected")
+      expect(delete_stub).not_to have_been_requested
+      expect(TicketStore.status(stored_ticket)).to eq("used")
+    end
+
+    it "予定の削除に失敗しても取消は成立し、event_deleted: false を返す（残った予定は手動で掃除）" do
+      id = create_booking!
+      stub_delete(status: 500)
+
+      expect { post_cancel(id) }.to output(/\[api\] 予約イベントの削除失敗/).to_stderr
+      expect(last_response.status).to eq(200)
+      expect(JSON.parse(last_response.body)["event_deleted"]).to be(false)
+      expect(TicketStore.status(stored_ticket)).to eq("cancelled")
+    end
+
+    it "Google 側に予定が無い（404）場合も削除済みとして event_deleted: true（冪等）" do
+      id = create_booking!
+      stub_delete(status: 404)
+      post_cancel(id)
+
+      expect(last_response.status).to eq(200)
+      expect(JSON.parse(last_response.body)["event_deleted"]).to be(true)
+      expect(TicketStore.status(stored_ticket)).to eq("cancelled")
+    end
+
+    it "read キーでは取り消せない（403 insufficient_scope）" do
+      id = create_booking!
+      delete_stub = stub_delete
+      post_cancel(id, {}, read_auth)
+
+      expect(last_response.status).to eq(403)
+      expect(JSON.parse(last_response.body).dig("error", "code")).to eq("insufficient_scope")
+      expect(delete_stub).not_to have_been_requested
+      expect(TicketStore.status(stored_ticket)).to eq("used")
+    end
+
+    it "監査ログに booking_cancelled を残し、target に API 経由（キーのラベル）を併記する" do
+      id = create_booking!
+      stub_delete
+      allow(AuditLog).to receive(:record)
+      post_cancel(id)
+
+      expect(AuditLog).to have_received(:record)
+        .with(:booking_cancelled, ip: "127.0.0.1", target: "#{id} via=api:write-sys")
+    end
+
+    describe "Slack 通知" do
+      let(:webhook) { "https://hooks.slack.com/services/T00/B00/xxxx" }
+
+      before do
+        SlackNotifier.configure(webhook)
+        stub_request(:post, webhook).to_return(status: 200, body: "ok")
+      end
+      after { SlackNotifier.configure(nil) } # テスト既定（no-op）へ戻す
+
+      def notification_including(text_part)
+        a_request(:post, webhook).with { |req| JSON.parse(req.body)["text"].include?(text_part) }
+      end
+
+      it "取消時に API 経由（キーのラベル）と依頼者名・件名・日時を含む通知を送る" do
+        id = create_booking!
+        stub_delete
+        post_cancel(id)
+
+        expect(
+          a_request(:post, webhook).with do |req|
+            text = JSON.parse(req.body)["text"]
+            text.include?("予約が取り消されました（API 経由: write-sys）") && text.include?("山田") &&
+              text.include?("打合せ") && text.match?(%r{\d{1,2}/\d{1,2}（.）\s\d{2}:\d{2}〜\d{2}:\d{2}})
+          end
+        ).to have_been_made
+        expect(notification_including("手動で削除")).not_to have_been_made
+      end
+
+      it "予定を削除できなかった場合は手動での削除を促す注記を付ける" do
+        id = create_booking!
+        stub_delete(status: 500)
+
+        expect { post_cancel(id) }.to output(/予約イベントの削除失敗/).to_stderr
+        expect(notification_including("手動で削除")).to have_been_made
+      end
+    end
+  end
 end

@@ -74,6 +74,31 @@ RSpec.describe "FirestoreTicketStore", :firestore do
     expect(TicketStatus.status(store.find(token), now: now)).to eq("revoked")
   end
 
+  it "cancel_booking! は予約済み（event_id 保存済み）を取消し、遷移前のチケットを返す" do
+    token = store.create(now: now)
+    store.use!(token, attrs: { "requester" => "山田", "event_id" => "sukesanev1" }, now: now)
+
+    previous = store.cancel_booking!(token, now: now)
+    expect(previous["event_id"]).to eq("sukesanev1")
+
+    ticket = store.find(token)
+    expect(TicketStatus.status(ticket, now: now)).to eq("cancelled")
+    expect(ticket["cancelled_at"]).to eq(now.iso8601)
+    # 制御フィールド（クエリ用の平文 status）も cancelled へ更新される。
+    expect(firestore.doc("tickets/#{doc_id(token)}").get[:status]).to eq("cancelled")
+
+    expect(store.cancel_booking!(token, now: now)).to be(false) # 二重取消は不可
+  end
+
+  it "cancel_booking! は event_id 未保存の used・未使用・仮押さえ中を受け付けない（false）" do
+    used = store.create(now: now)
+    store.use!(used, attrs: { "requester" => "山田" }, now: now)
+
+    expect(store.cancel_booking!(used, now: now)).to be(false)
+    expect(store.cancel_booking!(store.create(now: now), now: now)).to be(false)
+    expect(store.cancel_booking!(hold_ticket, now: now)).to be(false)
+  end
+
   # 2 枠の仮押さえ済みチケットを作るヘルパ。
   def hold_ticket
     token = store.create(now: now)
@@ -106,6 +131,7 @@ RSpec.describe "FirestoreTicketStore", :firestore do
     ticket = store.find(token)
     expect(TicketStatus.status(ticket, now: now)).to eq("used")
     expect(ticket["slot_start"]).to eq("2026-06-23T10:00:00+09:00")
+    expect(ticket["event_id"]).to eq("ev1") # 取消（cancel_booking!）の対象にするため決定イベントを保存する
     expect(ticket).not_to have_key("holder_key")
 
     expect(store.confirm_hold!(token, slot_start: "2026-06-24T14:00:00+09:00",

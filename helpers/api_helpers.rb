@@ -137,6 +137,18 @@ module ApiHelpers
     TicketStore.all.find { |ticket| ticket["idempotency_key"] == key && TicketStore.status(ticket) == "used" }
   end
 
+  # 取消した予約の予定を Google から削除し、削除できたか（404/410＝既に無い場合も true）を返す。
+  # 失敗しても例外を伝播させず false を返す: チケットは cancelled のまま維持し（取消の意思を優先する）、
+  # 残った予定は管理者が手動で削除できるようにする（呼び出し側が結果を応答・通知に載せる）。
+  # notify_attendees: true なら Google から参加者へキャンセル通知を送る（呼び出し側のオプトイン）。
+  def delete_booking_event(google_access, event_id, notify_attendees:)
+    GoogleCalendarClient.new(google_access)
+                        .delete_event(event_id, send_updates: notify_attendees ? "all" : "none")
+  rescue StandardError => e
+    warn "[api] 予約イベントの削除失敗: #{e.class}"
+    false
+  end
+
   # 必須の日付クエリ（YYYY-MM-DD）を Date へ変換する。欠落・不正形式は 400 invalid_params で中断する。
   def api_date_param!(name)
     Date.iso8601(params[name].to_s)

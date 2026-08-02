@@ -108,6 +108,17 @@ RSpec.describe GoogleCalendarClient do
         .with(%r{/calendars/primary/events/ev1\z}, params: { sendUpdates: "none" })
     end
 
+    it "send_updates: \"all\" のときだけキャンセル通知を送る（許可外の値は none に落とす）" do
+      { "all" => "all", "none" => "none", "externalOnly" => "none", "1" => "none" }.each do |given, expected|
+        token = double
+        allow(token).to receive(:delete).and_return(double(body: ""))
+
+        expect(described_class.new(token).delete_event("ev1", send_updates: given)).to be(true)
+        expect(token).to have_received(:delete)
+          .with(%r{/calendars/primary/events/ev1\z}, params: { sendUpdates: expected })
+      end
+    end
+
     it "既に存在しない（404/410）場合も削除済みとして true（冪等）" do
       [404, 410].each do |status|
         token = double

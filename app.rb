@@ -1135,3 +1135,41 @@ post "/api/v1/bookings" do
   status 201
   api_json(api_booking(TicketStore.find(token), id: audit_ticket_id(token), meet_link: result.meet_link))
 end
+
+# 確定済みの予約（used）を取り消す（used → cancelled）。チケットに保存した event_id の予定を
+# Google から削除する。削除対象はチケット保存値のみで、クライアントから event id は受け取らない
+# （任意イベント削除への横展開を防ぐ既存原則）。
+post "/api/v1/bookings/:id/cancel" do
+  ticket = find_ticket_by_api_id(params[:id].to_s)
+  halt 404 if ticket.nil? # body は not_found ハンドラが JSON エンベロープで組み立てる
+
+  body = api_json_body!
+  # 参加者へのキャンセル通知は既定で送らない（招待メールを送った予約を取り消すときだけ opt-in）。
+  notify_attendees = api_boolean_param!(body, "notify_attendees")
+
+  # 予定を削除できない状態（未連携・refresh 失敗）でチケットだけ取消済みにしないよう、遷移の前に確認する。
+  google_access = google_token
+  api_error!(503, "provider_not_connected", "Google カレンダーが連携されていません。") if google_access.nil?
+
+  # 遷移（used → cancelled）と予定の削除は BOOKING_LOCK 内でまとめて行う。予約の登録・仮押さえの決定は
+  # ロック内で「チケット遷移 → Google 操作」を行うため、その途中に割り込むと取消した予定が作られ直す・
+  # 削除済みの予定へ patch するといった食い違いが起き得る。halt はロックの外で行う。
+  token = ticket["token"]
+  previous, event_deleted = BOOKING_LOCK.synchronize do
+    # 受理されるのは event_id を保存した used のみ（未使用・仮押さえ中・終端・event_id 未保存は不受理）。
+    prev = TicketStore.cancel_booking!(token)
+    next [nil, false] unless prev.is_a?(Hash)
+
+    [prev, delete_booking_event(google_access, prev["event_id"], notify_attendees: notify_attendees)]
+  end
+  api_error!(409, "invalid_state", "この予約は取り消せる状態ではありません。") if previous.nil?
+
+  AuditLog.record(:booking_cancelled, ip: remote_addr, target: "#{audit_ticket_id(token)} via=api:#{@api_label}")
+  # 削除に失敗した予定はカレンダーに残るため、管理者が手動で消せるよう通知にも明記する。
+  note = event_deleted ? "" : "\n※カレンダーの予定を削除できませんでした（手動で削除してください）。"
+  SlackNotifier.notify(
+    "予約が取り消されました（API 経由: #{@api_label}）\n依頼者: #{previous['requester']}\n" \
+    "件名: #{previous['title']}\n日時: #{slack_slot_label(previous['slot_start'], previous['slot_end'])}#{note}"
+  )
+  api_json("id" => audit_ticket_id(token), "status" => "cancelled", "event_deleted" => event_deleted)
+end
