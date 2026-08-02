@@ -137,6 +137,17 @@ module ApiHelpers
     TicketStore.all.find { |ticket| ticket["idempotency_key"] == key && TicketStore.status(ticket) == "used" }
   end
 
+  # 仮押さえ系エンドポイントの対象チケットを短縮 ID から引く。ID 不明は 404（body は not_found ハンドラが
+  # JSON エンベロープで組み立てる）、仮押さえ中でないチケット（未使用・決定済み・終端・期限切れ）は
+  # 409 invalid_state。API はセッションを持たないため holder 照合は行わない（write キー＝管理者相当）。
+  def api_held_ticket!(id)
+    ticket = find_ticket_by_api_id(id)
+    halt 404 if ticket.nil?
+    api_error!(409, "invalid_state", "このチケットは仮押さえ中ではありません。") unless TicketStore.held?(ticket)
+
+    ticket
+  end
+
   # 取消した予約の予定を Google から削除し、削除できたか（404/410＝既に無い場合も true）を返す。
   # 失敗しても例外を伝播させず false を返す: チケットは cancelled のまま維持し（取消の意思を優先する）、
   # 残った予定は管理者が手動で削除できるようにする（呼び出し側が結果を応答・通知に載せる）。

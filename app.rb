@@ -1173,3 +1173,121 @@ post "/api/v1/bookings/:id/cancel" do
   )
   api_json("id" => audit_ticket_id(token), "status" => "cancelled", "event_deleted" => event_deleted)
 end
+
+# 複数の候補を [仮ブロック] として確保する（ゲストの仮押さえ POST /hold の API 版）。内部でチケットを
+# 1 枚発行して held にし、既存の状態機械（held → used / cancelled）と管理画面・kill switch に載せる。
+# holder_key は生成してチケットに保存するが、API はセッションを持たないため照合には使わない
+# （write スコープのキー＝管理者相当。ゲストが仮押さえたチケットも API から操作できる＝設計上の裁定）。
+post "/api/v1/holds" do
+  body = api_json_body!
+  slots = api_hold_slots_param!(body)
+  requester = api_text_param!(body, "requester")
+  title = api_text_param!(body, "title")
+  private_event = api_boolean_param!(body, "private_event")
+
+  # 連携トークンが使えない（未連携・refresh 失敗）場合は、チケットを発行する前に返す。
+  google_access = google_token
+  api_error!(503, "provider_not_connected", "Google カレンダーが連携されていません。") if google_access.nil?
+
+  token = TicketStore.create
+  result = hold_service(google_access).hold(token: token, requester: requester, title: title, slots: slots,
+                                            holder_key: SecureRandom.urlsafe_base64(32),
+                                            private_event: private_event)
+  unless result.status == :ok
+    # 失敗時のチケットは active のまま残る（:slot_taken は遷移前・:api_failure は HoldService が
+    # reactivate! で巻き戻し済み）。誰にも渡していない内部チケットなので終端させる（一覧のゴミにしない）。
+    # 後始末のための無効化なので監査には残さない（ゲストの仮押さえも失敗は記録しない）。
+    TicketStore.revoke(token)
+    api_error!(409, "slot_taken", "指定した時間帯は仮押さえできません。空き候補を取り直してください。") if result.status == :slot_taken
+
+    # :api_failure（[仮ブロック] の作成失敗）。:ticket_used は発行直後のチケットのため通常起きない。
+    api_error!(502, "upstream_error", "仮押さえの作成に失敗しました。")
+  end
+
+  ticket = TicketStore.find(token)
+  # 件数の併記はゲストの仮押さえと同形（target への併記が付随情報の既存の流儀）。
+  audit_target = "#{audit_ticket_id(token)} via=api:#{@api_label} count=#{slots.size}"
+  AuditLog.record(:hold_created, ip: remote_addr, target: audit_target)
+  slot_lines = slots.map { |s, e| "・#{slack_slot_label(s.iso8601, e.iso8601)}" }.join("\n")
+  SlackNotifier.notify(
+    "仮押さえが入りました（#{slots.size} 件・API 経由: #{@api_label}）\n依頼者: #{requester}\n" \
+    "件名: #{title}\n候補日時:\n#{slot_lines}"
+  )
+  status 201
+  api_json("id" => audit_ticket_id(token), "status" => "held",
+           "expires_at" => api_time(TicketStatus.expires_at(ticket)),
+           "slots" => api_hold_slots(ticket["holds"]))
+end
+
+# 仮押さえから 1 件を決定する（held → used）。選択したイベントを確定形へ更新し、他の候補は削除する。
+post "/api/v1/holds/:id/confirm" do
+  ticket = api_held_ticket!(params[:id].to_s)
+  body = api_json_body!
+  slot_start = api_hold_slot_param!(ticket, body)
+  attendees = api_attendees_param!(body)
+  video_url = api_optional_text_param!(body, "video_url")
+  request_meet = api_boolean_param!(body, "request_meet")
+  send_invites = api_boolean_param!(body, "send_invites")
+  # 任意項目（件数・メール形式・URL 形式・Meet との排他）はゲストの決定と同一の検証・文言を使う。
+  if (error = optional_event_error(attendees: attendees, video_url: video_url, request_meet: request_meet))
+    api_error!(400, "invalid_params", error)
+  end
+
+  google_access = google_token
+  api_error!(503, "provider_not_connected", "Google カレンダーが連携されていません。") if google_access.nil?
+
+  token = ticket["token"]
+  result = hold_service(google_access).confirm(token: token, slot_start: slot_start,
+                                               attendees: attendees_with_admin(attendees), video_url: video_url,
+                                               request_meet: request_meet, send_invites: send_invites)
+  # 状態確認からロック取得までの間に他経路（ゲスト画面・別の API 呼び出し）で決定・取りやめが起きた場合。
+  api_error!(409, "invalid_state", "この仮押さえは決定できる状態ではありません。") if result.status == :not_held
+
+  AuditLog.record(:hold_confirmed, ip: remote_addr, target: "#{audit_ticket_id(token)} via=api:#{@api_label}")
+  confirmed = TicketStore.find(token)
+  SlackNotifier.notify(
+    "仮押さえから 1 件に決定しました（API 経由: #{@api_label}）\n依頼者: #{confirmed['requester']}\n" \
+    "件名: #{confirmed['title']}\n日時: #{slack_slot_label(confirmed['slot_start'], confirmed['slot_end'])}"
+  )
+  api_json(api_hold_confirmation(confirmed, id: audit_ticket_id(token), result: result))
+end
+
+# 仮押さえから候補を 1 件だけ取り除く（対応する [仮ブロック] も削除する）。
+# 最後の 1 件を取り除いた場合はチケットが終了（cancelled）する（既存挙動）。
+post "/api/v1/holds/:id/slots/delete" do
+  ticket = api_held_ticket!(params[:id].to_s)
+  slot_start = api_hold_slot_param!(ticket, api_json_body!)
+
+  google_access = google_token
+  api_error!(503, "provider_not_connected", "Google カレンダーが連携されていません。") if google_access.nil?
+
+  token = ticket["token"]
+  result = hold_service(google_access).remove(token: token, slot_start: slot_start)
+  api_error!(409, "invalid_state", "この仮押さえは操作できる状態ではありません。") if result.status == :not_held
+
+  AuditLog.record(:hold_deleted, ip: remote_addr, target: "#{audit_ticket_id(token)} via=api:#{@api_label}")
+  # 個別削除はゲスト側でも Slack 通知しない（調整途中の操作。通知は仮押さえ・決定・全取りやめの粒度）。
+  remaining = TicketStore.find(token)
+  api_json("id" => audit_ticket_id(token), "status" => TicketStore.status(remaining),
+           "slots" => api_hold_slots(remaining["holds"]))
+end
+
+# 仮押さえをすべて取りやめてチケットを終了する（held → cancelled・[仮ブロック] も全件削除）。
+post "/api/v1/holds/:id/cancel" do
+  ticket = api_held_ticket!(params[:id].to_s)
+
+  google_access = google_token
+  api_error!(503, "provider_not_connected", "Google カレンダーが連携されていません。") if google_access.nil?
+
+  token = ticket["token"]
+  result = hold_service(google_access).cancel(token: token)
+  api_error!(409, "invalid_state", "この仮押さえは取りやめられる状態ではありません。") if result.status == :not_held
+
+  AuditLog.record(:hold_cancelled, ip: remote_addr, target: "#{audit_ticket_id(token)} via=api:#{@api_label}")
+  slot_lines = Array(ticket["holds"]).map { |h| "・#{slack_slot_label(h['slot_start'], h['slot_end'])}" }.join("\n")
+  SlackNotifier.notify(
+    "仮押さえがすべて取りやめられました（API 経由: #{@api_label}）\n依頼者: #{ticket['requester']}\n" \
+    "件名: #{ticket['title']}\n取りやめた候補:\n#{slot_lines}"
+  )
+  api_json("id" => audit_ticket_id(token), "status" => "cancelled", "failed_deletes" => result.failed_deletes)
+end

@@ -64,6 +64,20 @@ module ApiSerializers
                 .map { |hold| { "slot_start" => hold["slot_start"], "slot_end" => hold["slot_end"] } }
   end
 
+  # 仮押さえ系の書き込み応答に載せる候補一覧。キーはリクエスト（slots）と同じ starts_at / ends_at で、
+  # 値は保存済みの文字列をそのまま返す（受け取った値をそのまま slot_starts_at に使って決定・削除できる）。
+  def api_hold_slots(holds)
+    api_holds(holds).map { |hold| { "starts_at" => hold["slot_start"], "ends_at" => hold["slot_end"] } }
+  end
+
+  # 仮押さえの決定（POST /api/v1/holds/:id/confirm）の応答。確定した枠は直接予約と同じ形で返し、
+  # 部分失敗（決定イベントの件名更新に失敗した／削除できなかった他候補の件数）を添える
+  # （決定自体は成立しているため、ゲスト画面が flash で伝えている情報を API では応答に載せる）。
+  def api_hold_confirmation(ticket, id:, result:)
+    api_booking(ticket, id: id, meet_link: result.meet_link)
+      .merge("patch_failed" => result.patch_failed, "failed_deletes" => result.failed_deletes)
+  end
+
   # Event 構造体を API レスポンス用のハッシュに変換する。
   # 時刻は ISO8601（ローカルタイムのオフセット付き）で返す。
   def api_event(event)

@@ -22,10 +22,46 @@ module ApiWriteParams
   end
 
   # slot の日時（ISO8601・オフセット付き）。欠落・不正形式は 400。
-  def api_time_param!(slot, name)
+  # prefix はエラー文言で項目を指す名前（単一の slot / 配列の slots[] を区別する）。
+  def api_time_param!(slot, name, prefix: "slot")
     Time.iso8601(slot[name].to_s)
   rescue ArgumentError
-    api_error!(400, "invalid_params", "slot.#{name} は ISO8601 形式の日時で指定してください（必須）。")
+    api_error!(400, "invalid_params", "#{prefix}.#{name} は ISO8601 形式の日時で指定してください（必須）。")
+  end
+
+  # 仮押さえする時間帯の配列を [[Time, Time], ...] に変換する。件数（1〜MAX_HOLDS）と相互の重複は
+  # ゲストの仮押さえ（POST /hold）と同一基準で弾く。「その枠を確保できるか」（空き・営業日・過去）は
+  # HoldService がロック内で再検証する。
+  def api_hold_slots_param!(body)
+    value = body["slots"]
+    unless value.is_a?(Array) && !value.empty? && value.size <= HoldService::MAX_HOLDS
+      api_error!(400, "invalid_params", "slots は 1〜#{HoldService::MAX_HOLDS} 件の時間帯の配列で指定してください。")
+    end
+
+    slots = value.map { |slot| api_hold_slot_times!(slot) }
+    api_error!(400, "invalid_params", "slots の時間帯が重複しています。重ならないように指定してください。") if overlapping_slots?(slots)
+
+    slots
+  end
+
+  # slots の 1 要素（{"starts_at", "ends_at"}）を [Time, Time] に変換する。
+  def api_hold_slot_times!(slot)
+    api_error!(400, "invalid_params", "slots の各要素は starts_at / ends_at を持つオブジェクトです。") unless slot.is_a?(Hash)
+
+    [api_time_param!(slot, "starts_at", prefix: "slots[]"), api_time_param!(slot, "ends_at", prefix: "slots[]")]
+  end
+
+  # 決定・個別削除の対象スロット（仮押さえ候補の開始時刻）。文字列でない・空は 400 で、
+  # チケットに保存された候補に無い値は存在しない対象として 404
+  # （イベント ID はクライアントから受け取らず、保存済み候補の開始時刻だけをキーにする既存原則）。
+  def api_hold_slot_param!(ticket, body)
+    slot_start = body["slot_starts_at"]
+    unless slot_start.is_a?(String) && !slot_start.empty?
+      api_error!(400, "invalid_params", "slot_starts_at は仮押さえ候補の開始時刻（ISO8601 文字列）で指定してください（必須）。")
+    end
+    halt 404 unless Array(ticket["holds"]).any? { |hold| hold["slot_start"] == slot_start }
+
+    slot_start
   end
 
   # 必須テキスト（依頼者名・予定名）。空・文字列以外・上限超過は 400（上限はゲストと同じ）。
