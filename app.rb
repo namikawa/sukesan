@@ -1268,8 +1268,10 @@ post "/api/v1/holds/:id/slots/delete" do
   AuditLog.record(:hold_deleted, ip: remote_addr, target: "#{audit_ticket_id(token)} via=api:#{@api_label}")
   # 個別削除はゲスト側でも Slack 通知しない（調整途中の操作。通知は仮押さえ・決定・全取りやめの粒度）。
   remaining = TicketStore.find(token)
+  # 削除できなかった [仮ブロック] は候補からは外れてカレンダーに残るため、件数を応答で伝える
+  # （決定・全取りやめと同じ扱い。残骸は件名の prefix で手動掃除できる）。
   api_json("id" => audit_ticket_id(token), "status" => TicketStore.status(remaining),
-           "slots" => api_hold_slots(remaining["holds"]))
+           "slots" => api_hold_slots(remaining["holds"]), "failed_deletes" => result.failed_deletes)
 end
 
 # 仮押さえをすべて取りやめてチケットを終了する（held → cancelled・[仮ブロック] も全件削除）。

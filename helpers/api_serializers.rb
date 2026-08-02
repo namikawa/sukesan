@@ -39,10 +39,9 @@ module ApiSerializers
       "ttl_hours" => TicketStatus.ttl_hours(ticket),
       "requester" => ticket["requester"],
       "title" => ticket["title"],
-      "slot_start" => ticket["slot_start"],
-      "slot_end" => ticket["slot_end"],
+      "slot" => api_ticket_slot(ticket),
       "used_at" => ticket["used_at"],
-      "holds" => status == "held" ? api_holds(ticket["holds"]) : nil
+      "holds" => status == "held" ? api_hold_slots(ticket["holds"]) : nil
     }
   end
 
@@ -53,21 +52,25 @@ module ApiSerializers
     {
       "id" => id,
       "status" => TicketStore.status(ticket),
-      "slot" => { "starts_at" => ticket["slot_start"], "ends_at" => ticket["slot_end"] },
+      "slot" => api_ticket_slot(ticket),
       "meet_link" => meet_link
     }
   end
 
-  # 仮押さえ中の候補一覧（開始時刻順）。イベント ID はクライアントへ渡さない（既存原則）。
-  def api_holds(holds)
-    Array(holds).sort_by { |hold| hold["slot_start"].to_s }
-                .map { |hold| { "slot_start" => hold["slot_start"], "slot_end" => hold["slot_end"] } }
+  # チケットに確定している枠。予約・決定の済んでいないチケット（未使用・仮押さえ中など）は null。
+  # キーは API 全体で共通の starts_at / ends_at（リクエストの slot と同形）。
+  def api_ticket_slot(ticket)
+    return nil if ticket["slot_start"].nil?
+
+    { "starts_at" => ticket["slot_start"], "ends_at" => ticket["slot_end"] }
   end
 
-  # 仮押さえ系の書き込み応答に載せる候補一覧。キーはリクエスト（slots）と同じ starts_at / ends_at で、
+  # 仮押さえ中の候補一覧（開始時刻順）。キーはリクエスト（slots）と同じ starts_at / ends_at で、
   # 値は保存済みの文字列をそのまま返す（受け取った値をそのまま slot_starts_at に使って決定・削除できる）。
+  # イベント ID はクライアントへ渡さない（既存原則）。
   def api_hold_slots(holds)
-    api_holds(holds).map { |hold| { "starts_at" => hold["slot_start"], "ends_at" => hold["slot_end"] } }
+    Array(holds).sort_by { |hold| hold["slot_start"].to_s }
+                .map { |hold| { "starts_at" => hold["slot_start"], "ends_at" => hold["slot_end"] } }
   end
 
   # 仮押さえの決定（POST /api/v1/holds/:id/confirm）の応答。確定した枠は直接予約と同じ形で返し、

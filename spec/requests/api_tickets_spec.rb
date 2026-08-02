@@ -17,7 +17,7 @@ RSpec.describe "他システム向け API /api/v1/tickets" do
 
   # 一覧・詳細で常に同じキーセットを返す（値が無い項目は null）。
   let(:ticket_keys) do
-    %w[id status created_at expires_at ttl_hours requester title slot_start slot_end used_at holds]
+    %w[id status created_at expires_at ttl_hours requester title slot used_at holds]
   end
 
   before do
@@ -114,7 +114,7 @@ RSpec.describe "他システム向け API /api/v1/tickets" do
       expect(ticket["ttl_hours"]).to eq(24)
       expected_expiry = Time.iso8601(TicketStore.find(token)["created_at"]) + (24 * 3600)
       expect(Time.iso8601(ticket["expires_at"])).to eq(expected_expiry)
-      expect(ticket.values_at("requester", "title", "slot_start", "slot_end", "used_at", "holds")).to all(be_nil)
+      expect(ticket.values_at("requester", "title", "slot", "used_at", "holds")).to all(be_nil)
     end
 
     it "使用済みチケットは登録内容を返し、期限（expires_at）は null" do
@@ -127,8 +127,9 @@ RSpec.describe "他システム向け API /api/v1/tickets" do
       expect(ticket["status"]).to eq("used")
       expect(ticket["requester"]).to eq("山田")
       expect(ticket["title"]).to eq("打合せ")
-      expect(ticket["slot_start"]).to eq("2026-08-05T10:00:00+09:00")
-      expect(ticket["slot_end"]).to eq("2026-08-05T10:30:00+09:00")
+      # 枠は書き込み系（bookings）と同形の slot オブジェクトで返す。
+      expect(ticket["slot"]).to eq("starts_at" => "2026-08-05T10:00:00+09:00",
+                                   "ends_at" => "2026-08-05T10:30:00+09:00")
       expect(ticket["used_at"]).not_to be_nil
       expect(ticket["expires_at"]).to be_nil
       expect(ticket["holds"]).to be_nil
@@ -142,8 +143,8 @@ RSpec.describe "他システム向け API /api/v1/tickets" do
       expect(ticket["status"]).to eq("held")
       expect(ticket["holds"]).to eq(
         [
-          { "slot_start" => "2026-08-05T10:00:00+09:00", "slot_end" => "2026-08-05T10:30:00+09:00" },
-          { "slot_start" => "2026-08-06T14:00:00+09:00", "slot_end" => "2026-08-06T14:30:00+09:00" }
+          { "starts_at" => "2026-08-05T10:00:00+09:00", "ends_at" => "2026-08-05T10:30:00+09:00" },
+          { "starts_at" => "2026-08-06T14:00:00+09:00", "ends_at" => "2026-08-06T14:30:00+09:00" }
         ]
       )
       expect(last_response.body).not_to include("sukesan-evt")

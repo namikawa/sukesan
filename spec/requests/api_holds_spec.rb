@@ -127,8 +127,8 @@ RSpec.describe "他システム向け API /api/v1/holds" do
       expect(ticket["id"]).to eq(id)
       expect(ticket["status"]).to eq("held")
       expect(ticket["requester"]).to eq("山田")
-      expect(ticket["holds"]).to eq([{ "slot_start" => slot1["starts_at"], "slot_end" => slot1["ends_at"] },
-                                     { "slot_start" => slot2["starts_at"], "slot_end" => slot2["ends_at"] }])
+      # 参照系の holds も書き込み系の slots と同じキー（starts_at / ends_at）で返す。
+      expect(ticket["holds"]).to eq([slot1, slot2])
     end
 
     it "private_event を指定すると [仮ブロック] 全件を visibility=private で作成する" do
@@ -468,10 +468,11 @@ RSpec.describe "他システム向け API /api/v1/holds" do
 
       expect(last_response.status).to eq(200)
       json = JSON.parse(last_response.body)
-      expect(json.keys).to match_array(%w[id status slots])
+      expect(json.keys).to match_array(%w[id status slots failed_deletes])
       expect(json["id"]).to eq(id)
       expect(json["status"]).to eq("held")
       expect(json["slots"]).to eq([slot2])
+      expect(json["failed_deletes"]).to eq(0)
       expect(a_request(:delete, %r{events/#{removed}})).to have_been_made.once
       expect(stored_ticket["holds"].map { |hold| hold["slot_start"] }).to eq([slot2["starts_at"]])
     end
@@ -487,6 +488,17 @@ RSpec.describe "他システム向け API /api/v1/holds" do
       expect(json["slots"]).to eq([])
       expect(TicketStore.status(stored_ticket)).to eq("cancelled")
       expect(a_request(:delete, event_url)).to have_been_made.times(2)
+    end
+
+    it "削除できなかった件数を failed_deletes で返す（候補からは外れる）" do
+      id = create_hold!
+      stub_request(:delete, event_url).to_return(status: 500, body: "boom")
+
+      expect { post_delete(id) }.to output(/\[HoldService\] 仮押さえイベントの削除失敗/).to_stderr
+      expect(last_response.status).to eq(200)
+      json = JSON.parse(last_response.body)
+      expect(json["failed_deletes"]).to eq(1)
+      expect(json["slots"]).to eq([slot2])
     end
 
     it "保存候補に無い slot_starts_at は 404（候補は変わらない）" do
