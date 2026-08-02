@@ -9,15 +9,27 @@ require "digest"
 #   （生のキーは発行直後に一度だけ表示し、永続化しない）。発行済みキーが 1 つもなければ /api/ 配下は 404。
 # - 接続元は loopback（127.0.0.1 / ::1）限定。判定は偽装できない REMOTE_ADDR を使う。
 # - 認証は Authorization: Bearer <キー> のみ。照合は定数時間比較（ダイジェスト同士＝固定長で比較）。
+# - キーは read / write のスコープを持ち、書き込み系は write を要求する（write は read を包含する）。
 module ApiHelpers
   # 発行フォームのラベル（システム名）の最大文字数と、登録できるキーの最大件数（DoS・誤入力対策）。
   MAX_API_KEY_LABEL_LENGTH = 50
   MAX_API_KEYS = 20
 
+  # API キーのスコープ。read は参照のみ、write は参照＋書き込み（予定の作成・削除など）。
+  API_KEY_SCOPES = %w[read write].freeze
+  DEFAULT_API_KEY_SCOPE = "read"
+
   # loopback とみなす接続元アドレス（REMOTE_ADDR）。IPv4/IPv6 のループバックのみ許可する。
   LOOPBACK_ADDRS = ["127.0.0.1", "::1"].freeze
 
-  # 保存済みの発行キー一覧（{ ラベル => { "digest" =>…, "created_at" =>… } }）。未発行なら空ハッシュ。
+  # スコープを許可値に丸める。許可外・未指定・scope 未保存の既存キーはすべて read 扱い（fail-closed）。
+  # 発行フォームの入力検証と、保存済みキーの読み出しの両方で使う。
+  def normalize_api_key_scope(value)
+    scope = value.to_s
+    API_KEY_SCOPES.include?(scope) ? scope : DEFAULT_API_KEY_SCOPE
+  end
+
+  # 保存済みの発行キー一覧（{ ラベル => { "digest" =>…, "created_at" =>…, "scope" =>… } }）。未発行なら空ハッシュ。
   def stored_api_keys
     keys = SettingsStore.load["api_keys"]
     keys.is_a?(Hash) ? keys : {}
@@ -43,7 +55,7 @@ module ApiHelpers
     request.env["REMOTE_ADDR"].to_s
   end
 
-  # Authorization: Bearer <キー> を検証し、一致したキーのラベルを返す（不一致・ヘッダ無しは nil）。
+  # Authorization: Bearer <キー> を検証し、一致したキーの [ラベル, スコープ] を返す（不一致・ヘッダ無しは nil）。
   # 提示されたキーを SHA-256 hex 化し、保存済みダイジェストと定数時間比較する
   # （ダイジェスト同士＝固定長の比較で、キー本体の長さも漏らさない）。
   def authenticate_api_key(keys)
@@ -52,7 +64,20 @@ module ApiHelpers
     return nil if presented.nil? || presented.empty?
 
     presented_digest = Digest::SHA256.hexdigest(presented)
-    keys.find { |_label, info| Rack::Utils.secure_compare(presented_digest, info["digest"].to_s) }&.first
+    label, info = keys.find { |_key_label, entry| Rack::Utils.secure_compare(presented_digest, entry["digest"].to_s) }
+    return nil if label.nil?
+
+    [label, normalize_api_key_scope(info["scope"])]
+  end
+
+  # 書き込み系エンドポイントで write スコープを要求する（before フィルタで認証済みの @api_scope を見る）。
+  # read キー（scope 未保存の既存キーを含む）は 403 insufficient_scope。
+  # 試行を可視化するため監査ログに残す（対象はキーのラベルのみ。秘密・PII は記録しない）。
+  def require_write_scope!
+    return if @api_scope == "write"
+
+    AuditLog.record(:api_scope_denied, ip: remote_addr, target: @api_label)
+    api_error!(403, "insufficient_scope", "この操作には write 権限の API キーが必要です。")
   end
 
   # 統一エラーエンベロープ（{"error": {"code", "message"}}）で JSON 応答を返して中断する。

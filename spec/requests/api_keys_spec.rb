@@ -12,8 +12,11 @@ RSpec.describe "API キーの発行・削除 /settings/api_keys" do
     end
   end
 
-  def issue_key(label)
-    post "/settings/api_keys", authenticity_token: csrf_token, label: label
+  # scope を渡さない呼び出しは、フォームで権限を選ばなかった場合（＝read に落ちる）に相当する。
+  def issue_key(label, scope: nil)
+    params = { authenticity_token: csrf_token, label: label }
+    params[:scope] = scope if scope
+    post "/settings/api_keys", params
   end
 
   # 発行直後の画面から生のキー（64 文字 hex）を取り出す。
@@ -79,6 +82,28 @@ RSpec.describe "API キーの発行・削除 /settings/api_keys" do
       expect(JSON.parse(last_response.body)["events"]).to eq([])
     end
 
+    it "権限を指定して発行し、一覧にも表示する" do
+      issue_key("sysW", scope: "write")
+      expect(settings_data["api_keys"]["sysW"]["scope"]).to eq("write")
+
+      get "/settings"
+      expect(last_response.body).to match(%r{<td>sysW</td>\s*<td><span class="tag[^"]*">write</span></td>})
+    end
+
+    it "権限の未指定・許可外は read に落とす（fail-closed）" do
+      issue_key("sysA")
+      expect(settings_data["api_keys"]["sysA"]["scope"]).to eq("read")
+
+      issue_key("sysB", scope: "admin")
+      expect(settings_data["api_keys"]["sysB"]["scope"]).to eq("read")
+    end
+
+    it "scope 未保存の既存キーは read として表示する（後方互換）" do
+      settings_data["api_keys"] = { "legacy" => { "digest" => "d", "created_at" => "2026-07-01T09:00:00+09:00" } }
+      get "/settings"
+      expect(last_response.body).to match(%r{<td>legacy</td>\s*<td><span class="tag[^"]*">read</span></td>})
+    end
+
     it "ラベル検証: 空・長すぎ・重複・件数上限は発行しない" do
       issue_key("  ")
       follow_redirect!
@@ -129,8 +154,9 @@ RSpec.describe "API キーの発行・削除 /settings/api_keys" do
 
     it "発行・削除を監査ログに記録する（キー本体・ダイジェストは出さない）" do
       allow(AuditLog).to receive(:record)
-      issue_key("sysA")
-      expect(AuditLog).to have_received(:record).with(:api_key_issued, ip: anything, target: "sysA")
+      issue_key("sysA", scope: "write")
+      # 付随情報は target に併記する既存の流儀（hold_created の count= と同じ）。
+      expect(AuditLog).to have_received(:record).with(:api_key_issued, ip: anything, target: "sysA scope=write")
 
       follow_redirect!
       key = displayed_key

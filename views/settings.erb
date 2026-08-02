@@ -115,7 +115,7 @@
 </form>
 
 <h2 class="title is-5 mt-6">他システム向け API キー</h2>
-<p class="block"><small>同一マシン上の他システムからイベント一覧 API（<code>/api/v1/calendars/google/events</code>）を利用するためのキーです。キーは発行時に一度だけ表示され、サーバにはダイジェストのみ保存されます。</small></p>
+<p class="block"><small>同一マシン上の他システムからイベント一覧 API（<code>/api/v1/calendars/google/events</code>）を利用するためのキーです。キーは発行時に一度だけ表示され、サーバにはダイジェストのみ保存されます。権限は read（参照のみ）と write（参照＋予定の作成・削除）から選びます。</small></p>
 
 <% if @new_api_key %>
   <div class="notification is-warning">
@@ -130,11 +130,25 @@
 <div class="box">
   <form method="post" action="/settings/api_keys">
     <input type="hidden" name="authenticity_token" value="<%= csrf_token %>">
-    <div class="field has-addons">
+    <div class="field">
+      <label class="label">システム名</label>
       <div class="control">
-        <input class="input" type="text" name="label" placeholder="システム名（例: sysA）"
+        <input class="input" type="text" name="label" placeholder="例: sysA"
                maxlength="<%= ApiHelpers::MAX_API_KEY_LABEL_LENGTH %>" required>
       </div>
+    </div>
+    <div class="field">
+      <label class="label">権限</label>
+      <div class="control">
+        <label class="radio mr-4">
+          <input type="radio" name="scope" value="read" checked> read（参照のみ）
+        </label>
+        <label class="radio">
+          <input type="radio" name="scope" value="write"> write（参照＋予定の作成・削除）
+        </label>
+      </div>
+    </div>
+    <div class="field">
       <div class="control">
         <button type="submit" class="button is-primary">発行</button>
       </div>
@@ -146,12 +160,15 @@
   <% if api_keys.any? %>
     <table class="table is-fullwidth mt-4">
       <thead>
-        <tr><th>システム名</th><th>作成日時</th><th></th></tr>
+        <tr><th>システム名</th><th>権限</th><th>作成日時</th><th></th></tr>
       </thead>
       <tbody>
         <% api_keys.each do |label, info| %>
+          <%# scope 未保存の既存キーは read として表示する（認可側と同じ fail-closed の解釈に揃える）。 %>
+          <% scope = normalize_api_key_scope(info["scope"]) %>
           <tr>
             <td><%= label %></td>
+            <td><span class="tag <%= scope == "write" ? "is-warning" : "is-light" %>"><%= scope %></span></td>
             <td><%= format_iso(info["created_at"]) %></td>
             <td class="has-text-right">
               <form method="post" action="/settings/api_keys/delete">

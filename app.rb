@@ -161,7 +161,11 @@ use Rack::Session::Cookie,
     secure: settings.production?
 
 # 全 POST に対する CSRF トークン検証（フォームに authenticity_token を埋め込む）。
-use Rack::Protection::AuthenticityToken
+# 例外は /api/ 配下のみ: 資格情報は Authorization: Bearer ヘッダだけで、ブラウザが自動送信する
+# セッション Cookie を認証に使わないため CSRF が成立しない（トークンを持てない他システムからの POST を通す）。
+# 除外は rack-protection 公式の allow_if フックで API パスの前方一致に限定し、画面のフォームは従来どおり全て検証する。
+use Rack::Protection::AuthenticityToken,
+    allow_if: ->(env) { env["PATH_INFO"].to_s.start_with?("/api/") }
 
 # 本番では HTTPS を必須にする（開発は HTTP を許容）。
 # 前段プロキシで TLS 終端する場合は X-Forwarded-Proto を設定すること。
@@ -233,6 +237,9 @@ LOGIN_LIMITER = RateLimiter.new(max: 10, window_seconds: 300)
 
 # 他システム向け API の濫用対策。キーのラベルごとに 60 秒で 60 回まで。
 API_LIMITER = RateLimiter.new(max: 60, window_seconds: 60)
+
+# 他システム向け API のうち書き込み系（予定の作成・削除など）の濫用対策。キーのラベルごとに 60 秒で 10 回まで。
+API_WRITE_LIMITER = RateLimiter.new(max: 10, window_seconds: 60)
 
 # 予約の臨界区間（空き再確認〜カレンダー登録）を直列化し、別トークン同士による同一枠の二重予約を防ぐロック。
 # 実体は backend が用意する（file=flock のロックファイル / firestore=プロセス内 Mutex）。
@@ -708,10 +715,12 @@ post "/settings/api_keys" do
     redirect "/settings"
   end
 
+  # 権限は許可値（read/write）のみ受け付け、許可外・欠落は read に落とす（fail-closed）。
+  scope = normalize_api_key_scope(params[:scope])
   key = SecureRandom.hex(32)
-  entry = { "digest" => Digest::SHA256.hexdigest(key), "created_at" => Time.now.iso8601 }
+  entry = { "digest" => Digest::SHA256.hexdigest(key), "created_at" => Time.now.iso8601, "scope" => scope }
   SettingsStore.save("api_keys" => keys.merge(label => entry))
-  AuditLog.record(:api_key_issued, ip: client_ip, target: label)
+  AuditLog.record(:api_key_issued, ip: client_ip, target: "#{label} scope=#{scope}")
   session[:new_api_key] = { "label" => label, "key" => key }
   session[:flash] = "API キーを発行しました。キーはこの画面でのみ表示されます。"
   redirect "/settings"
@@ -895,8 +904,9 @@ before "/api/*" do
   # loopback 限定。偽装できない REMOTE_ADDR で判定する（APP_TRUST_PROXY=true でも X-Forwarded-For は見ない）。
   api_error!(403, "forbidden", "この API はローカルホストからのみ利用できます。") unless loopback?
 
-  # Authorization: Bearer <キー> のみ。一致したキーのラベルを以後の識別子（レート制限・監査）に使う。
-  @api_label = authenticate_api_key(api_keys)
+  # Authorization: Bearer <キー> のみ。一致したキーのラベルを以後の識別子（レート制限・監査）に、
+  # スコープを書き込み系の認可（require_write_scope!）に使う。
+  @api_label, @api_scope = authenticate_api_key(api_keys)
   if @api_label.nil?
     AuditLog.record(:api_auth_failed, ip: remote_addr)
     api_error!(401, "unauthorized", "認証に失敗しました。")
