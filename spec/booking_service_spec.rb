@@ -34,9 +34,30 @@ RSpec.describe BookingService do
       .with(event, attendees: [], request_meet: false, send_updates: "none", private_event: false,
                    id: a_string_matching(/\Asukesan[0-9a-f]{40}\z/))
       .and_return({})
-    expect(TicketStore).to receive(:use!).with("tok", attrs: ticket_attrs).and_return(true)
+    # 登録したイベント ID はチケットにも保存する（取消時の削除対象をチケット保存値だけに限るため）。
+    expected_id = described_class.event_id("test-event-id-key", "tok")
+    expect(TicketStore).to receive(:use!)
+      .with("tok", attrs: ticket_attrs.merge("event_id" => expected_id)).and_return(true)
 
     expect(call.status).to eq(:ok)
+  end
+
+  it "event_id を渡すとその ID で登録し、チケットにも同じ ID を保存する（冪等キー由来の ID）" do
+    expect(calendar_client).to receive(:create_event)
+      .with(event, attendees: [], request_meet: false, send_updates: "none", private_event: false,
+                   id: "sukesan-external-id")
+      .and_return({})
+    expect(TicketStore).to receive(:use!)
+      .with("tok", attrs: ticket_attrs.merge("event_id" => "sukesan-external-id")).and_return(true)
+
+    result = service.call(token: "tok", event: event, ticket_attrs: ticket_attrs, event_id: "sukesan-external-id")
+    expect(result.status).to eq(:ok)
+  end
+
+  it ".event_id は入力ごとに決定的で、material が違えば別の ID になる" do
+    expect(described_class.event_id("k", "tok")).to eq(described_class.event_id("k", "tok"))
+    expect(described_class.event_id("k", "tok")).not_to eq(described_class.event_id("k", "idem:tok"))
+    expect(described_class.event_id("k", "tok")).to match(/\Asukesan[0-9a-f]{40}\z/)
   end
 
   it "send_invites 時は send_updates=all で登録する（招待メールのオプトイン）" do

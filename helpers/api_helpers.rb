@@ -131,6 +131,12 @@ module ApiHelpers
     api_error!(400, "invalid_params", "リクエストボディが大きすぎます（#{MAX_JSON_BODY_BYTES / 1024}KB 以内）。")
   end
 
+  # 同じ Idempotency-Key で登録済みの予約（used のチケット）を探す。対象は一覧と同じ直近 30 日分で、
+  # 見つかった場合は新規作成せずリプレイ応答を返す（AI エージェントのリトライによる二重登録を防ぐ）。
+  def find_booking_by_idempotency_key(key)
+    TicketStore.all.find { |ticket| ticket["idempotency_key"] == key && TicketStore.status(ticket) == "used" }
+  end
+
   # 必須の日付クエリ（YYYY-MM-DD）を Date へ変換する。欠落・不正形式は 400 invalid_params で中断する。
   def api_date_param!(name)
     Date.iso8601(params[name].to_s)

@@ -41,6 +41,7 @@ require_relative "helpers/sync_helpers"
 require_relative "helpers/schedule_helpers"
 require_relative "helpers/hold_helpers"
 require_relative "helpers/api_helpers"
+require_relative "helpers/api_write_params"
 require_relative "helpers/api_serializers"
 
 # タイムゾーンを固定する（特定地域での運用前提。グローバル運用は想定しない）。
@@ -252,7 +253,7 @@ BOOKING_LOCK = TicketStore.booking_lock
 MAX_TEXT_LENGTH = 100
 
 helpers AuthHelpers, OAuthHelpers, FormatHelpers, SettingsParamsHelpers, SyncHelpers, ScheduleHelpers, HoldHelpers,
-        ApiHelpers, ApiSerializers
+        ApiHelpers, ApiWriteParams, ApiSerializers
 
 # app.rb 固有の鍵定数（LOG_TOKEN_ID_KEY）に依存するヘルパのみをここに置く。
 # 表示整形の共通ヘルパは helpers/*.rb（例: Slack 通知の slack_slot_label は FormatHelpers）に置く。
@@ -266,6 +267,13 @@ helpers do
   # 一覧と同じ直近 30 日分を走査して照合する（件数が限られるため線形で十分）。
   def find_ticket_by_api_id(id)
     TicketStore.all.find { |ticket| audit_ticket_id(ticket["token"]) == id }
+  end
+
+  # Idempotency-Key から決定的に導く Google イベント ID（キー未指定なら nil＝token 由来の既定を使う）。
+  # 同じキーでのリトライは同じ ID になり、リプレイ検索と登録の間で競合しても Google の 409 で吸収される。
+  # token 由来の ID と衝突しないよう、用途を示す prefix を HMAC の入力に含める。
+  def idempotency_event_id(key)
+    key && BookingService.event_id(EVENT_ID_KEY, "idem:#{key}")
   end
 end
 
@@ -1055,4 +1063,75 @@ post "/api/v1/tickets/:id/revoke" do
   failed = delete_hold_events(Array(previous["holds"]))
   AuditLog.record(:ticket_revoke, ip: remote_addr, target: "#{audit_ticket_id(token)} via=api:#{@api_label}")
   api_json("id" => audit_ticket_id(token), "status" => "revoked", "failed_deletes" => failed)
+end
+
+# 確定済みの枠を管理者カレンダーへ直接登録する（相手との調整を終えた外部システムからの予約）。
+# 内部でチケットを 1 枚発行して即消費し、ゲストの登録（POST /schedule）と同じ BookingService の
+# トランザクション（空き再確認 → use! → Google 登録 → 失敗時ロールバック）に載せる。
+post "/api/v1/bookings" do
+  body = api_json_body!
+  starts_at, ends_at = api_slot_param!(body)
+  requester = api_text_param!(body, "requester")
+  title = api_text_param!(body, "title")
+  attendees = api_attendees_param!(body)
+  video_url = api_optional_text_param!(body, "video_url")
+  request_meet = api_boolean_param!(body, "request_meet")
+  send_invites = api_boolean_param!(body, "send_invites")
+  private_event = api_boolean_param!(body, "private_event")
+  # 任意項目（件数・メール形式・URL 形式・Meet との排他）はゲストの登録と同一の検証・文言を使う。
+  if (error = optional_event_error(attendees: attendees, video_url: video_url, request_meet: request_meet))
+    api_error!(400, "invalid_params", error)
+  end
+  idempotency_key = api_idempotency_key!
+
+  # 同じ Idempotency-Key の予約が既にあれば、新規登録せず保存内容から応答する（リトライのリプレイ）。
+  if idempotency_key && (booked = find_booking_by_idempotency_key(idempotency_key))
+    halt 200, api_json(api_booking(booked, id: audit_ticket_id(booked["token"])))
+  end
+
+  # 連携トークンが使えない（未連携・refresh 失敗）場合は、チケットを発行する前に返す。
+  google_access = google_token
+  api_error!(503, "provider_not_connected", "Google カレンダーが連携されていません。") if google_access.nil?
+
+  description = "依頼者: #{requester}"
+  description += "\nビデオ会議: #{video_url}" unless video_url.empty?
+  event = Event.new(source: "google", title: "#{title} - #{requester} (from 調整ツール)",
+                    starts_at: starts_at, ends_at: ends_at, all_day: false, description: description)
+
+  # use! に保存する属性。会議 URL（video_url / meet_link）はチケットに永続化しない（既存方針）。
+  ticket_attrs = { "requester" => requester, "title" => title,
+                   "slot_start" => starts_at.iso8601, "slot_end" => ends_at.iso8601 }
+  ticket_attrs["attendees"] = attendees unless attendees.empty?
+  ticket_attrs["idempotency_key"] = idempotency_key if idempotency_key
+
+  # 内部チケットを 1 枚発行し、そのまま消費する（API 経由の予約も既存の状態機械・一覧・revoke に載る）。
+  token = TicketStore.create
+  result = BookingService.new(
+    lock: BOOKING_LOCK,
+    availability: availability_search(SettingsStore.load, google_access),
+    calendar_client: GoogleCalendarClient.new(google_access),
+    event_id_key: EVENT_ID_KEY
+  ).call(token: token, event: event, ticket_attrs: ticket_attrs,
+         attendees: attendees_with_admin(attendees), request_meet: request_meet,
+         send_invites: send_invites, private_event: private_event,
+         event_id: idempotency_event_id(idempotency_key))
+
+  unless result.status == :ok
+    # 内部チケットは誰にも渡していないため、active に戻さず終端させる（一覧にゴミを残さない）。
+    # 後始末のための無効化なので監査には残さない（記録するのは予約の成否）。
+    TicketStore.revoke(token)
+    api_error!(409, "slot_taken", "この時間帯は登録できません。空き候補を取り直してください。") if result.status == :slot_taken
+
+    # :api_failure（Google 登録失敗）。:ticket_used は発行直後のチケットのため通常起きない。
+    AuditLog.record(:booking_failed, ip: remote_addr, target: "#{audit_ticket_id(token)} via=api:#{@api_label}")
+    api_error!(502, "upstream_error", "予定の登録に失敗しました。")
+  end
+
+  AuditLog.record(:booking_created, ip: remote_addr, target: "#{audit_ticket_id(token)} via=api:#{@api_label}")
+  SlackNotifier.notify(
+    "新規のスケジュールが追加されました（API 経由: #{@api_label}）\n依頼者: #{requester}\n件名: #{title}\n" \
+    "日時: #{slack_slot_label(starts_at.iso8601, ends_at.iso8601)}"
+  )
+  status 201
+  api_json(api_booking(TicketStore.find(token), id: audit_ticket_id(token), meet_link: result.meet_link))
 end

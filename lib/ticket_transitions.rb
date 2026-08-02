@@ -28,7 +28,7 @@ module TicketTransitions
     return nil unless REACTIVATABLE_FROM.include?(ticket["status"])
 
     updated = ticket.except("status", "used_at", "requester", "title", "slot_start", "slot_end",
-                            "attendees", "holds", "held_at", "holder_key")
+                            "attendees", "event_id", "idempotency_key", "holds", "held_at", "holder_key")
                     .merge("status" => "active")
     [updated, true]
   end

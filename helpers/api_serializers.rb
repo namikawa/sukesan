@@ -46,6 +46,18 @@ module ApiSerializers
     }
   end
 
+  # 直接予約（POST /api/v1/bookings）の応答。登録した枠はチケットの保存値から組み立てる。
+  # 会議 URL はチケットへ永続化しないため、meet_link に値が入るのは登録直後の応答だけ
+  # （同じ Idempotency-Key のリプレイ応答では null になる）。
+  def api_booking(ticket, id:, meet_link: nil)
+    {
+      "id" => id,
+      "status" => TicketStore.status(ticket),
+      "slot" => { "starts_at" => ticket["slot_start"], "ends_at" => ticket["slot_end"] },
+      "meet_link" => meet_link
+    }
+  end
+
   # 仮押さえ中の候補一覧（開始時刻順）。イベント ID はクライアントへ渡さない（既存原則）。
   def api_holds(holds)
     Array(holds).sort_by { |hold| hold["slot_start"].to_s }
