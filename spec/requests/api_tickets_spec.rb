@@ -29,6 +29,18 @@ RSpec.describe "他システム向け API /api/v1/tickets" do
     "~#{MaskedAccessLogger.token_short_id(LOG_TOKEN_ID_KEY, token)}"
   end
 
+  # 書き込み系は JSON ボディで送る（Rack::Test は文字列をそのままボディにする）。
+  let(:json_headers) { write_auth.merge("CONTENT_TYPE" => "application/json") }
+
+  def post_json(path, body, headers = write_auth)
+    post path, JSON.generate(body), headers.merge("CONTENT_TYPE" => "application/json")
+  end
+
+  # レスポンスの短縮 ID から、保存されている実チケットを引く（複数発行しても取り違えない）。
+  def issued_ticket(id)
+    TicketStore.all.find { |ticket| api_id(ticket["token"]) == id }
+  end
+
   def create_used_ticket
     token = TicketStore.create
     TicketStore.use!(token, attrs: { "requester" => "山田", "title" => "打合せ",
@@ -254,6 +266,194 @@ RSpec.describe "他システム向け API /api/v1/tickets" do
 
       get "/api/v1/tickets/#{api_id(used)}", {}, read_auth
       expect(JSON.parse(last_response.body)).not_to have_key("url")
+    end
+  end
+
+  describe "発行 POST /api/v1/tickets" do
+    it "201 で発行内容とワンタイム URL を返す" do
+      post_json("/api/v1/tickets", {})
+
+      expect(last_response.status).to eq(201)
+      expect(last_response.headers["Content-Type"]).to include("application/json")
+      expect(last_response.headers["Cache-Control"]).to eq("no-store")
+
+      token = TicketStore.all.first["token"]
+      json = JSON.parse(last_response.body)
+      expect(json.keys).to match_array(%w[id url status ttl_hours created_at expires_at])
+      # 識別子は短縮 ID（生 token を含まない）。生 token は発行直後のこの URL でのみ返す。
+      expect(json["id"]).to eq(api_id(token))
+      expect(json["id"]).not_to include(token)
+      expect(json["url"]).to end_with("/t/#{token}")
+      expect(json["status"]).to eq("active")
+      expect(json["ttl_hours"]).to eq(24)
+      expect(Time.iso8601(json["expires_at"])).to eq(Time.iso8601(json["created_at"]) + (24 * 3600))
+    end
+
+    it "ttl_hours は許可値のみ受け付け、省略・許可外は 24 に落とす（fail-closed）" do
+      [[{ "ttl_hours" => 72 }, 72], [{ "ttl_hours" => 168 }, 168], [{ "ttl_hours" => "72" }, 72],
+       [{}, 24], [{ "ttl_hours" => nil }, 24], [{ "ttl_hours" => "12" }, 24],
+       [{ "ttl_hours" => "999" }, 24]].each do |body, expected|
+        post_json("/api/v1/tickets", body)
+
+        expect(last_response.status).to eq(201)
+        json = JSON.parse(last_response.body)
+        expect(json["ttl_hours"]).to eq(expected)
+        # 保存内容にも反映され、期限計算（expires_at）と一致する。
+        ticket = issued_ticket(json["id"])
+        expect(TicketStatus.ttl_hours(ticket)).to eq(expected)
+        expect(Time.iso8601(json["expires_at"])).to eq(Time.iso8601(ticket["created_at"]) + (expected * 3600))
+      end
+    end
+
+    it "read キーでは発行できない（403 insufficient_scope）" do
+      post_json("/api/v1/tickets", {}, read_auth)
+
+      expect(last_response.status).to eq(403)
+      expect(JSON.parse(last_response.body).dig("error", "code")).to eq("insufficient_scope")
+      expect(TicketStore.all).to be_empty
+    end
+
+    it "監査ログに ticket_create を残し、target に API 経由（キーのラベル）を併記する" do
+      allow(AuditLog).to receive(:record)
+      post_json("/api/v1/tickets", {})
+
+      token = TicketStore.all.first["token"]
+      expect(AuditLog).to have_received(:record)
+        .with(:ticket_create, ip: "127.0.0.1", target: "#{api_id(token)} via=api:write-sys")
+    end
+  end
+
+  describe "無効化 POST /api/v1/tickets/:id/revoke" do
+    it "未使用のチケットを無効化する" do
+      token = TicketStore.create
+      post "/api/v1/tickets/#{api_id(token)}/revoke", {}, write_auth
+
+      expect(last_response.status).to eq(200)
+      expect(JSON.parse(last_response.body)).to eq(
+        "id" => api_id(token), "status" => "revoked", "failed_deletes" => 0
+      )
+      expect(TicketStore.status(TicketStore.find(token))).to eq("revoked")
+    end
+
+    it "仮押さえ中は残った [仮ブロック] イベントも削除する（kill switch）" do
+      allow(TokenStore).to receive(:load).and_return({ "access_token" => "fake", "expires_at" => 4_102_444_800 })
+      stub_request(:delete, %r{googleapis\.com/calendar/v3/calendars/primary/events/}).to_return(status: 204, body: "")
+      token = create_held_ticket
+
+      post "/api/v1/tickets/#{api_id(token)}/revoke", {}, write_auth
+
+      expect(last_response.status).to eq(200)
+      expect(JSON.parse(last_response.body)["failed_deletes"]).to eq(0)
+      expect(a_request(:delete, %r{googleapis\.com/calendar/v3/calendars/primary/events/}))
+        .to have_been_made.times(2)
+      expect(TicketStore.status(TicketStore.find(token))).to eq("revoked")
+    end
+
+    it "イベントを削除できなくても無効化は成立し、件数を failed_deletes で返す" do
+      allow(TokenStore).to receive(:load).and_return(nil) # 未連携（既存の管理画面 revoke と同じ挙動）
+      token = create_held_ticket
+
+      post "/api/v1/tickets/#{api_id(token)}/revoke", {}, write_auth
+
+      expect(last_response.status).to eq(200)
+      expect(JSON.parse(last_response.body)["failed_deletes"]).to eq(2)
+      expect(TicketStore.status(TicketStore.find(token))).to eq("revoked")
+    end
+
+    it "使用済み・無効化済みは 409（invalid_state）" do
+      used = create_used_ticket
+      revoked = TicketStore.create
+      TicketStore.revoke(revoked)
+
+      [used, revoked].each do |token|
+        post "/api/v1/tickets/#{api_id(token)}/revoke", {}, write_auth
+        expect(last_response.status).to eq(409)
+        expect(JSON.parse(last_response.body).dig("error", "code")).to eq("invalid_state")
+      end
+      expect(TicketStore.status(TicketStore.find(used))).to eq("used")
+    end
+
+    it "該当が無い ID は 404（not_found）" do
+      TicketStore.create
+      post "/api/v1/tickets/~deadbeef/revoke", {}, write_auth
+
+      expect(last_response.status).to eq(404)
+      expect(JSON.parse(last_response.body).dig("error", "code")).to eq("not_found")
+    end
+
+    it "read キーでは無効化できない（403 insufficient_scope）" do
+      token = TicketStore.create
+      post "/api/v1/tickets/#{api_id(token)}/revoke", {}, read_auth
+
+      expect(last_response.status).to eq(403)
+      expect(JSON.parse(last_response.body).dig("error", "code")).to eq("insufficient_scope")
+      expect(TicketStore.status(TicketStore.find(token))).to eq("active")
+    end
+
+    it "監査ログに ticket_revoke を残し、target に API 経由（キーのラベル）を併記する" do
+      allow(AuditLog).to receive(:record)
+      token = TicketStore.create
+      post "/api/v1/tickets/#{api_id(token)}/revoke", {}, write_auth
+
+      expect(AuditLog).to have_received(:record)
+        .with(:ticket_revoke, ip: "127.0.0.1", target: "#{api_id(token)} via=api:write-sys")
+    end
+  end
+
+  describe "リクエストボディ（JSON）" do
+    it "JSON として壊れているボディは 400（invalid_params）で、チケットは発行しない" do
+      post "/api/v1/tickets", "{\"ttl_hours\":", json_headers
+
+      expect(last_response.status).to eq(400)
+      expect(JSON.parse(last_response.body).dig("error", "code")).to eq("invalid_params")
+      expect(TicketStore.all).to be_empty
+    end
+
+    it "トップレベルがオブジェクトでないボディは 400（invalid_params）" do
+      post "/api/v1/tickets", "[24]", json_headers
+
+      expect(last_response.status).to eq(400)
+      expect(JSON.parse(last_response.body).dig("error", "code")).to eq("invalid_params")
+      expect(TicketStore.all).to be_empty
+    end
+
+    it "空のボディは既定値（24 時間）で発行できる" do
+      post "/api/v1/tickets", "", json_headers
+
+      expect(last_response.status).to eq(201)
+      expect(JSON.parse(last_response.body)["ttl_hours"]).to eq(24)
+    end
+
+    it "上限（64KB）を超えるボディは 400（invalid_params）で、チケットは発行しない" do
+      huge = JSON.generate("ttl_hours" => 24, "padding" => "x" * ApiHelpers::MAX_JSON_BODY_BYTES)
+      post "/api/v1/tickets", huge, json_headers
+
+      expect(last_response.status).to eq(400)
+      expect(JSON.parse(last_response.body).dig("error", "code")).to eq("invalid_params")
+      expect(TicketStore.all).to be_empty
+    end
+  end
+
+  describe "書き込みのレート制限" do
+    it "キーのラベルごと 10 回/分を超えると 429（rate_limited）" do
+      10.times do
+        post "/api/v1/tickets", {}, write_auth
+        expect(last_response.status).to eq(201)
+      end
+
+      post "/api/v1/tickets", {}, write_auth
+      expect(last_response.status).to eq(429)
+      expect(JSON.parse(last_response.body).dig("error", "code")).to eq("rate_limited")
+    end
+
+    it "参照系（GET）は書き込みのレート制限を消費しない" do
+      15.times do
+        get "/api/v1/tickets", {}, write_auth
+        expect(last_response.status).to eq(200)
+      end
+
+      post "/api/v1/tickets", {}, write_auth
+      expect(last_response.status).to eq(201)
     end
   end
 end

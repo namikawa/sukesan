@@ -41,6 +41,7 @@ require_relative "helpers/sync_helpers"
 require_relative "helpers/schedule_helpers"
 require_relative "helpers/hold_helpers"
 require_relative "helpers/api_helpers"
+require_relative "helpers/api_serializers"
 
 # タイムゾーンを固定する（特定地域での運用前提。グローバル運用は想定しない）。
 # APP_TIMEZONE（既定 Asia/Tokyo）をプロセスの TZ に適用し、サーバ OS の設定に依存させない。
@@ -251,7 +252,7 @@ BOOKING_LOCK = TicketStore.booking_lock
 MAX_TEXT_LENGTH = 100
 
 helpers AuthHelpers, OAuthHelpers, FormatHelpers, SettingsParamsHelpers, SyncHelpers, ScheduleHelpers, HoldHelpers,
-        ApiHelpers
+        ApiHelpers, ApiSerializers
 
 # app.rb 固有の鍵定数（LOG_TOKEN_ID_KEY）に依存するヘルパのみをここに置く。
 # 表示整形の共通ヘルパは helpers/*.rb（例: Slack 通知の slack_slot_label は FormatHelpers）に置く。
@@ -920,6 +921,13 @@ before "/api/*" do
 
   # レート制限はキーのラベル単位（IP ではなくキーで数える）。
   api_error!(429, "rate_limited", "リクエストが多すぎます。しばらく時間をおいてください。") unless API_LIMITER.allow?(@api_label)
+
+  # 書き込み系（POST）は write スコープを必須とし、より厳しいレート制限を重ねる。
+  # ルートごとに書くと適用漏れが起きるため、ここで一律に課す（この API は POST＝書き込み）。
+  if request.post?
+    require_write_scope!
+    api_error!(429, "rate_limited", "書き込みが多すぎます。しばらく時間をおいてください。") unless API_WRITE_LIMITER.allow?(@api_label)
+  end
 end
 
 # 指定日（既定は今日）の Google カレンダーのイベント一覧を返す。
@@ -1010,4 +1018,41 @@ get "/api/v1/tickets/:id" do
   # 依頼者へ URL を渡し直すユースケース向けで、read キー・使用済みには含めない。
   payload["url"] = ticket_url(ticket["token"]) if @api_scope == "write" && payload["status"] == "active"
   api_json(payload)
+end
+
+# ワンタイム URL を発行する（管理画面 POST /tickets の API 版）。発行直後のここでだけ生 token を含む
+# URL を返す（依頼者へ渡すため。以後は write スコープでの詳細取得＝active のときのみ再取得できる）。
+post "/api/v1/tickets" do
+  body = api_json_body!
+  # 有効期限は許可値（24/72/168 時間）のみ受け付け、許可外・欠落は既定の 24 時間に落とす（fail-closed）。
+  ttl_hours = TicketStatus.normalize_ttl_hours(body["ttl_hours"])
+  token = TicketStore.create(ttl_hours: ttl_hours)
+  ticket = TicketStore.find(token)
+  AuditLog.record(:ticket_create, ip: remote_addr, target: "#{audit_ticket_id(token)} via=api:#{@api_label}")
+
+  status 201
+  api_json(
+    "id" => audit_ticket_id(token),
+    "url" => ticket_url(token),
+    "status" => "active",
+    "ttl_hours" => ttl_hours,
+    "created_at" => ticket["created_at"],
+    "expires_at" => api_time(TicketStatus.expires_at(ticket))
+  )
+end
+
+# 発行済みチケットを無効化する（管理画面 POST /tickets/revoke の API 版＝URL 漏えい・放置時の kill switch）。
+# 仮押さえ中だったチケットは、残っている [仮ブロック] イベントも削除する。
+post "/api/v1/tickets/:id/revoke" do
+  ticket = find_ticket_by_api_id(params[:id].to_s)
+  halt 404 if ticket.nil? # body は not_found ハンドラが JSON エンベロープで組み立てる
+
+  token = ticket["token"]
+  # 受理されるのは active / held のみ（既存の遷移）。終端・期限切れ・破損は状態不一致として 409。
+  previous = TicketStore.revoke(token)
+  api_error!(409, "invalid_state", "このチケットは無効化できる状態ではありません。") unless previous.is_a?(Hash)
+
+  failed = delete_hold_events(Array(previous["holds"]))
+  AuditLog.record(:ticket_revoke, ip: remote_addr, target: "#{audit_ticket_id(token)} via=api:#{@api_label}")
+  api_json("id" => audit_ticket_id(token), "status" => "revoked", "failed_deletes" => failed)
 end

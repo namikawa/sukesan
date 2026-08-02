@@ -1,13 +1,7 @@
 # frozen_string_literal: true
 
-# write スコープを要求する認可ヘルパ（require_write_scope!）を検証するためのテスト専用ルート。
-# 書き込み系の実エンドポイントはまだ無いため、ヘルパの振る舞い（403 insufficient_scope／通過）を
-# 最小のルートで確認する。/api/ 配下なので認証・レート制限の before フィルタもそのまま通る。
-Sinatra::Application.post "/api/v1/_spec/write" do
-  require_write_scope!
-  api_json("ok" => true)
-end
-
+# 書き込み系（/api/ への POST）に対するスコープ認可の検証。認可は before フィルタで一律に課すため、
+# 代表として最小の書き込みエンドポイント（POST /api/v1/tickets）で確認する。
 RSpec.describe "API キーのスコープ認可" do
   let(:read_key) { "r" * 64 }
   let(:write_key) { "w" * 64 }
@@ -33,7 +27,7 @@ RSpec.describe "API キーのスコープ認可" do
 
   it "read キーの書き込み要求は 403（insufficient_scope）で、監査ログに api_scope_denied を残す" do
     allow(AuditLog).to receive(:record)
-    post "/api/v1/_spec/write", {}, auth(read_key)
+    post "/api/v1/tickets", {}, auth(read_key)
 
     expect(last_response.status).to eq(403)
     expect(JSON.parse(last_response.body)).to eq(
@@ -41,18 +35,19 @@ RSpec.describe "API キーのスコープ認可" do
     )
     expect(last_response.headers["Content-Type"]).to include("application/json")
     expect(AuditLog).to have_received(:record).with(:api_scope_denied, ip: "127.0.0.1", target: "read-sys")
+    expect(TicketStore.all).to be_empty # 認可で止まるためチケットは発行されない
   end
 
   it "scope 未保存の既存キーは read 扱いで 403（fail-closed）" do
-    post "/api/v1/_spec/write", {}, auth(legacy_key)
+    post "/api/v1/tickets", {}, auth(legacy_key)
     expect(last_response.status).to eq(403)
     expect(JSON.parse(last_response.body).dig("error", "code")).to eq("insufficient_scope")
   end
 
   it "write キーは書き込み要求を通す（CSRF トークン無しの POST でも弾かれない）" do
-    post "/api/v1/_spec/write", {}, auth(write_key)
-    expect(last_response.status).to eq(200)
-    expect(JSON.parse(last_response.body)).to eq("ok" => true)
+    post "/api/v1/tickets", {}, auth(write_key)
+    expect(last_response.status).to eq(201)
+    expect(JSON.parse(last_response.body)["status"]).to eq("active")
   end
 
   it "write キーは参照系も呼べる（write は read を包含する）" do

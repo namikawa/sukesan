@@ -11,6 +11,8 @@ require "digest"
 # - 接続元は loopback（127.0.0.1 / ::1）限定。判定は偽装できない REMOTE_ADDR を使う。
 # - 認証は Authorization: Bearer <キー> のみ。照合は定数時間比較（ダイジェスト同士＝固定長で比較）。
 # - キーは read / write のスコープを持ち、書き込み系は write を要求する（write は read を包含する）。
+#
+# レスポンス（ドメインオブジェクト → JSON 用 Hash）の整形は ApiSerializers に分離している。
 module ApiHelpers
   # 発行フォームのラベル（システム名）の最大文字数と、登録できるキーの最大件数（DoS・誤入力対策）。
   MAX_API_KEY_LABEL_LENGTH = 50
@@ -26,6 +28,10 @@ module ApiHelpers
   # チケット一覧の status クエリで指定できる値（TicketStore.status の派生値）。
   # 破損・改ざんを表す "invalid" は絞り込みの対象にしない。
   API_TICKET_STATUSES = %w[active held used revoked cancelled expired].freeze
+
+  # 書き込み系リクエストボディの上限（バイト）。想定最大の入力（attendees 50 件等）にも十分な余裕を
+  # 持たせつつ、誤送信・暴走による巨大ボディの読み込みを防ぐ（DoS・メモリ消費対策）。
+  MAX_JSON_BODY_BYTES = 64 * 1024
 
   # スコープを許可値に丸める。許可外・未指定・scope 未保存の既存キーはすべて read 扱い（fail-closed）。
   # 発行フォームの入力検証と、保存済みキーの読み出しの両方で使う。
@@ -99,6 +105,32 @@ module ApiHelpers
     JSON.generate(payload)
   end
 
+  # 書き込み系（POST）のリクエストボディ（JSON オブジェクト）を Hash として読む。
+  # 空ボディは {}（＝すべて既定値）として扱い、JSON として壊れている・トップレベルがオブジェクトでない
+  # 場合は 400 invalid_params で中断する。フォーム形式（application/x-www-form-urlencoded）で
+  # 送られた場合も JSON として解釈できず 400 になる（この API の入力は JSON のみ）。
+  def api_json_body!
+    raw = read_api_body!
+    return {} if raw.strip.empty?
+
+    parsed = JSON.parse(raw)
+    return parsed if parsed.is_a?(Hash)
+
+    api_error!(400, "invalid_params", "リクエストボディは JSON オブジェクトで指定してください。")
+  rescue JSON::ParserError
+    api_error!(400, "invalid_params", "リクエストボディを JSON として解釈できません。")
+  end
+
+  # リクエストボディを上限までしか読まずに取り出す。超過は 400 invalid_params で中断する
+  # （上限 +1 バイトまでしか読まないため、巨大ボディでも全体をメモリへ載せない）。
+  def read_api_body!
+    request.body.rewind # フォーム系の Content-Type では params 解決で Rack が読み進めているため先頭へ戻す
+    raw = request.body.read(MAX_JSON_BODY_BYTES + 1).to_s
+    return raw if raw.bytesize <= MAX_JSON_BODY_BYTES
+
+    api_error!(400, "invalid_params", "リクエストボディが大きすぎます（#{MAX_JSON_BODY_BYTES / 1024}KB 以内）。")
+  end
+
   # 必須の日付クエリ（YYYY-MM-DD）を Date へ変換する。欠落・不正形式は 400 invalid_params で中断する。
   def api_date_param!(name)
     Date.iso8601(params[name].to_s)
@@ -123,70 +155,5 @@ module ApiHelpers
     return value if API_TICKET_STATUSES.include?(value)
 
     api_error!(400, "invalid_params", "#{name} は #{API_TICKET_STATUSES.join(' / ')} のいずれかで指定してください。")
-  end
-
-  # 空き候補（AvailabilitySearch::Result）を API レスポンス用のハッシュに変換する。
-  def api_availability(result, duration_minutes)
-    {
-      "duration_minutes" => duration_minutes,
-      "capped" => result.capped,
-      "days" => result.days.map do |date, slots|
-        { "date" => date.strftime("%F"), "slots" => slots.map { |slot| api_slot(slot) } }
-      end
-    }
-  end
-
-  # 空き候補 1 件。lunch_warning は「その枠を取ると昼休憩の連続確保が崩れる」印（画面と同じ判定）。
-  def api_slot(slot)
-    {
-      "starts_at" => api_time(slot.starts_at),
-      "ends_at" => api_time(slot.ends_at),
-      "lunch_warning" => slot.lunch
-    }
-  end
-
-  # チケットを API レスポンス用のハッシュに変換する（一覧・詳細で共通のキーセット。値が無い項目は null）。
-  # 生 token・ワンタイム URL・仮押さえイベント ID は含めない（漏えい経路を作らない）。
-  # id は監査ログ・アクセスログと同じ HMAC 短縮 ID（呼び出し側が audit_ticket_id で導出して渡す）。
-  # 保存済みの日時（created_at / slot_start など）はローカルオフセット付き ISO8601 のためそのまま返す。
-  def api_ticket(ticket, id:)
-    status = TicketStore.status(ticket)
-    {
-      "id" => id,
-      "status" => status,
-      "created_at" => ticket["created_at"],
-      # 期限を持つのは未使用（active）と仮押さえ中（held）だけ。終端・期限切れは null。
-      "expires_at" => %w[active held].include?(status) ? api_time(TicketStatus.expires_at(ticket)) : nil,
-      "ttl_hours" => TicketStatus.ttl_hours(ticket),
-      "requester" => ticket["requester"],
-      "title" => ticket["title"],
-      "slot_start" => ticket["slot_start"],
-      "slot_end" => ticket["slot_end"],
-      "used_at" => ticket["used_at"],
-      "holds" => status == "held" ? api_holds(ticket["holds"]) : nil
-    }
-  end
-
-  # 仮押さえ中の候補一覧（開始時刻順）。イベント ID はクライアントへ渡さない（既存原則）。
-  def api_holds(holds)
-    Array(holds).sort_by { |hold| hold["slot_start"].to_s }
-                .map { |hold| { "slot_start" => hold["slot_start"], "slot_end" => hold["slot_end"] } }
-  end
-
-  # Event 構造体を API レスポンス用のハッシュに変換する。
-  # 時刻は ISO8601（ローカルタイムのオフセット付き）で返す。
-  def api_event(event)
-    {
-      "id" => event.external_id,
-      "title" => event.title,
-      "starts_at" => api_time(event.starts_at),
-      "ends_at" => api_time(event.ends_at),
-      "location" => event.location,
-      "all_day" => event.all_day
-    }
-  end
-
-  def api_time(time)
-    time&.getlocal&.iso8601
   end
 end
