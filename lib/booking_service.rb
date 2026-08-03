@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "openssl"
+require "time"
 require_relative "ticket_store"
 require_relative "google_calendar_client"
 
@@ -64,7 +65,7 @@ class BookingService
   rescue GoogleCalendarClient::Conflict
     conflict_result(token, id_from_caller)
   rescue StandardError => e
-    recover_or_fail(token, e, id: id, request_meet: request_meet)
+    recover_or_fail(token, e, id: id, event: event, request_meet: request_meet)
   end
 
   def ok_result(response, request_meet)
@@ -85,11 +86,12 @@ class BookingService
   end
 
   # 応答の受信に失敗しても Google 側では作成できていることがある（タイムアウト等）。存在を 1 回だけ
-  # 確認し、作成済みならチケットを used のまま成功として扱う（管理外の予定を残さない）。
-  # 確認できない・確認自体が失敗した場合は曖昧なので、従来どおり token を有効へ戻して失敗を返す。
+  # 確認し、今回の登録が成立していればチケットを used のまま成功として扱う（管理外の予定を残さない）。
+  # 確認できない・別の予定だった・確認自体が失敗した場合は曖昧なので、従来どおり token を有効へ戻して
+  # 失敗を返す（リトライすれば Google の 409 に収束するため、ここで衝突と区別はしない）。
   # 原因調査のため例外クラスのみ記録する（メッセージは API 応答＝秘密を含み得るため出さない）。
-  def recover_or_fail(token, error, id:, request_meet:)
-    created = created_event(id)
+  def recover_or_fail(token, error, id:, event:, request_meet:)
+    created = created_event(id, event)
     return ok_result(created, request_meet) if created
 
     warn "[BookingService] 登録失敗: #{error.class}（token を有効へ戻します）"
@@ -97,12 +99,29 @@ class BookingService
     Result.new(status: :api_failure)
   end
 
-  # 登録済みの予定を取得する（無い・削除済み・確認自体が失敗した場合は nil）。
-  def created_event(id)
-    event = @calendar_client.get_event(id)
-    event if event.is_a?(Hash) && event["status"] != "cancelled"
+  # 今回の登録でできた予定を取得する（無い・削除済み・別の予定・確認自体が失敗した場合は nil）。
+  # 冪等キー由来の ID は、一覧の対象（30 日）より前に同じキーで登録した予定や、同じキーの並行実行が
+  # 作った予定とも一致し得る。別の予定を今回の成功と誤認しないよう、時間帯の一致まで確認する。
+  def created_event(id, event)
+    found = @calendar_client.get_event(id)
+    return nil unless found.is_a?(Hash) && found["status"] != "cancelled"
+
+    found if same_period?(found, event)
   rescue StandardError => e
     warn "[BookingService] 登録結果の確認失敗: #{e.class}"
+    nil
+  end
+
+  # 取得した予定の時間帯が、今回登録しようとした枠と同じか。オフセット表記の違いを吸収するため
+  # Time に変換して比較する（dateTime を持たない＝終日予定・パースできない値は不一致として扱う）。
+  def same_period?(found, event)
+    parse_time(found.dig("start", "dateTime")) == event.starts_at &&
+      parse_time(found.dig("end", "dateTime")) == event.ends_at
+  end
+
+  def parse_time(value)
+    Time.iso8601(value.to_s)
+  rescue ArgumentError
     nil
   end
 end

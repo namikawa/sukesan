@@ -24,6 +24,11 @@ RSpec.describe "他システム向け API /api/v1/bookings" do
   let(:slot_date) { future_business_day }
   let(:slot) { { "starts_at" => "#{slot_date}T09:00:00+09:00", "ends_at" => "#{slot_date}T09:30:00+09:00" } }
   let(:valid_body) { { "slot" => slot, "requester" => "山田", "title" => "打合せ" } }
+  # 登録の応答を受け取れなかったときの存在確認（get_event）で「今回作られた予定」として回収される応答。
+  let(:found_event) do
+    { "id" => "sukesanev1", "status" => "confirmed",
+      "start" => { "dateTime" => slot["starts_at"] }, "end" => { "dateTime" => slot["ends_at"] } }
+  end
 
   before do
     allow(TokenStore).to receive(:load).and_return(token_hash)
@@ -274,9 +279,8 @@ RSpec.describe "他システム向け API /api/v1/bookings" do
     # 回収しないと、sukesan の管理外になった予定がカレンダーに残る（空き再検証が塞がれ再試行もできない）。
     it "応答を受け取れなくても Google 側に予定があれば 201（チケットは used のまま・会議リンクも回収）" do
       stub_request(:post, events_url).to_return(status: 500, body: "boom")
-      stub_get_event(status: 200,
-                     body: JSON.generate("id" => "sukesanev1", "status" => "confirmed",
-                                         "hangoutLink" => "https://meet.google.com/abc-defg-hij"))
+      with_meet = found_event.merge("hangoutLink" => "https://meet.google.com/abc-defg-hij")
+      stub_get_event(status: 200, body: JSON.generate(with_meet))
       post_booking(valid_body.merge("request_meet" => true))
 
       expect(last_response.status).to eq(201)
@@ -291,6 +295,30 @@ RSpec.describe "他システム向け API /api/v1/bookings" do
       expect { post_booking }.to output(/登録結果の確認失敗/).to_stderr
       expect(last_response.status).to eq(502)
       expect(TicketStore.all.map { |ticket| TicketStore.status(ticket) }).to eq(["revoked"])
+    end
+
+    # 冪等キー由来の event id は、一覧の対象（30 日）より前に同じキーで登録した予定や、同じキーの
+    # 並行実行が作った予定とも一致し得る。存在確認では時間帯の一致まで見て偽成功を防ぐ。
+    describe "Idempotency-Key 付きの存在確認" do
+      before { stub_request(:post, events_url).to_return(status: 500, body: "boom") }
+
+      it "同じ時間帯の予定が見つかれば回収して 201（チケットは used のまま）" do
+        stub_get_event(status: 200, body: JSON.generate(found_event))
+        post_with_key("key-1")
+
+        expect(last_response.status).to eq(201)
+        expect(TicketStore.status(stored_ticket)).to eq("used")
+      end
+
+      it "別の時間帯の予定なら回収せず 502（チケットを終端させる）" do
+        other_slot = found_event.merge("start" => { "dateTime" => "#{slot_date}T15:00:00+09:00" },
+                                       "end" => { "dateTime" => "#{slot_date}T15:30:00+09:00" })
+        stub_get_event(status: 200, body: JSON.generate(other_slot))
+
+        expect { post_with_key("key-1") }.to output(/\[BookingService\] 登録失敗/).to_stderr
+        expect(last_response.status).to eq(502)
+        expect(TicketStore.all.map { |ticket| TicketStore.status(ticket) }).to eq(["revoked"])
+      end
     end
 
     it "未連携なら 503（provider_not_connected）で、チケットを発行しない" do

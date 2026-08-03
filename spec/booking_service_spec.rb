@@ -109,7 +109,13 @@ RSpec.describe BookingService do
   end
 
   describe "応答を受け取れなかったときの回収" do
-    let(:created_response) { { "id" => "sukesanev1", "status" => "confirmed" } }
+    # 回収の条件は「予定が生きている」ことに加えて「時間帯が今回の登録内容と一致する」こと。
+    # オフセット表記は event（+09:00）と違えてあり、Time に変換して比較していることも確認する。
+    let(:created_response) do
+      { "id" => "sukesanev1", "status" => "confirmed",
+        "start" => { "dateTime" => "2026-06-22T01:00:00Z" },
+        "end" => { "dateTime" => "2026-06-22T01:30:00Z" } }
+    end
 
     before { allow(calendar_client).to receive(:create_event).and_raise(StandardError) }
 
@@ -135,6 +141,28 @@ RSpec.describe BookingService do
       result = nil
       expect { result = call }.to output(/\[BookingService\] 登録失敗/).to_stderr
       expect(result.status).to eq(:api_failure)
+    end
+
+    # 冪等キー由来の ID は、30 日より前の同じキーの予約や並行実行が作った予定とも一致し得る。
+    it "時間帯が違う予定は今回の登録とみなさない（別内容での偽成功を防ぐ）" do
+      allow(calendar_client).to receive(:get_event)
+        .and_return(created_response.merge("start" => { "dateTime" => "2026-06-22T14:00:00+09:00" },
+                                           "end" => { "dateTime" => "2026-06-22T14:30:00+09:00" }))
+      expect(TicketStore).to receive(:reactivate!).with("tok")
+
+      result = nil
+      expect { result = service.call(token: "tok", event: event, ticket_attrs: ticket_attrs, event_id: "ev-x") }
+        .to output(/\[BookingService\] 登録失敗/).to_stderr
+      expect(result.status).to eq(:api_failure)
+    end
+
+    it "終日予定（dateTime を持たない）は時間帯を照合できないため回収しない" do
+      allow(calendar_client).to receive(:get_event)
+        .and_return("id" => "sukesanev1", "status" => "confirmed",
+                    "start" => { "date" => "2026-06-22" }, "end" => { "date" => "2026-06-23" })
+      expect(TicketStore).to receive(:reactivate!).with("tok")
+
+      expect { expect(call.status).to eq(:api_failure) }.to output.to_stderr
     end
 
     it "削除済み（status: cancelled）の予定は作成成功とみなさない" do
