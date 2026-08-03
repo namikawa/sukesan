@@ -113,10 +113,12 @@ class BookingService
   end
 
   # 取得した予定の時間帯が、今回登録しようとした枠と同じか。オフセット表記の違いを吸収するため
-  # Time に変換して比較する（dateTime を持たない＝終日予定・パースできない値は不一致として扱う）。
+  # Time に変換し、エポック秒（to_i）で比較する（Google への送信・チケット保存は iso8601 の秒精度で、
+  # 候補照合 matches_candidate? も同じ to_i 比較。サブ秒付きの入力でも送信した予定を回収できる）。
+  # dateTime を持たない＝終日予定・パースできない値は不一致として扱う。
   def same_period?(found, event)
-    parse_time(found.dig("start", "dateTime")) == event.starts_at &&
-      parse_time(found.dig("end", "dateTime")) == event.ends_at
+    parse_time(found.dig("start", "dateTime"))&.to_i == event.starts_at.to_i &&
+      parse_time(found.dig("end", "dateTime"))&.to_i == event.ends_at.to_i
   end
 
   def parse_time(value)

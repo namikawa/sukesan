@@ -156,6 +156,20 @@ RSpec.describe BookingService do
       expect(result.status).to eq(:api_failure)
     end
 
+    it "サブ秒付きの時刻でも秒単位で一致すれば回収する（送信・保存は秒精度のため）" do
+      # 候補照合（matches_candidate?）は to_i 比較のためサブ秒付きの入力も予約検証を通過し得るが、
+      # Google へは iso8601（秒精度）で送信される。回収の比較も同じ秒精度で行うことを確認する。
+      subsecond = Event.new(source: "google", title: event.title,
+                            starts_at: Time.iso8601("2026-06-22T10:00:00.5+09:00"),
+                            ends_at: Time.iso8601("2026-06-22T10:30:00.5+09:00"),
+                            all_day: false, description: event.description)
+      allow(calendar_client).to receive(:get_event).and_return(created_response)
+      expect(TicketStore).not_to receive(:reactivate!)
+
+      result = service.call(token: "tok", event: subsecond, ticket_attrs: ticket_attrs)
+      expect(result.status).to eq(:ok)
+    end
+
     it "終日予定（dateTime を持たない）は時間帯を照合できないため回収しない" do
       allow(calendar_client).to receive(:get_event)
         .and_return("id" => "sukesanev1", "status" => "confirmed",
