@@ -1,6 +1,6 @@
 # 外部連携 API リファレンス（/api/v1）
 
-同一マシン上の別システム（チャットベースの AI エージェント等）から SUKESAN を操作するための JSON API です。この文書は連携先を実装するための完全なリファレンスで、概要と入門は [README](../README.md#他システム向け-api) を参照してください。
+同一マシン上の別システム（チャットベースの AI エージェント等）から SUKESAN を操作するための JSON API です。この文書は連携先を実装するための完全なリファレンスです。SUKESAN 本体の機能・セットアップは [README](../README.md) を参照してください。
 
 ## 概要
 
@@ -117,6 +117,43 @@ Authorization: Bearer 0123456789abcdef...（64 文字）
 - 超過は 429 `rate_limited`。`Retry-After` は付かないため、60 秒待って再試行してください。
 - カウンタはプロセス内メモリに保持します（再起動でリセット）。
 
+## 使い方の例
+
+空き候補を探して登録し、あとで取り消す流れ:
+
+```bash
+KEY="発行した API キー"; BASE=http://127.0.0.1:3000; AUTH="Authorization: Bearer $KEY"
+
+curl -H "$AUTH" "$BASE/api/v1/availability?start_date=2026-08-04&end_date=2026-08-08&duration_minutes=30"
+
+# Idempotency-Key を付けると、タイムアウト後に再送しても二重登録にならない
+curl -X POST -H "$AUTH" -H "Content-Type: application/json" -H "Idempotency-Key: yamada-0804" \
+  -d '{"slot": {"starts_at": "2026-08-04T10:00:00+09:00", "ends_at": "2026-08-04T10:30:00+09:00"},
+       "requester": "山田様", "title": "打ち合わせ",
+       "attendees": ["yamada@example.com"], "send_invites": true}' \
+  "$BASE/api/v1/bookings"
+# => {"id":"~a1b2c3d4","status":"used","slot":{...},"meet_link":null}
+
+curl -X POST -H "$AUTH" -H "Content-Type: application/json" \
+  -d '{"notify_attendees": true}' "$BASE/api/v1/bookings/~a1b2c3d4/cancel"
+```
+
+依頼者に選んでもらうワンタイム URL の発行と、候補を押さえてから決める仮押さえ:
+
+```bash
+curl -X POST -H "$AUTH" -H "Content-Type: application/json" \
+  -d '{"ttl_hours": 72}' "$BASE/api/v1/tickets"
+# => {"id":"~...","url":"http://127.0.0.1:3000/t/<token>","status":"active",...}
+
+curl -X POST -H "$AUTH" -H "Content-Type: application/json" \
+  -d '{"slots": [{"starts_at": "2026-08-04T10:00:00+09:00", "ends_at": "2026-08-04T10:30:00+09:00"},
+                 {"starts_at": "2026-08-05T14:00:00+09:00", "ends_at": "2026-08-05T14:30:00+09:00"}],
+       "requester": "山田様", "title": "打ち合わせ"}' "$BASE/api/v1/holds"
+
+curl -X POST -H "$AUTH" -H "Content-Type: application/json" \
+  -d '{"slot_starts_at": "2026-08-04T10:00:00+09:00"}' "$BASE/api/v1/holds/~a1b2c3d4/confirm"
+```
+
 ## チケットの状態と操作の対応
 
 チケットは次の状態を取ります。`status` は保存値と時刻から導出され、`expires_at` は期限を持つ状態（`active` / `held`）のときだけ値が入ります。
@@ -159,7 +196,24 @@ active/held + 時間経過 → expired
 
 ## エンドポイント
 
-全 12 本です。以下、パラメータ表の「必須」は必須項目、それ以外は任意項目です。
+全 12 本です。
+
+| メソッド | パス | 権限 | 説明 |
+|---|---|---|---|
+| GET | [`/api/v1/calendars/google/events`](#get-apiv1calendarsgoogleevents) | read | 指定日（`date`・既定は当日）のイベント一覧 |
+| GET | [`/api/v1/availability`](#get-apiv1availability) | read | 空き候補の検索（`start_date` / `end_date` / `duration_minutes`） |
+| GET | [`/api/v1/tickets`](#get-apiv1tickets) | read | チケット一覧（`status` / `page` / `per` で絞り込み） |
+| GET | [`/api/v1/tickets/:id`](#get-apiv1ticketsid) | read | チケット 1 件（write かつ未使用ならワンタイム URL も返す） |
+| POST | [`/api/v1/tickets`](#post-apiv1tickets) | write | ワンタイム URL の発行（`ttl_hours`） |
+| POST | [`/api/v1/tickets/:id/revoke`](#post-apiv1ticketsidrevoke) | write | チケットの無効化（仮押さえ中なら予定も削除） |
+| POST | [`/api/v1/bookings`](#post-apiv1bookings) | write | 確定した枠をカレンダーへ直接登録 |
+| POST | [`/api/v1/bookings/:id/cancel`](#post-apiv1bookingsidcancel) | write | 登録済み予約の取消（`notify_attendees`） |
+| POST | [`/api/v1/holds`](#post-apiv1holds) | write | 候補を最大 5 件 `[仮ブロック]` として確保 |
+| POST | [`/api/v1/holds/:id/confirm`](#post-apiv1holdsidconfirm) | write | 仮押さえから 1 件に決定し、他の候補を削除 |
+| POST | [`/api/v1/holds/:id/slots/delete`](#post-apiv1holdsidslotsdelete) | write | 仮押さえの候補を 1 件だけ取り下げる |
+| POST | [`/api/v1/holds/:id/cancel`](#post-apiv1holdsidcancel) | write | 仮押さえの全取りやめ |
+
+以下、パラメータ表の「必須」は必須項目、それ以外は任意項目です。
 
 ### GET /api/v1/calendars/google/events
 

@@ -30,88 +30,9 @@ SUKESAN（スケジュール管理ツール）は、Google カレンダーと連
 
 ## 他システム向け API
 
-同一マシン上の別システム（チャットベースの AI エージェント等）から、空き時間の検索・予定の登録と取消・仮押さえ・ワンタイム URL の発行ができる JSON API です。`/settings` で API キーを発行したときだけ有効になります（キーが 1 つもなければ `/api/` 配下は 404）。
+同一マシン上の別システム（チャットベースの AI エージェント等）から、空き時間の検索・予定の登録と取消・仮押さえ・ワンタイム URL の発行ができる JSON API があります。
 
-以下は概要です。エンドポイントごとのパラメータ・レスポンス・エラー・冪等性の詳細は [docs/api.md](docs/api.md)（連携先の実装用リファレンス）を参照してください。
-
-### 認証
-
-- キーはシステム名と権限（read / write）を指定して発行する（64 文字・最大 20 件）。発行時に一度だけ表示され、サーバにはダイジェストのみ保存する。削除で即失効。
-- read は参照のみ、write は参照に加えて書き込み（予定の登録・取消・仮押さえ・URL 発行）ができる。権限不足は 403 `insufficient_scope`。
-- 接続元は loopback に限定（`REMOTE_ADDR` 判定）。認証は `Authorization: Bearer <キー>` ヘッダのみで、クエリでは渡せない。
-- レート制限はキーごとに 60 回/分。書き込み（POST）にはさらに 10 回/分の制限が重なる。
-
-### エンドポイント
-
-| メソッド | パス | 権限 | 説明 |
-|---|---|---|---|
-| GET | `/api/v1/calendars/google/events` | read | 指定日（`date`・既定は当日）のイベント一覧 |
-| GET | `/api/v1/availability` | read | 空き候補の検索（`start_date` / `end_date` / `duration_minutes`） |
-| GET | `/api/v1/tickets` | read | チケット一覧（`status` / `page` / `per` で絞り込み） |
-| GET | `/api/v1/tickets/:id` | read | チケット 1 件（write かつ未使用ならワンタイム URL も返す） |
-| POST | `/api/v1/tickets` | write | ワンタイム URL の発行（`ttl_hours`） |
-| POST | `/api/v1/tickets/:id/revoke` | write | チケットの無効化（仮押さえ中なら予定も削除） |
-| POST | `/api/v1/bookings` | write | 確定した枠をカレンダーへ直接登録 |
-| POST | `/api/v1/bookings/:id/cancel` | write | 登録済み予約の取消（`notify_attendees`） |
-| POST | `/api/v1/holds` | write | 候補を最大 5 件「[仮ブロック]」として確保 |
-| POST | `/api/v1/holds/:id/confirm` | write | 仮押さえから 1 件に決定し、他の候補を削除 |
-| POST | `/api/v1/holds/:id/slots/delete` | write | 仮押さえの候補を 1 件だけ取り下げる |
-| POST | `/api/v1/holds/:id/cancel` | write | 仮押さえの全取りやめ |
-
-- 書き込みのリクエストボディは JSON（`Content-Type: application/json`・64KB 以内）。
-- 日時は ISO8601（オフセット付き）で、時間帯は `{"starts_at": ..., "ends_at": ...}` に統一している。イベント一覧の各要素は `id` / `title` / `starts_at` / `ends_at` / `location` / `all_day`。
-- `:id` はチケットの短縮 ID（`~xxxxxxxx`）で、一覧・発行の応答に含まれる。生のトークンは URL パス・クエリに載せない。
-- API 経由の予約・仮押さえも内部でチケットを 1 枚使うため、管理画面 `/tickets` に並び、無効化で止められる。
-
-### 使い方
-
-空き候補を探して登録し、あとで取り消す流れ:
-
-```bash
-KEY="発行した API キー"; BASE=http://127.0.0.1:3000; AUTH="Authorization: Bearer $KEY"
-
-curl -H "$AUTH" "$BASE/api/v1/availability?start_date=2026-08-04&end_date=2026-08-08&duration_minutes=30"
-
-# Idempotency-Key を付けると、タイムアウト後に再送しても二重登録にならない
-curl -X POST -H "$AUTH" -H "Content-Type: application/json" -H "Idempotency-Key: yamada-0804" \
-  -d '{"slot": {"starts_at": "2026-08-04T10:00:00+09:00", "ends_at": "2026-08-04T10:30:00+09:00"},
-       "requester": "山田様", "title": "打ち合わせ",
-       "attendees": ["yamada@example.com"], "send_invites": true}' \
-  "$BASE/api/v1/bookings"
-# => {"id":"~a1b2c3d4","status":"used","slot":{...},"meet_link":null}
-
-curl -X POST -H "$AUTH" -H "Content-Type: application/json" \
-  -d '{"notify_attendees": true}' "$BASE/api/v1/bookings/~a1b2c3d4/cancel"
-```
-
-依頼者に選んでもらうワンタイム URL の発行と、候補を押さえてから決める仮押さえ:
-
-```bash
-curl -X POST -H "$AUTH" -H "Content-Type: application/json" \
-  -d '{"ttl_hours": 72}' "$BASE/api/v1/tickets"
-# => {"id":"~...","url":"http://127.0.0.1:3000/t/<token>","status":"active",...}
-
-curl -X POST -H "$AUTH" -H "Content-Type: application/json" \
-  -d '{"slots": [{"starts_at": "2026-08-04T10:00:00+09:00", "ends_at": "2026-08-04T10:30:00+09:00"},
-                 {"starts_at": "2026-08-05T14:00:00+09:00", "ends_at": "2026-08-05T14:30:00+09:00"}],
-       "requester": "山田様", "title": "打ち合わせ"}' "$BASE/api/v1/holds"
-
-curl -X POST -H "$AUTH" -H "Content-Type: application/json" \
-  -d '{"slot_starts_at": "2026-08-04T10:00:00+09:00"}' "$BASE/api/v1/holds/~a1b2c3d4/confirm"
-```
-
-### エラー
-
-エラーは `{"error": {"code": "...", "message": "..."}}` 形式で返す。code は `invalid_params`（400）/ `invalid_date`（400）/ `unauthorized`（401）/ `forbidden`（403・loopback 以外）/ `insufficient_scope`（403・write 権限が必要）/ `not_found`（404）/ `slot_taken`（409・枠が埋まっている）/ `invalid_state`（409・チケットの状態が操作と合わない）/ `idempotency_conflict`（409・過去の予約で使った `Idempotency-Key`）/ `rate_limited`（429）/ `upstream_error`（502）/ `provider_not_connected`（503・未連携）。
-
-### 注意・制約
-
-- 操作できるのは直近 30 日に発行したチケットだけ（短縮 ID で引ける範囲）。それより古い予約は API から取り消せない。
-- 削除できるのは sukesan 経由で作った予定だけ。イベント ID はクライアントから受け取らず、チケットに保存した値のみを使う。
-- `Idempotency-Key` はシステム名ごとにスコープされ、同じキーの再送には登録済みの内容をそのまま返す（内容の一致は検証しない）。会議リンクは永続化しないため、再送の応答では `meet_link` が null になる。
-- 取り消した予約と同じ `Idempotency-Key` は再利用できない（Google が削除した予定の ID を再利用できないため、409 `idempotency_conflict` になる）。取消後に同じ枠を登録し直すときは新しいキーを指定する。
-- write キーは管理者相当の権限を持つ。依頼者がブラウザで作った仮押さえも、holder の照合なしに API から決定・削除できる。
-- 書き込みは監査ログに残し、`SLACK_WEBHOOK_URL` を設定していれば「API 経由: システム名」を添えて Slack へ通知する。
+`/settings` で API キーを発行したときだけ有効になり（キーが 1 つもなければ `/api/` 配下は 404）、接続元は loopback に限定されます。認証・エンドポイント・使い方の例・エラー・制約は [docs/api.md](docs/api.md)（連携先の実装用リファレンス）を参照してください。
 
 ## セットアップ
 
