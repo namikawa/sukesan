@@ -21,6 +21,8 @@ RSpec.describe BookingService do
     # ロックはそのままブロックを実行する（直列化の検証は対象外）。
     allow(lock).to receive(:synchronize).and_yield
     allow(availability).to receive(:slot_available?).and_return(true)
+    # 登録失敗後の存在確認は既定で「作られていない」（404 相当）。
+    allow(calendar_client).to receive(:get_event).and_return(nil)
     allow(TicketStore).to receive(:use!).and_return(true)
     allow(TicketStore).to receive(:reactivate!)
   end
@@ -94,6 +96,69 @@ RSpec.describe BookingService do
     expect(TicketStore).not_to receive(:reactivate!)
 
     expect(call.status).to eq(:ok)
+  end
+
+  it "event_id を指定した登録で Google が 409 を返したら :idempotency_conflict（token を有効へ戻す）" do
+    # 冪等キー由来の ID は、取り消して削除した予定の ID とも衝突する（削除した ID は再利用できない）。
+    # 予定が無いのに成功を返さず、キーの衝突として呼び出し側へ返す。
+    allow(calendar_client).to receive(:create_event).and_raise(GoogleCalendarClient::Conflict)
+    expect(TicketStore).to receive(:reactivate!).with("tok")
+
+    result = service.call(token: "tok", event: event, ticket_attrs: ticket_attrs, event_id: "sukesan-external-id")
+    expect(result.status).to eq(:idempotency_conflict)
+  end
+
+  describe "応答を受け取れなかったときの回収" do
+    let(:created_response) { { "id" => "sukesanev1", "status" => "confirmed" } }
+
+    before { allow(calendar_client).to receive(:create_event).and_raise(StandardError) }
+
+    it "Google 側に予定があれば作成成功として :ok（token は使用済みのまま）" do
+      allow(calendar_client).to receive(:get_event).and_return(created_response)
+      expect(TicketStore).not_to receive(:reactivate!)
+
+      expect(call.status).to eq(:ok)
+    end
+
+    it "回収した応答から Meet リンクを取り出す" do
+      allow(calendar_client).to receive(:get_event)
+        .and_return(created_response.merge("hangoutLink" => "https://meet.google.com/abc-defg-hij"))
+
+      result = service.call(token: "tok", event: event, ticket_attrs: ticket_attrs, request_meet: true)
+      expect(result.meet_link).to eq("https://meet.google.com/abc-defg-hij")
+    end
+
+    it "予定が無ければ（404）従来どおり :api_failure" do
+      allow(calendar_client).to receive(:get_event).and_return(nil)
+      expect(TicketStore).to receive(:reactivate!).with("tok")
+
+      result = nil
+      expect { result = call }.to output(/\[BookingService\] 登録失敗/).to_stderr
+      expect(result.status).to eq(:api_failure)
+    end
+
+    it "削除済み（status: cancelled）の予定は作成成功とみなさない" do
+      allow(calendar_client).to receive(:get_event).and_return("id" => "sukesanev1", "status" => "cancelled")
+      expect(TicketStore).to receive(:reactivate!).with("tok")
+
+      expect { expect(call.status).to eq(:api_failure) }.to output.to_stderr
+    end
+
+    it "存在確認自体が失敗したら :api_failure（曖昧なら失敗側へ倒す）" do
+      allow(calendar_client).to receive(:get_event).and_raise(StandardError)
+      expect(TicketStore).to receive(:reactivate!).with("tok")
+
+      result = nil
+      expect { result = call }.to output(/登録結果の確認失敗: StandardError/).to_stderr
+      expect(result.status).to eq(:api_failure)
+    end
+
+    it "確認に使う ID は登録に使った ID と同じ" do
+      expect(calendar_client).to receive(:get_event)
+        .with(described_class.event_id("test-event-id-key", "tok")).and_return(nil)
+
+      expect { call }.to output.to_stderr
+    end
   end
 
   it "ロック内の再確認で枠が埋まっていれば :slot_taken（チケットは消費しない）" do

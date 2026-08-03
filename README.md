@@ -100,13 +100,14 @@ curl -X POST -H "$AUTH" -H "Content-Type: application/json" \
 
 ### エラー
 
-エラーは `{"error": {"code": "...", "message": "..."}}` 形式で返す。code は `invalid_params`（400）/ `invalid_date`（400）/ `unauthorized`（401）/ `forbidden`（403・loopback 以外）/ `insufficient_scope`（403・write 権限が必要）/ `not_found`（404）/ `slot_taken`（409・枠が埋まっている）/ `invalid_state`（409・チケットの状態が操作と合わない）/ `rate_limited`（429）/ `upstream_error`（502）/ `provider_not_connected`（503・未連携）。
+エラーは `{"error": {"code": "...", "message": "..."}}` 形式で返す。code は `invalid_params`（400）/ `invalid_date`（400）/ `unauthorized`（401）/ `forbidden`（403・loopback 以外）/ `insufficient_scope`（403・write 権限が必要）/ `not_found`（404）/ `slot_taken`（409・枠が埋まっている）/ `invalid_state`（409・チケットの状態が操作と合わない）/ `idempotency_conflict`（409・過去の予約で使った `Idempotency-Key`）/ `rate_limited`（429）/ `upstream_error`（502）/ `provider_not_connected`（503・未連携）。
 
 ### 注意・制約
 
 - 操作できるのは直近 30 日に発行したチケットだけ（短縮 ID で引ける範囲）。それより古い予約は API から取り消せない。
 - 削除できるのは sukesan 経由で作った予定だけ。イベント ID はクライアントから受け取らず、チケットに保存した値のみを使う。
 - `Idempotency-Key` はシステム名ごとにスコープされ、同じキーの再送には登録済みの内容をそのまま返す（内容の一致は検証しない）。会議リンクは永続化しないため、再送の応答では `meet_link` が null になる。
+- 取り消した予約と同じ `Idempotency-Key` は再利用できない（Google が削除した予定の ID を再利用できないため、409 `idempotency_conflict` になる）。取消後に同じ枠を登録し直すときは新しいキーを指定する。
 - write キーは管理者相当の権限を持つ。依頼者がブラウザで作った仮押さえも、holder の照合なしに API から決定・削除できる。
 - 書き込みは監査ログに残し、`SLACK_WEBHOOK_URL` を設定していれば「API 経由: システム名」を添えて Slack へ通知する。
 

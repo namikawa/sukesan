@@ -17,6 +17,8 @@ RSpec.describe "他システム向け API /api/v1/bookings" do
   let(:token_hash) { { "access_token" => "fake", "expires_at" => 4_102_444_800, "admin_email" => "admin@example.com" } }
   let(:settings) { SettingsStore::DEFAULT.merge("api_keys" => api_keys) }
   let(:events_url) { %r{googleapis\.com/calendar/v3/calendars/primary/events} }
+  # 単一イベントの URL（末尾に ID が続く）。一覧取得（?timeMin=…）とは一致しない。
+  let(:single_event_url) { %r{googleapis\.com/calendar/v3/calendars/primary/events/} }
 
   # 過去・直前拒否（リードタイム）に掛からない十分先の営業日（週末・祝日を避ける）。
   let(:slot_date) { future_business_day }
@@ -28,6 +30,8 @@ RSpec.describe "他システム向け API /api/v1/bookings" do
     allow(SettingsStore).to receive(:load).and_return(settings)
     stub_request(:get, events_url)
       .to_return(status: 200, body: { "items" => [] }.to_json, headers: { "Content-Type" => "application/json" })
+    # 登録失敗後の存在確認（get_event）は既定で「作られていない」（404）。
+    stub_get_event
   end
 
   # API のチケット識別子（監査ログ・アクセスログと同じ HMAC 短縮 ID）。
@@ -48,11 +52,31 @@ RSpec.describe "他システム向け API /api/v1/bookings" do
       .to_return(status: 200, body: JSON.generate(response), headers: { "Content-Type" => "application/json" })
   end
 
+  # 登録失敗後に呼ぶ存在確認（GET /events/<id>）のスタブ。既定は 404＝Google 側にも作られていない。
+  def stub_get_event(status: 404, body: "")
+    stub_request(:get, single_event_url)
+      .to_return(status: status, body: body, headers: { "Content-Type" => "application/json" })
+  end
+
   # 登録リクエストのボディを記録しつつ成功を返すスタブ（送信した event id の検証に使う）。
   def stub_create_capturing(captured)
     stub_request(:post, events_url)
       .with { |request| captured << JSON.parse(request.body) }
       .to_return(status: 200, body: "{}", headers: { "Content-Type" => "application/json" })
+  end
+
+  # 同じ event id が既にある（409）ときの Google の応答。
+  def stub_conflict
+    stub_request(:post, events_url)
+      .to_return(status: 409, body: JSON.generate("error" => { "code" => 409, "message" => "duplicate" }),
+                 headers: { "Content-Type" => "application/json" })
+  end
+
+  # Idempotency-Key 付きで 1 件登録し、その短縮 ID を返す。
+  def create_used_booking_with_key!(key = "key-1")
+    stub_create
+    post_with_key(key)
+    JSON.parse(last_response.body).fetch("id")
   end
 
   def stored_ticket
@@ -238,10 +262,34 @@ RSpec.describe "他システム向け API /api/v1/bookings" do
     it "Google 登録が失敗すれば 502（upstream_error）で、内部チケットを active で残さない" do
       stub_request(:post, events_url).to_return(status: 500, body: "boom")
 
+      # 存在確認（既定 404）でも予定が見つからないため、従来どおり失敗として扱う。
       expect { post_booking }.to output(/\[BookingService\] 登録失敗/).to_stderr
       expect(last_response.status).to eq(502)
       expect(JSON.parse(last_response.body).dig("error", "code")).to eq("upstream_error")
       expect(last_response.body).not_to include("fake") # トークン等を漏らさない
+      expect(TicketStore.all.map { |ticket| TicketStore.status(ticket) }).to eq(["revoked"])
+    end
+
+    # 応答を受け取れなくても Google 側では作成できていることがある（タイムアウト等）。存在を確認して
+    # 回収しないと、sukesan の管理外になった予定がカレンダーに残る（空き再検証が塞がれ再試行もできない）。
+    it "応答を受け取れなくても Google 側に予定があれば 201（チケットは used のまま・会議リンクも回収）" do
+      stub_request(:post, events_url).to_return(status: 500, body: "boom")
+      stub_get_event(status: 200,
+                     body: JSON.generate("id" => "sukesanev1", "status" => "confirmed",
+                                         "hangoutLink" => "https://meet.google.com/abc-defg-hij"))
+      post_booking(valid_body.merge("request_meet" => true))
+
+      expect(last_response.status).to eq(201)
+      expect(JSON.parse(last_response.body)["meet_link"]).to eq("https://meet.google.com/abc-defg-hij")
+      expect(TicketStore.status(stored_ticket)).to eq("used")
+    end
+
+    it "存在確認自体が失敗したら 502（曖昧なら失敗側へ倒し、チケットは終端させる）" do
+      stub_request(:post, events_url).to_return(status: 500, body: "boom")
+      stub_get_event(status: 500, body: "boom")
+
+      expect { post_booking }.to output(/登録結果の確認失敗/).to_stderr
+      expect(last_response.status).to eq(502)
       expect(TicketStore.all.map { |ticket| TicketStore.status(ticket) }).to eq(["revoked"])
     end
 
@@ -343,15 +391,35 @@ RSpec.describe "他システム向け API /api/v1/bookings" do
       expect(TicketStore.all.map { |ticket| TicketStore.status(ticket) }).to contain_exactly("used", "revoked")
     end
 
-    it "レース時に同じ event id で Google が 409 を返しても既存扱いで成立する（201）" do
-      stub_request(:post, events_url)
-        .to_return(status: 409, body: JSON.generate("error" => { "code" => 409, "message" => "duplicate" }),
-                   headers: { "Content-Type" => "application/json" })
-      post_with_key("key-1")
+    it "キー未指定なら Google の 409（同じ token での再試行＝作成済み）は既存扱いで成立する（201）" do
+      stub_conflict
+      post_booking
 
       expect(last_response.status).to eq(201)
       expect(JSON.parse(last_response.body)["meet_link"]).to be_nil
       expect(TicketStore.status(stored_ticket)).to eq("used")
+    end
+
+    # Google は削除したイベントの ID を再利用できないため、取消済みの予約と同じキーを使うと登録できない。
+    # リプレイ検索は used のチケットしか見ないため、ここで成功に丸めるとカレンダーに予定が無いまま 201 になる。
+    it "取り消した予約と同じキーでの再登録は 409（idempotency_conflict）で、チケットを終端させる" do
+      id = create_used_booking_with_key!
+      stub_request(:delete, events_url).to_return(status: 204, body: "")
+      post "/api/v1/bookings/#{id}/cancel", "{}", write_auth.merge("CONTENT_TYPE" => "application/json")
+      expect(last_response.status).to eq(200)
+
+      stub_conflict
+      allow(AuditLog).to receive(:record)
+      post_with_key("key-1")
+
+      expect(last_response.status).to eq(409)
+      json = JSON.parse(last_response.body)
+      expect(json.dig("error", "code")).to eq("idempotency_conflict")
+      expect(json.dig("error", "message")).to include("Idempotency-Key")
+      # 取消済みの元チケットは cancelled のまま、再登録の内部チケットは active で残さず終端させる。
+      expect(TicketStore.all.map { |ticket| TicketStore.status(ticket) }).to contain_exactly("cancelled", "revoked")
+      expect(AuditLog).to have_received(:record)
+        .with(:booking_failed, ip: "127.0.0.1", target: a_string_including("via=api:write-sys"))
     end
 
     it "上限（128 文字）を超えるキーは 400 で、チケットを発行しない" do
@@ -526,6 +594,24 @@ RSpec.describe "他システム向け API /api/v1/bookings" do
       expect(JSON.parse(last_response.body)["event_deleted"]).to be(true)
       expect(TicketStore.status(TicketStore.find(token))).to eq("cancelled")
       expect(a_request(:delete, event_url(ticket["event_id"])).with(query: { "sendUpdates" => "none" }))
+        .to have_been_made
+    end
+
+    # 遷移の探索範囲（SEARCH_WEEKS＝3 週）より古くても、一覧（直近 30 日）に並ぶ予約は取り消せる
+    # （「詳細は見えるのに取消だけ 409」という食い違いを作らない）。
+    it "4 週間前に登録した予約も取り消せる（一覧に並ぶ範囲は取消の対象）" do
+      created = Time.now - (28 * 86_400)
+      token = TicketStore.create(now: created)
+      TicketStore.use!(token, now: created,
+                              attrs: { "requester" => "山田", "title" => "打合せ",
+                                       "slot_start" => slot["starts_at"], "slot_end" => slot["ends_at"],
+                                       "event_id" => "sukesanold" })
+      stub_delete
+      post_cancel(api_id(token))
+
+      expect(last_response.status).to eq(200)
+      expect(JSON.parse(last_response.body)["status"]).to eq("cancelled")
+      expect(a_request(:delete, event_url("sukesanold")).with(query: { "sendUpdates" => "none" }))
         .to have_been_made
     end
 

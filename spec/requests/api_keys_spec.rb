@@ -130,6 +130,13 @@ RSpec.describe "API キーの発行・削除 /settings/api_keys" do
       expect(settings_data["api_keys"].size).to eq(20)
     end
 
+    it "「:」を含むシステム名は発行できない（Idempotency-Key のスコープ境界を一意に保つため）" do
+      issue_key("sys:A")
+      follow_redirect!
+      expect(last_response.body).to include("「:」は使えません")
+      expect(settings_data["api_keys"]).to be_nil
+    end
+
     it "削除するとそのキーは即座に 401 になる（他のキーは有効なまま）" do
       issue_key("sysA")
       follow_redirect!

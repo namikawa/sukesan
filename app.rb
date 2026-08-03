@@ -432,7 +432,9 @@ post "/schedule" do
     redirect_with_alert!(token, "選択した時間帯は予約できません。お手数ですが再度空き時間をチェックしてください。")
   when :ticket_used
     redirect_with_alert!(token, "この URL は既に使用されています。")
-  when :api_failure
+  # :idempotency_conflict はゲスト経路（token 由来の event id）では返らないが、
+  # フォールスルーで成功扱いにしない（fail-open を防ぐ防御）。
+  when :api_failure, :idempotency_conflict
     AuditLog.record(:booking_failed, ip: client_ip, target: audit_ticket_id(token))
     redirect_with_alert!(token, "予定の登録に失敗しました。お手数ですが、もう一度お試しください。")
   end
@@ -1122,8 +1124,15 @@ post "/api/v1/bookings" do
     TicketStore.revoke(token)
     api_error!(409, "slot_taken", "この時間帯は登録できません。空き候補を取り直してください。") if result.status == :slot_taken
 
-    # :api_failure（Google 登録失敗）。:ticket_used は発行直後のチケットのため通常起きない。
     AuditLog.record(:booking_failed, ip: remote_addr, target: "#{audit_ticket_id(token)} via=api:#{@api_label}")
+    # キー由来の event id が Google 側に既にある＝取り消して削除した予約と同じキーでの再登録
+    # （削除したイベントの ID は再利用できない）。予定を作れていないため成功にはしない。
+    if result.status == :idempotency_conflict
+      api_error!(409, "idempotency_conflict",
+                 "この Idempotency-Key は過去の予約で使用されています。新しいキーを指定してください。")
+    end
+
+    # :api_failure（Google 登録失敗）。:ticket_used は発行直後のチケットのため通常起きない。
     api_error!(502, "upstream_error", "予定の登録に失敗しました。")
   end
 

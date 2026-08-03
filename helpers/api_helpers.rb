@@ -50,6 +50,9 @@ module ApiHelpers
   def api_key_label_error(label, keys)
     return "システム名を入力してください。" if label.empty?
     return "システム名が長すぎます（#{MAX_API_KEY_LABEL_LENGTH} 文字以内）。" if label.length > MAX_API_KEY_LABEL_LENGTH
+    # Idempotency-Key は "<システム名>:<キー>" でスコープするため、区切りの境界を一意に保つ
+    # （システム名に ":" を許すと、別のシステム名とキーの組み合わせが同じ値になり得る）。
+    return "システム名に「:」は使えません。別の名前を指定してください。" if label.include?(":")
     return "同じシステム名のキーが既に発行されています。別の名前を指定してください。" if keys.key?(label)
     return "API キーの登録数が上限（#{MAX_API_KEYS} 件）に達しています。不要なキーを削除してください。" if keys.size >= MAX_API_KEYS
 

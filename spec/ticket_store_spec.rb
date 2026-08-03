@@ -158,6 +158,17 @@ RSpec.describe TicketStore do
       expect(described_class.status(described_class.find(token, now: now), now: now)).to eq("used")
     end
 
+    it "SEARCH_WEEKS より古くても、一覧に並ぶ範囲（KEEP_WEEKS）なら取消できる" do
+      created = now - (28 * 86_400) # 4 週間前＝遷移の既定探索範囲（3 週）の外だが一覧（30 日）には並ぶ
+      token = described_class.create(now: created)
+      described_class.use!(token, attrs: { "requester" => "山田", "event_id" => "sukesanev1" }, now: created)
+      expect(described_class.all(now: now).map { |t| t["token"] }).to include(token)
+
+      expect(described_class.cancel_booking!(token, now: now)).to include("event_id" => "sukesanev1")
+      cancelled = described_class.all(now: now).find { |t| t["token"] == token }
+      expect(described_class.status(cancelled, now: now)).to eq("cancelled")
+    end
+
     it "未使用・仮押さえ中のチケットは取消できない（false）" do
       expect(described_class.cancel_booking!(described_class.create(now: now), now: now)).to be(false)
       expect(described_class.cancel_booking!(hold_ticket, now: now)).to be(false)

@@ -26,6 +26,8 @@ class FileTicketStore
   # 検索・更新で探す週ファイル数。チケットの寿命は最長「発行 TTL 7 日（168h）＋仮押さえ 7 日 = 14 日」。
   # 14 日間は ISO 週で最大 3 バケットにまたがり、now / now-7d / now-14d の週が連続してそれを全部
   # カバーするため 3 週分で足りる（TTL の許可値を延ばす場合はここも見直す）。
+  # 例外は used → cancelled（cancel_booking!）で、対象は寿命 14 日ではなく一覧（KEEP_WEEKS）から
+  # 逆引きされた予約のため、探索範囲も一覧と同じ KEEP_WEEKS にする（一覧に出るのに取消だけできない、を防ぐ）。
   SEARCH_WEEKS = 3
 
   def initialize(cipher:, dir: nil)
@@ -85,8 +87,12 @@ class FileTicketStore
   end
 
   # 確定済み予約の取消（used → cancelled）。成功時は遷移前のチケットを返す（失敗は false）。
+  # 探索範囲は一覧（KEEP_WEEKS）に合わせる。取消の対象は一覧から選ばれた予約で、SEARCH_WEEKS より
+  # 古くても一覧には並ぶため（詳細は見えるのに取消だけできない、という食い違いを作らない）。
   def cancel_booking!(token, now: Time.now)
-    apply_transition(token, now: now) { |t| TicketTransitions.cancel_booking(t, now: now) } || false
+    apply_transition(token, now: now, weeks: KEEP_WEEKS) do |t|
+      TicketTransitions.cancel_booking(t, now: now)
+    end || false
   end
 
   # 仮押さえ（active → held）。attrs には requester/title/holds/holder_key を渡す。
@@ -129,10 +135,11 @@ class FileTicketStore
 
   # 状態遷移を read-modify-write で適用する。ブロックは TicketTransitions の規約
   # （[遷移後チケット, 戻り値] または nil）で応答し、nil（遷移不可）なら何も書かず nil を返す。
-  def apply_transition(token, now:)
+  # weeks は探索する週ファイル数（既定はチケットの寿命をカバーする SEARCH_WEEKS）。
+  def apply_transition(token, now:, weeks: SEARCH_WEEKS)
     value = nil
     @lock.synchronize do
-      recent_bucket_keys(now, SEARCH_WEEKS).each do |key|
+      recent_bucket_keys(now, weeks).each do |key|
         data = load_bucket(key)
         next unless data.key?(token.to_s)
 

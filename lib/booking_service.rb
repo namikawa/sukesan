@@ -10,7 +10,7 @@ require_relative "google_calendar_client"
 # HTTP 層から分離して単体テスト可能にする。Web 関心（params 検証・HTTP ステータス・session/flash）は
 # ルート側に残す。
 class BookingService
-  # status: :ok / :slot_taken / :ticket_used / :api_failure
+  # status: :ok / :slot_taken / :ticket_used / :api_failure / :idempotency_conflict
   Result = Struct.new(:status, :meet_link, keyword_init: true)
 
   # 入力（token・冪等キーなど）から決定的に導く Google イベント ID。再試行で同じ ID になり、
@@ -49,27 +49,60 @@ class BookingService
       return Result.new(status: :ticket_used) unless TicketStore.use!(token, attrs: attrs)
 
       register(token, event, attendees, request_meet: request_meet, send_invites: send_invites,
-                                        private_event: private_event, id: id)
+                                        private_event: private_event, id: id, id_from_caller: !event_id.nil?)
     end
   end
 
   private
 
-  def register(token, event, attendees, request_meet:, send_invites:, private_event:, id:)
+  # id_from_caller: 登録に使う ID を呼び出し側が指定したか（＝ token 由来でないか）。409 の扱いを分けるために使う。
+  def register(token, event, attendees, request_meet:, send_invites:, private_event:, id:, id_from_caller:)
     response = @calendar_client.create_event(event, attendees: attendees, request_meet: request_meet,
                                                     send_updates: send_invites ? "all" : "none",
                                                     private_event: private_event, id: id)
-    meet_link = request_meet ? GoogleCalendarClient.meet_link(response) : nil
-    Result.new(status: :ok, meet_link: meet_link)
+    ok_result(response, request_meet)
   rescue GoogleCalendarClient::Conflict
-    # 同じ token の決定的 ID が既に存在する＝前回の試行で作成済み。重複させず成功扱いにする
-    # （HTTP タイムアウト等で「Google 側は成功・アプリ側は例外」になった後の再試行を冪等にする）。
-    Result.new(status: :ok, meet_link: nil)
+    conflict_result(token, id_from_caller)
   rescue StandardError => e
-    # 登録に失敗したときは token を有効へ戻し、再試行できるようにする。
-    # 原因調査のため例外クラスのみ記録する（メッセージは API 応答＝秘密を含み得るため出さない）。
-    warn "[BookingService] 登録失敗: #{e.class}（token を有効へ戻します）"
+    recover_or_fail(token, e, id: id, request_meet: request_meet)
+  end
+
+  def ok_result(response, request_meet)
+    Result.new(status: :ok, meet_link: request_meet ? GoogleCalendarClient.meet_link(response) : nil)
+  end
+
+  # 同じ event id が既に存在する（409）ときの扱い。
+  # token 由来の ID は同じチケットの再試行でしか衝突しないため、前回の試行で作成済みとみなして成功にする
+  # （HTTP タイムアウト等で「Google 側は成功・アプリ側は例外」になった後の再試行を冪等にする）。
+  # 呼び出し側が指定した ID（Idempotency-Key 由来）は、取り消して削除済みの予定とも衝突する
+  # （Google は削除したイベントの ID を再利用できない）。予定が無いのに成功を返さないよう、
+  # token を有効へ戻したうえでキーの衝突として呼び出し側へ伝える。
+  def conflict_result(token, id_from_caller)
+    return Result.new(status: :ok, meet_link: nil) unless id_from_caller
+
+    TicketStore.reactivate!(token)
+    Result.new(status: :idempotency_conflict)
+  end
+
+  # 応答の受信に失敗しても Google 側では作成できていることがある（タイムアウト等）。存在を 1 回だけ
+  # 確認し、作成済みならチケットを used のまま成功として扱う（管理外の予定を残さない）。
+  # 確認できない・確認自体が失敗した場合は曖昧なので、従来どおり token を有効へ戻して失敗を返す。
+  # 原因調査のため例外クラスのみ記録する（メッセージは API 応答＝秘密を含み得るため出さない）。
+  def recover_or_fail(token, error, id:, request_meet:)
+    created = created_event(id)
+    return ok_result(created, request_meet) if created
+
+    warn "[BookingService] 登録失敗: #{error.class}（token を有効へ戻します）"
     TicketStore.reactivate!(token)
     Result.new(status: :api_failure)
+  end
+
+  # 登録済みの予定を取得する（無い・削除済み・確認自体が失敗した場合は nil）。
+  def created_event(id)
+    event = @calendar_client.get_event(id)
+    event if event.is_a?(Hash) && event["status"] != "cancelled"
+  rescue StandardError => e
+    warn "[BookingService] 登録結果の確認失敗: #{e.class}"
+    nil
   end
 end

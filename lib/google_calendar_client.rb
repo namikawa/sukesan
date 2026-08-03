@@ -63,6 +63,17 @@ class GoogleCalendarClient
     raise
   end
 
+  # イベントを 1 件取得する（作成の応答を受け取れなかったときの存在確認に使う）。
+  # 戻り値は API レスポンス（JSON をパースしたハッシュ）。存在しない（404）・削除済み（410）は nil。
+  # それ以外の失敗は例外をそのまま送出する（「無い」と「確認できない」を呼び出し側が区別できるように）。
+  def get_event(event_id)
+    JSON.parse(@token.get("#{BASE}/calendars/#{CALENDAR_ID}/events/#{event_id}").body)
+  rescue OAuth2::Error => e
+    return nil if [404, 410].include?(e.response&.status)
+
+    raise
+  end
+
   # イベントを削除する。既に存在しない（404）・削除済み（410）の場合は成功扱いにする（冪等）。
   # send_updates: キャンセル通知の送信モード（SEND_UPDATES_MODES 参照。既定 none＝通知を送らない）。
   # 招待メールを送った予定を取り消す場合だけ all を指定する（呼び出し側のオプトイン）。
