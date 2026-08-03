@@ -8,5 +8,6 @@
 .DS_Store
 *.swp
 /data/
-/docs/
+# 内部作業メモ（設計・レビュー記録。公開しない）
+/notes/
 /CLAUDE.md
