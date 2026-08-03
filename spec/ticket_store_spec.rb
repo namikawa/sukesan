@@ -128,6 +128,53 @@ RSpec.describe TicketStore do
     end
   end
 
+  describe ".cancel_booking!" do
+    # 予約済み（used）チケットを作るヘルパ。attrs は use! で保存する内容。
+    def booked_ticket(attrs: { "requester" => "山田", "title" => "打合せ", "event_id" => "sukesanev1" })
+      token = described_class.create(now: now)
+      described_class.use!(token, attrs: attrs, now: now)
+      token
+    end
+
+    it "予約済みチケットを取消し、遷移前のチケット（削除対象の event_id を含む）を返す" do
+      token = booked_ticket
+      previous = described_class.cancel_booking!(token, now: now)
+
+      expect(previous["event_id"]).to eq("sukesanev1")
+      ticket = described_class.find(token, now: now)
+      expect(described_class.status(ticket, now: now)).to eq("cancelled")
+      expect(ticket["cancelled_at"]).to eq(now.iso8601)
+    end
+
+    it "取消済みのチケットは再度取消できない（false）" do
+      token = booked_ticket
+      described_class.cancel_booking!(token, now: now)
+      expect(described_class.cancel_booking!(token, now: now)).to be(false)
+    end
+
+    it "event_id 未保存の予約済みチケットは取消できない（false・event_id 保存前の既存チケット）" do
+      token = booked_ticket(attrs: { "requester" => "山田", "title" => "打合せ" })
+      expect(described_class.cancel_booking!(token, now: now)).to be(false)
+      expect(described_class.status(described_class.find(token, now: now), now: now)).to eq("used")
+    end
+
+    it "SEARCH_WEEKS より古くても、一覧に並ぶ範囲（KEEP_WEEKS）なら取消できる" do
+      created = now - (28 * 86_400) # 4 週間前＝遷移の既定探索範囲（3 週）の外だが一覧（30 日）には並ぶ
+      token = described_class.create(now: created)
+      described_class.use!(token, attrs: { "requester" => "山田", "event_id" => "sukesanev1" }, now: created)
+      expect(described_class.all(now: now).map { |t| t["token"] }).to include(token)
+
+      expect(described_class.cancel_booking!(token, now: now)).to include("event_id" => "sukesanev1")
+      cancelled = described_class.all(now: now).find { |t| t["token"] == token }
+      expect(described_class.status(cancelled, now: now)).to eq("cancelled")
+    end
+
+    it "未使用・仮押さえ中のチケットは取消できない（false）" do
+      expect(described_class.cancel_booking!(described_class.create(now: now), now: now)).to be(false)
+      expect(described_class.cancel_booking!(hold_ticket, now: now)).to be(false)
+    end
+  end
+
   # 2 枠の仮押さえ済みチケットを作るヘルパ。
   def hold_ticket(at: now)
     token = described_class.create(now: at)
@@ -193,6 +240,14 @@ RSpec.describe TicketStore do
       expect(ticket["slot_start"]).to eq("2026-06-22T10:00:00+09:00")
       expect(ticket).not_to have_key("holds")
       expect(ticket).not_to have_key("holder_key")
+    end
+
+    it "決定したイベントの ID を event_id として保存する（取消＝cancel_booking! の対象にするため）" do
+      token = hold_ticket
+      described_class.confirm_hold!(token, slot_start: "2026-06-23T14:00:00+09:00", attrs: {}, now: now)
+
+      expect(described_class.find(token, now: now)["event_id"]).to eq("ev2")
+      expect(described_class.cancel_booking!(token, now: now)).to include("event_id" => "ev2")
     end
 
     it "holds に無いスロットでは確定できない" do

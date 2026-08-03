@@ -194,6 +194,29 @@ RSpec.describe "ワンタイム URL" do
     end
   end
 
+  describe "取消済み予約の表示" do
+    # 予約の取消（used → cancelled）は登録内容を残すため、一覧でも内容を確認できるようにする。
+    it "日時を持つ cancelled は登録内容と取消日時を表示する" do
+      token = TicketStore.create
+      TicketStore.use!(token, attrs: { "requester" => "山田", "title" => "打合せ",
+                                       "event_id" => "sukesanaaa",
+                                       "slot_start" => "2026-07-10T10:00:00+09:00",
+                                       "slot_end" => "2026-07-10T10:30:00+09:00" })
+      TicketStore.cancel_booking!(token)
+      login_admin!
+      get "/tickets"
+
+      expect(last_response.body).to include("キャンセル")
+      expect(last_response.body).to include("山田")
+      expect(last_response.body).to include("打合せ")
+      expect(last_response.body).to include("2026-07-10 10:00")
+      expect(last_response.body).to include("取消:")
+      # 終端したチケットなので URL・無効化ボタンは出さない（従来どおり）。
+      expect(last_response.body).not_to include("/t/#{token}")
+      expect(last_response.body).not_to include("copy-btn")
+    end
+  end
+
   describe "仮押さえ中チケットの管理" do
     let(:held_token) do
       token = TicketStore.create
@@ -225,6 +248,16 @@ RSpec.describe "ワンタイム URL" do
       expect(last_response.body).to include("2026-07-10 10:00")
       expect(last_response.body).to include("2026-07-11 14:00")
       expect(last_response.body).not_to include("不明")
+    end
+
+    it "全取りやめ（日時を持たない cancelled）は登録内容を表示しない" do
+      TicketStore.cancel_hold!(held_token)
+      login_admin!
+      get "/tickets"
+
+      expect(last_response.body).to include("キャンセル")
+      expect(last_response.body).not_to include("打合せ")
+      expect(last_response.body).not_to include("取消:")
     end
 
     it "無効化すると残りの仮押さえイベントも削除する（kill switch）" do

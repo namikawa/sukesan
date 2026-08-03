@@ -80,6 +80,7 @@ RSpec.configure do |config|
     SEARCH_LIMITER.reset!
     LOGIN_LIMITER.reset!
     API_LIMITER.reset!
+    API_WRITE_LIMITER.reset!
     FileUtils.rm_rf(ENV.fetch("TICKETS_DIR"))
   end
 end

@@ -98,6 +98,30 @@ RSpec.describe GoogleCalendarClient do
     error
   end
 
+  describe "#get_event" do
+    it "取得できたら応答（パース済み）を返す" do
+      token = double
+      allow(token).to receive(:get).and_return(double(body: '{"id":"ev1","status":"confirmed"}'))
+
+      expect(described_class.new(token).get_event("ev1")).to eq("id" => "ev1", "status" => "confirmed")
+      expect(token).to have_received(:get).with(%r{/calendars/primary/events/ev1\z})
+    end
+
+    it "存在しない（404）・削除済み（410）は nil" do
+      [404, 410].each do |status|
+        token = double
+        allow(token).to receive(:get).and_raise(oauth2_error(status))
+        expect(described_class.new(token).get_event("ev1")).to be_nil
+      end
+    end
+
+    it "その他のエラー（500 等）はそのまま送出する（「無い」と区別する）" do
+      token = double
+      allow(token).to receive(:get).and_raise(oauth2_error(500))
+      expect { described_class.new(token).get_event("ev1") }.to raise_error(OAuth2::Error)
+    end
+  end
+
   describe "#delete_event" do
     it "削除に成功したら true を返す（sendUpdates=none 指定）" do
       token = double
@@ -106,6 +130,17 @@ RSpec.describe GoogleCalendarClient do
       expect(described_class.new(token).delete_event("ev1")).to be(true)
       expect(token).to have_received(:delete)
         .with(%r{/calendars/primary/events/ev1\z}, params: { sendUpdates: "none" })
+    end
+
+    it "send_updates: \"all\" のときだけキャンセル通知を送る（許可外の値は none に落とす）" do
+      { "all" => "all", "none" => "none", "externalOnly" => "none", "1" => "none" }.each do |given, expected|
+        token = double
+        allow(token).to receive(:delete).and_return(double(body: ""))
+
+        expect(described_class.new(token).delete_event("ev1", send_updates: given)).to be(true)
+        expect(token).to have_received(:delete)
+          .with(%r{/calendars/primary/events/ev1\z}, params: { sendUpdates: expected })
+      end
     end
 
     it "既に存在しない（404/410）場合も削除済みとして true（冪等）" do

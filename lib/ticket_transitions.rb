@@ -28,9 +28,19 @@ module TicketTransitions
     return nil unless REACTIVATABLE_FROM.include?(ticket["status"])
 
     updated = ticket.except("status", "used_at", "requester", "title", "slot_start", "slot_end",
-                            "attendees", "holds", "held_at", "holder_key")
+                            "attendees", "event_id", "idempotency_key", "holds", "held_at", "holder_key")
                     .merge("status" => "active")
     [updated, true]
+  end
+
+  # 確定済み予約の取消: used → cancelled。取り消せるのは event_id を保存しているチケットだけで、
+  # 未保存の used（event_id 保存より前に登録された既存チケット）は削除対象の予定を特定できないため受理しない。
+  # 呼び出し側が Google の予定を削除できるよう、遷移前のチケットを返す（revoke と同じ流儀）。
+  # 仮押さえの全取りやめと同じ cancelled に合流させ、取消日時（cancelled_at）で区別できるようにする。
+  def cancel_booking(ticket, now:)
+    return nil unless TicketStatus.status(ticket, now: now) == "used" && !ticket["event_id"].to_s.empty?
+
+    [ticket.merge("status" => "cancelled", "cancelled_at" => now.iso8601), ticket]
   end
 
   # 仮押さえ: active → held。attrs には requester/title/holds/holder_key を渡す。
@@ -42,13 +52,16 @@ module TicketTransitions
 
   # 仮押さえから 1 件を選んで確定: held → used。選択スロットの日時を確定内容として記録し、
   # 確定前の holds（呼び出し側がイベントの件名更新・削除に使う）を返す。
+  # 決定したイベントの ID は use（通常の予約）と同じくトップレベルの event_id に保存する
+  # （取消＝cancel_booking が「チケット保存値の event_id」だけを対象にするため）。
   def confirm_hold(ticket, slot_start:, attrs:, now:)
     chosen = find_hold(ticket, slot_start, now: now)
     return nil if chosen.nil?
 
     updated = ticket.except("holds", "holder_key").merge(attrs)
                     .merge("status" => "used", "used_at" => now.iso8601,
-                           "slot_start" => chosen["slot_start"], "slot_end" => chosen["slot_end"])
+                           "slot_start" => chosen["slot_start"], "slot_end" => chosen["slot_end"],
+                           "event_id" => chosen["event_id"])
     [updated, ticket["holds"]]
   end
 

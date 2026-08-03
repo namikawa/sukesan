@@ -63,10 +63,23 @@ class GoogleCalendarClient
     raise
   end
 
+  # イベントを 1 件取得する（作成の応答を受け取れなかったときの存在確認に使う）。
+  # 戻り値は API レスポンス（JSON をパースしたハッシュ）。存在しない（404）・削除済み（410）は nil。
+  # それ以外の失敗は例外をそのまま送出する（「無い」と「確認できない」を呼び出し側が区別できるように）。
+  def get_event(event_id)
+    JSON.parse(@token.get("#{BASE}/calendars/#{CALENDAR_ID}/events/#{event_id}").body)
+  rescue OAuth2::Error => e
+    return nil if [404, 410].include?(e.response&.status)
+
+    raise
+  end
+
   # イベントを削除する。既に存在しない（404）・削除済み（410）の場合は成功扱いにする（冪等）。
-  # sendUpdates=none でキャンセル通知は送らない。
-  def delete_event(event_id)
-    @token.delete("#{BASE}/calendars/#{CALENDAR_ID}/events/#{event_id}", params: { sendUpdates: "none" })
+  # send_updates: キャンセル通知の送信モード（SEND_UPDATES_MODES 参照。既定 none＝通知を送らない）。
+  # 招待メールを送った予定を取り消す場合だけ all を指定する（呼び出し側のオプトイン）。
+  def delete_event(event_id, send_updates: "none")
+    @token.delete("#{BASE}/calendars/#{CALENDAR_ID}/events/#{event_id}",
+                  params: { sendUpdates: send_updates_mode(send_updates) })
     true
   rescue OAuth2::Error => e
     return true if [404, 410].include?(e.response&.status)
@@ -134,12 +147,17 @@ class GoogleCalendarClient
   end
 
   # events.insert / events.patch のクエリパラメータ。sendUpdates は既定 none（招待メールを送らない）で、
-  # ゲストが明示的にオプトインしたときのみ all。許可値以外は none に落とし、Google API へ渡す値を
-  # サーバ側で統制する（クライアント提示値をそのまま流さない）。
+  # ゲストが明示的にオプトインしたときのみ all。
   def insert_params(request_meet, send_updates)
-    params = { sendUpdates: SEND_UPDATES_MODES.include?(send_updates) ? send_updates : "none" }
+    params = { sendUpdates: send_updates_mode(send_updates) }
     params[:conferenceDataVersion] = 1 if request_meet
     params
+  end
+
+  # sendUpdates として Google API へ渡す値。許可値以外は none に落とし、Google API へ渡す値を
+  # サーバ側で統制する（クライアント提示値をそのまま流さない）。
+  def send_updates_mode(send_updates)
+    SEND_UPDATES_MODES.include?(send_updates) ? send_updates : "none"
   end
 
   # events.patch に送る JSON ボディ（指定された項目のみ）。

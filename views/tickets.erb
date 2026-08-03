@@ -83,11 +83,17 @@
             <td>
               <% if st == "active" %>
                 <input id="<%= field_id %>" class="input is-small ticket-url" type="text" value="<%= ticket_url(ticket["token"]) %>" readonly>
-              <% elsif st == "used" %>
+              <%# 取消済みの予約（cancelled かつ日時あり）も登録内容を残して表示する。 %>
+              <%# 仮押さえの全取りやめ（日時なし）は下の「—」に落ちる。 %>
+              <% elsif st == "used" || (st == "cancelled" && ticket["slot_start"]) %>
                 <span class="is-size-7">
                   <%= ticket["requester"] %> /「<%= ticket["title"] %>」/
                   <%= format_slot_range(ticket["slot_start"], ticket["slot_end"]) %>
-                  （登録: <%= format_iso(ticket["used_at"]) %>）
+                  <% if st == "used" %>
+                    （登録: <%= format_iso(ticket["used_at"]) %>）
+                  <% else %>
+                    （取消: <%= format_iso(ticket["cancelled_at"]) %>）
+                  <% end %>
                 </span>
               <% elsif st == "held" %>
                 <span class="is-size-7">

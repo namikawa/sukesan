@@ -68,6 +68,11 @@ class FirestoreTicketStore
     apply_transition(token) { |t| TicketTransitions.reactivate(t) } || false
   end
 
+  # 確定済み予約の取消（used → cancelled）。成功時は遷移前のチケットを返す（失敗は false）。
+  def cancel_booking!(token, now: Time.now)
+    apply_transition(token) { |t| TicketTransitions.cancel_booking(t, now: now) } || false
+  end
+
   # 仮押さえ（active → held）。attrs には requester/title/holds/holder_key を渡す。
   def hold!(token, attrs:, now: Time.now)
     apply_transition(token) { |t| TicketTransitions.hold(t, attrs: attrs, now: now) } || false
