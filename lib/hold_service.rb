@@ -6,6 +6,7 @@ require_relative "ticket_store"
 require_relative "ticket_status"
 require_relative "google_calendar_client"
 require_relative "event"
+require_relative "event_format"
 
 # 複数カレンダー仮押さえの中核トランザクション（作成・決定・個別削除・全取りやめ）を担うサービス。
 #
@@ -122,11 +123,12 @@ class HoldService
     deadline = (now + TicketStatus::HOLD_TTL_SECONDS).getlocal.strftime("%Y-%m-%d %H:%M")
     Event.new(
       source: "google",
-      title: "#{TITLE_PREFIX}#{title} - #{requester} (from 調整ツール)",
+      title: "#{TITLE_PREFIX}#{EventFormat.summary(title: title, requester: requester)}",
       starts_at: Time.iso8601(entry["slot_start"]),
       ends_at: Time.iso8601(entry["slot_end"]),
       all_day: false,
-      description: "依頼者: #{requester}\n調整ツールの仮押さえです。#{deadline} までに 1 件に決定されます。"
+      description: "#{EventFormat.description(requester: requester)}\n" \
+                   "調整ツールの仮押さえです。#{deadline} までに 1 件に決定されます。"
     )
   end
 
@@ -134,11 +136,10 @@ class HoldService
   # 更新に失敗しても決定（used への遷移）は取り消さない: 予定自体は正しい枠に存在しており、
   # 件名の [仮ブロック] 残りは運用で修正できる。ここで巻き戻すと二重決定の余地が生まれる方が害が大きい。
   def patch_chosen(chosen, ticket, video_url:, attendees:, request_meet:, send_invites:)
-    description = "依頼者: #{ticket['requester']}"
-    description += "\nビデオ会議: #{video_url}" unless video_url.to_s.empty?
+    description = EventFormat.description(requester: ticket["requester"], video_url: video_url)
     response = @calendar_client.patch_event(
       chosen["event_id"],
-      summary: "#{ticket['title']} - #{ticket['requester']} (from 調整ツール)",
+      summary: EventFormat.summary(title: ticket["title"], requester: ticket["requester"]),
       description: description, attendees: attendees, request_meet: request_meet,
       send_updates: send_invites ? "all" : "none"
     )

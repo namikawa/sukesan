@@ -13,10 +13,46 @@ module ScheduleHelpers
   # 参加者の最大件数（DoS・誤入力対策）。検証ロジック（optional_event_error）と一体で持つ。
   MAX_ATTENDEES = 50
 
+  # 公開フォームからの状態変更 POST（登録・仮押さえ・決定・削除・全取りやめ）のスパム対策。
+  # IP ごとの上限を超えたら 429 で中断する。SCHEDULE_LIMITER は app.rb の定数を参照する
+  # （HoldHelpers が BOOKING_LOCK / EVENT_ID_KEY を参照しているのと同じ流儀）。
+  def guard_schedule_rate_limit!
+    halt 429, "リクエストが多すぎます。しばらく時間をおいてからお試しください。" unless SCHEDULE_LIMITER.allow?(client_ip)
+  end
+
+  # 登録（/schedule）・仮押さえ作成（/hold）に共通の入口ガード。ワンタイム URL が使える状態か、
+  # Google 連携が生きているかを順に確認し、満たさなければ元画面へ警告付きで戻す。
+  # 呼び出し側は先に @form_restore を設定しておくこと（redirect_with_alert! が入力復元に使うため）。
+  def guard_usable_ticket!(token)
+    ticket = TicketStore.find(token)
+    redirect_with_alert!(token, "この URL は無効か、期限切れです。管理者に新しい URL の発行を依頼してください。") unless TicketStore.active?(ticket)
+    redirect_with_alert!(token, "Google の連携が必要です。管理者にお問い合わせください。") unless google_connected?
+  end
+
   # 空き時間検索サービスを、管理者の Google カレンダーに接続して組み立てる。
   # token は呼び出し側で取得済みのものを渡す（refresh 失敗＝nil のガードは呼び出し側の責務）。
   def availability_search(settings, token)
     AvailabilitySearch.new(settings: settings, calendar_client: GoogleCalendarClient.new(token))
+  end
+
+  # 予約成立時にチケットへ保存する属性（TicketStore.use! に渡す）。任意項目（参加者）は入力があるときだけ持たせる。
+  # 会議 URL（video_url / meet_link）はチケットに永続化しない（漏えい URL からの再露出を避ける）。
+  # 何を残すかはゲスト経路と API 経路で共通の決めごとなので、ここに 1 か所だけ置く。
+  def booking_ticket_attrs(requester:, title:, starts_at:, ends_at:, attendees:)
+    attrs = { "requester" => requester, "title" => title,
+              "slot_start" => starts_at.iso8601, "slot_end" => ends_at.iso8601 }
+    attrs["attendees"] = attendees unless attendees.empty?
+    attrs
+  end
+
+  # 予約サービスを、管理者の Google カレンダーに接続して組み立てる（HoldHelpers#hold_service と対称）。
+  def booking_service(google_access)
+    BookingService.new(
+      lock: BOOKING_LOCK,
+      availability: availability_search(SettingsStore.load, google_access),
+      calendar_client: GoogleCalendarClient.new(google_access),
+      event_id_key: EVENT_ID_KEY
+    )
   end
 
   # テキストエリアの入力を参加者メールアドレスの配列に分解する。

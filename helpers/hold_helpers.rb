@@ -80,6 +80,26 @@ module HoldHelpers
     query.empty? ? "" : "?#{Rack::Utils.build_query(query)}"
   end
 
+  # 仮押さえ操作（決定・個別削除・全取りやめ）の前提を確認し、対象チケットを返す。
+  # 仮押さえ中でなければ元画面へ警告付きで戻し、ホルダー（仮押さえを行ったブラウザ）でなければ 403。
+  # API 側の ApiHelpers#api_held_ticket! と対になる（API はセッションを持たないため holder 照合はしない）。
+  def held_ticket_for_holder!(token)
+    ticket = TicketStore.find(token)
+    redirect_with_alert!(token, "この操作は完了済みか、期限切れです。") unless TicketStore.held?(ticket)
+    halt 403, "この操作は仮押さえを行ったブラウザからのみ行えます。" unless holder_of?(ticket)
+
+    ticket
+  end
+
+  # 仮押さえ操作で使う Google トークン。使えない（未連携・refresh 失敗）場合は元画面へ警告付きで戻す。
+  # 登録（/schedule）・仮押さえ作成（/hold）は同じ状況でも案内文言が異なるため、ここでは束ねない。
+  def hold_google_token!(token)
+    google_access = google_token
+    redirect_with_alert!(token, "現在カレンダーとの連携に問題があるため操作できません。管理者にお問い合わせください。") if google_access.nil?
+
+    google_access
+  end
+
   # 仮押さえサービスを、管理者の Google カレンダーに接続して組み立てる。
   def hold_service(google_access)
     HoldService.new(
