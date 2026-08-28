@@ -46,8 +46,11 @@ gcloud firestore databases create --location=$REGION
 ## 3. シークレット生成と Secret Manager 登録
 
 本番（`APP_ENV=production`）で必須・未設定なら起動失敗するのは
-`SESSION_SECRET` / `TOKEN_ENCRYPTION_KEY` / `APP_BASE_URL` の 3 つ。
-このうち 2 つの鍵と、管理者パスワードダイジェスト、OAuth クライアント秘密を Secret Manager に置く。
+`SESSION_SECRET` / `TOKEN_ENCRYPTION_KEY` / `APP_BASE_URL` / `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` の 5 つ
+（`MS_` 系は Outlook 同期を使わない運用があり得るため対象外）。
+このうち秘密として扱うのは 2 つの鍵（`SESSION_SECRET` / `TOKEN_ENCRYPTION_KEY`）と `GOOGLE_CLIENT_SECRET` で、
+これに管理者パスワードダイジェストを加えて Secret Manager に置く。
+残る `APP_BASE_URL` / `GOOGLE_CLIENT_ID` は秘密でないため手順 6 の `--set-env-vars` で渡す。
 
 ローカルで生成:
 
