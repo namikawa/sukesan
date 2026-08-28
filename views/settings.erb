@@ -115,7 +115,7 @@
 </form>
 
 <h2 class="title is-5 mt-6">他システム向け API キー</h2>
-<p class="block"><small>同一マシン上の他システムからイベント一覧 API（<code>/api/v1/calendars/google/events</code>）を利用するためのキーです。キーは発行時に一度だけ表示され、サーバにはダイジェストのみ保存されます。権限は read（参照のみ）と write（参照＋予定の作成・削除）から選びます。</small></p>
+<p class="block"><small>同一マシン上の他システムから <code>/api/v1</code> 配下の API を利用するためのキーです。キーは発行時に一度だけ表示され、サーバにはダイジェストのみ保存されます。権限は read（参照のみ）と write（参照＋予定の作成・削除）から選びます。</small></p>
 
 <% if @new_api_key %>
   <div class="notification is-warning">

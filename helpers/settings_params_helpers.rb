@@ -6,31 +6,16 @@ module SettingsParamsHelpers
     value.to_s.match?(/\A([01]\d|2[0-3]):[0-5]\d\z/)
   end
 
-  # 同期で取得する日数（日先・Google/Outlook 共通）の許容範囲。
-  SYNC_WINDOW_DAYS_RANGE = (1..180)
-
   # スケジュール設定フォーム（/settings）の入力を SettingsStore.save の引数形に整える。
   def settings_params
     {
-      business_start: str_param(:business_start),
-      business_end: str_param(:business_end),
+      business_start: params[:business_start].to_s,
+      business_end: params[:business_end].to_s,
       business_days: business_days_param,
-      lunch_start: str_param(:lunch_start),
-      lunch_end: str_param(:lunch_end),
-      lunch_minutes: int_param(:lunch_minutes)
+      lunch_start: params[:lunch_start].to_s,
+      lunch_end: params[:lunch_end].to_s,
+      lunch_minutes: params[:lunch_minutes].to_i
     }
-  end
-
-  def sync_window_days_valid?(days)
-    SYNC_WINDOW_DAYS_RANGE.cover?(days)
-  end
-
-  def str_param(key)
-    params[key].to_s
-  end
-
-  def int_param(key)
-    params[key].to_i
   end
 
   def business_days_param

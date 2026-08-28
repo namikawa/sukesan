@@ -1,0 +1,26 @@
+<%# 空き候補の一覧（日付ごと）。登録タブ（radio で 1 件選択）と仮押さえタブ（checkbox で複数選択）で共有する。
+    days: [[Date, [FreeSlotFinder::Slot]], ...]（候補が空の日は表示しない）。
+    multiple: true なら checkbox（name="slots[]"）、false なら radio（name="slot"・必須）。
+    selected: エラー後の入力復元で checked にする slot 値（"開始ISO8601/終了ISO8601"）の配列。 %>
+<% days.each do |date, slots| %>
+  <% next if slots.empty? %>
+  <div>
+    <h3 class="day-head"><%= format_date_label(date) %></h3>
+    <ul class="slots">
+      <% slots.each do |slot| %>
+        <% slot_value = "#{slot.starts_at.iso8601}/#{slot.ends_at.iso8601}" %>
+        <li class="<%= "lunch" if slot.lunch %>">
+          <label>
+            <% if multiple %>
+              <input type="checkbox" name="slots[]" value="<%= slot_value %>" <%= "checked" if selected.include?(slot_value) %>>
+            <% else %>
+              <input type="radio" name="slot" value="<%= slot_value %>" <%= "checked" if selected.include?(slot_value) %> required>
+            <% end %>
+            <%= format_time(slot.starts_at) %> 〜 <%= format_time(slot.ends_at) %>
+            <% if slot.lunch %><span class="lunch-tag">（ランチタイム）</span><% end %>
+          </label>
+        </li>
+      <% end %>
+    </ul>
+  </div>
+<% end %>

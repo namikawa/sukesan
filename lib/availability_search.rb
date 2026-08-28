@@ -21,7 +21,7 @@ class AvailabilitySearch
   MIN_LEAD_MINUTES = 5
 
   # 検索結果。days = [[Date, [slots]], ...]
-  Result = Struct.new(:searched, :capped, :days, keyword_init: true)
+  Result = Struct.new(:capped, :days, keyword_init: true)
 
   # 開始時刻が現在＋リードタイムより手前か（過去・直前すぎる予約か）。表示・予約の両方で弾く。
   def self.too_soon?(starts_at, now: Time.now)
@@ -43,13 +43,13 @@ class AvailabilitySearch
   end
 
   # 期間（YYYY-MM-DD 文字列）と必要分数から、日付ごとの空き候補を返す。
-  # 日付が不正（非 ISO8601）・所要時間が不正な場合は空の結果（searched: true）を返す。
+  # 日付が不正（非 ISO8601）・所要時間が不正な場合は空の結果（候補 0 件）を返す。
   def search(start_date:, end_date:, duration_minutes:, now: Time.now)
     return empty_result unless valid_duration?(duration_minutes)
 
     dates, capped = business_dates_in_range(Date.iso8601(start_date.to_s), Date.iso8601(end_date.to_s))
     days = dates.empty? ? [] : slots_by_date(dates, duration_minutes, now)
-    Result.new(searched: true, capped: capped, days: days)
+    Result.new(capped: capped, days: days)
   rescue ArgumentError
     empty_result
   end
@@ -83,7 +83,7 @@ class AvailabilitySearch
   end
 
   def empty_result
-    Result.new(searched: true, capped: false, days: [])
+    Result.new(capped: false, days: [])
   end
 
   # 開始日から営業日を最大 MAX_BUSINESS_DAYS 件まで集める。

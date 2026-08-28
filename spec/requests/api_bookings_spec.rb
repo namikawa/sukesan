@@ -1,19 +1,8 @@
 # frozen_string_literal: true
 
 RSpec.describe "他システム向け API /api/v1/bookings" do
-  let(:read_key) { "r" * 64 }
-  let(:write_key) { "w" * 64 }
-  let(:created_at) { "2026-07-01T09:00:00+09:00" }
-  let(:api_keys) do
-    {
-      "read-sys" => { "digest" => Digest::SHA256.hexdigest(read_key), "created_at" => created_at,
-                      "scope" => "read" },
-      "write-sys" => { "digest" => Digest::SHA256.hexdigest(write_key), "created_at" => created_at,
-                       "scope" => "write" }
-    }
-  end
-  let(:read_auth) { { "HTTP_AUTHORIZATION" => "Bearer #{read_key}" } }
-  let(:write_auth) { { "HTTP_AUTHORIZATION" => "Bearer #{write_key}" } }
+  include_context "API リクエスト"
+
   let(:token_hash) { { "access_token" => "fake", "expires_at" => 4_102_444_800, "admin_email" => "admin@example.com" } }
   let(:settings) { SettingsStore::DEFAULT.merge("api_keys" => api_keys) }
   let(:events_url) { %r{googleapis\.com/calendar/v3/calendars/primary/events} }
@@ -39,13 +28,8 @@ RSpec.describe "他システム向け API /api/v1/bookings" do
     stub_get_event
   end
 
-  # API のチケット識別子（監査ログ・アクセスログと同じ HMAC 短縮 ID）。
-  def api_id(token)
-    "~#{MaskedAccessLogger.token_short_id(LOG_TOKEN_ID_KEY, token)}"
-  end
-
   def post_booking(body = valid_body, headers = write_auth)
-    post "/api/v1/bookings", JSON.generate(body), headers.merge("CONTENT_TYPE" => "application/json")
+    post_json("/api/v1/bookings", body, headers)
   end
 
   def post_with_key(key, body = valid_body)

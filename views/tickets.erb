@@ -42,7 +42,7 @@
       </div>
       <div class="level-right">
         <div class="level-item">
-          <form method="get" action="/tickets" class="pager-per is-flex is-align-items-center">
+          <form method="get" action="/tickets" class="is-flex is-align-items-center">
             <label class="mr-2" for="per">表示件数</label>
             <div class="select is-small mr-2">
               <select id="per" name="per" class="per-select">
@@ -71,18 +71,13 @@
         <% @tickets.each do |ticket| %>
           <% st = TicketStore.status(ticket) %>
           <% field_id = "ticket-url-#{ticket["token"]}" %>
-          <%# cancelled は修飾なし（既定のグレー）: is-light はテーマによって背景と同化して読めないため。 %>
-          <%# 未知の status（データ破損等）は "invalid"。未定義キーは既定のグレー（tag_class 空）にフォールバック。 %>
-          <% tag_class = { "active" => "is-success", "used" => "is-info", "expired" => "is-warning",
-                           "revoked" => "is-danger", "held" => "is-link", "cancelled" => "",
-                           "invalid" => "is-danger" }.fetch(st, "") %>
           <tr>
-            <td><span class="tag <%= tag_class %>"><%= ticket_status_label(ticket) %></span></td>
+            <td><span class="tag <%= ticket_status_tag_class(st) %>"><%= ticket_status_label(ticket) %></span></td>
             <td class="is-size-7 has-text-grey"><%= format_iso(ticket["created_at"]) %></td>
             <td class="is-size-7 has-text-grey"><%= ticket_expires_label(ticket) %></td>
             <td>
               <% if st == "active" %>
-                <input id="<%= field_id %>" class="input is-small ticket-url" type="text" value="<%= ticket_url(ticket["token"]) %>" readonly>
+                <input id="<%= field_id %>" class="input is-small" type="text" value="<%= ticket_url(ticket["token"]) %>" readonly>
               <%# 取消済みの予約（cancelled かつ日時あり）も登録内容を残して表示する。 %>
               <%# 仮押さえの全取りやめ（日時なし）は下の「—」に落ちる。 %>
               <% elsif st == "used" || (st == "cancelled" && ticket["slot_start"]) %>
@@ -130,7 +125,7 @@
     </table>
 
     <% if @total_pages > 1 %>
-      <nav class="pager level is-mobile" aria-label="ページ送り">
+      <nav class="level is-mobile" aria-label="ページ送り">
         <div class="level-left">
           <% if @page > 1 %>
             <a class="button is-small" href="/tickets?page=<%= @page - 1 %>&per=<%= @per %>">← 前へ</a>

@@ -151,6 +151,15 @@ module ApiHelpers
     ticket
   end
 
+  # 保存済みの Google トークンを使う（refresh 失敗・未連携は nil）。使えない場合は未連携として 503 で中断する。
+  # 状態を変える API はチケットの発行・遷移よりも先にこれを呼び、予定を作れない状態で状態だけ進めないようにする。
+  def api_google_token!
+    google_access = google_token
+    api_error!(503, "provider_not_connected", "Google カレンダーが連携されていません。") if google_access.nil?
+
+    google_access
+  end
+
   # 取消した予約の予定を Google から削除し、削除できたか（404/410＝既に無い場合も true）を返す。
   # 失敗しても例外を伝播させず false を返す: チケットは cancelled のまま維持し（取消の意思を優先する）、
   # 残った予定は管理者が手動で削除できるようにする（呼び出し側が結果を応答・通知に載せる）。

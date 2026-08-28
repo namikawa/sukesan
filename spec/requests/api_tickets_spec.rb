@@ -1,19 +1,7 @@
 # frozen_string_literal: true
 
 RSpec.describe "他システム向け API /api/v1/tickets" do
-  let(:read_key) { "r" * 64 }
-  let(:write_key) { "w" * 64 }
-  let(:created_at) { "2026-07-01T09:00:00+09:00" }
-  let(:api_keys) do
-    {
-      "read-sys" => { "digest" => Digest::SHA256.hexdigest(read_key), "created_at" => created_at,
-                      "scope" => "read" },
-      "write-sys" => { "digest" => Digest::SHA256.hexdigest(write_key), "created_at" => created_at,
-                       "scope" => "write" }
-    }
-  end
-  let(:read_auth) { { "HTTP_AUTHORIZATION" => "Bearer #{read_key}" } }
-  let(:write_auth) { { "HTTP_AUTHORIZATION" => "Bearer #{write_key}" } }
+  include_context "API リクエスト"
 
   # 一覧・詳細で常に同じキーセットを返す（値が無い項目は null）。
   let(:ticket_keys) do
@@ -24,17 +12,8 @@ RSpec.describe "他システム向け API /api/v1/tickets" do
     allow(SettingsStore).to receive(:load).and_return(SettingsStore::DEFAULT.merge("api_keys" => api_keys))
   end
 
-  # API のチケット識別子（監査ログ・アクセスログと同じ HMAC 短縮 ID）。
-  def api_id(token)
-    "~#{MaskedAccessLogger.token_short_id(LOG_TOKEN_ID_KEY, token)}"
-  end
-
-  # 書き込み系は JSON ボディで送る（Rack::Test は文字列をそのままボディにする）。
+  # 生の JSON ボディを送るケース（不正 JSON・巨大ボディ）で使う認証＋Content-Type ヘッダ。
   let(:json_headers) { write_auth.merge("CONTENT_TYPE" => "application/json") }
-
-  def post_json(path, body, headers = write_auth)
-    post path, JSON.generate(body), headers.merge("CONTENT_TYPE" => "application/json")
-  end
 
   # レスポンスの短縮 ID から、保存されている実チケットを引く（複数発行しても取り違えない）。
   def issued_ticket(id)

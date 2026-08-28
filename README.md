@@ -63,8 +63,8 @@ bin/server install|uninstall           # macOS: ログイン時の自動起動�
 
 `STORE_BACKEND` で永続化の実装を切り替える。どちらもトークン・チケットは `TOKEN_ENCRYPTION_KEY` で暗号化して保存する。
 
-- `file`（既定）: `data/` 配下のローカルファイル（0600・Atomic 書き込み）。単一ホスト前提で、開発・VM 運用向け。チケットは約 30 日で自動削除。
-- `firestore`: Cloud Run など向け。チケットの状態遷移はトランザクションで処理し、物理削除は `purge_at` の TTL ポリシーに委ねる。単一インスタンス運用（`max-instances=1`）が前提。
+- `file`（既定）: `data/` 配下のローカルファイル（0600・Atomic 書き込み）。単一ホスト前提で、開発・VM 運用向け。チケットは約 30 日で自動削除。保存先は `TICKETS_DIR` で変更できる（既定 `data/tickets`）。
+- `firestore`: Cloud Run など向け。チケットの状態遷移はトランザクションで処理し、物理削除は `purge_at` の TTL ポリシーに委ねる。単一インスタンス運用（`max-instances=1`）が前提。プロジェクト ID は `FIRESTORE_PROJECT_ID` → `GOOGLE_CLOUD_PROJECT` → `GCLOUD_PROJECT` の順に解決する。
 
 ## Cloud Run デプロイ
 
@@ -78,7 +78,7 @@ bin/server install|uninstall           # macOS: ログイン時の自動起動�
      --region asia-northeast1 \
      --allow-unauthenticated \
      --max-instances 1 \
-     --set-env-vars APP_ENV=production,STORE_BACKEND=firestore,APP_TRUST_PROXY=true,APP_BASE_URL=https://YOUR_DOMAIN,APP_TIMEZONE=Asia/Tokyo,LOG_TO_STDOUT=true \
+     --set-env-vars APP_ENV=production,STORE_BACKEND=firestore,APP_TRUST_PROXY=true,GOOGLE_CLOUD_PROJECT=YOUR_PROJECT_ID,APP_BASE_URL=https://YOUR_DOMAIN,APP_TIMEZONE=Asia/Tokyo,LOG_TO_STDOUT=true \
      --set-secrets SESSION_SECRET=SESSION_SECRET:latest,TOKEN_ENCRYPTION_KEY=TOKEN_ENCRYPTION_KEY:latest,ADMIN_PASSWORD_DIGEST=ADMIN_PASSWORD_DIGEST:latest,GOOGLE_CLIENT_ID=GOOGLE_CLIENT_ID:latest,GOOGLE_CLIENT_SECRET=GOOGLE_CLIENT_SECRET:latest
    ```
 

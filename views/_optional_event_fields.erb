@@ -1,0 +1,20 @@
+<%# 予定の任意項目（参加者メールアドレス・招待メール送付・ビデオ会議 URL・Google Meet 発行）。
+    登録フォーム（/t/:token の登録タブ）と仮押さえの決定フォーム（決定画面）で共有する。
+    restore: エラー後に復元する入力値のハッシュ。
+    form: 入れ子にできない別フォームへ紐づけるときの form 属性値（nil なら form 属性自体を出力しない）。 %>
+<div class="field">
+  <label class="label">参加者メールアドレス <span class="has-text-grey is-size-7">（任意）</span></label>
+  <div class="control"><textarea class="textarea" name="attendees" rows="3" <% if form %>form="<%= form %>" <% end %>placeholder="複数可。改行・カンマ・スペース区切りで入力できます"><%= restore["attendees"] %></textarea></div>
+</div>
+<label class="checkbox mb-4">
+  <input type="checkbox" name="send_invites" value="1" <% if form %>form="<%= form %>" <% end %><%= "checked" if restore["send_invites"] == "1" %>>
+  参加者に招待メールを送る <span class="has-text-grey is-size-7">（任意・上の参加者メールアドレスを入力した場合のみ）</span>
+</label>
+<div class="field">
+  <label class="label">ビデオ会議用URLのご指定があればご記入ください <span class="has-text-grey is-size-7">（任意）</span></label>
+  <div class="control"><input class="input" type="url" name="video_url" value="<%= restore["video_url"] %>" <% if form %>form="<%= form %>" <% end %>placeholder="例: https://zoom.us/j/..."></div>
+</div>
+<label class="checkbox mb-4">
+  <input type="checkbox" name="request_meet" value="1" <% if form %>form="<%= form %>" <% end %><%= "checked" if restore["request_meet"] == "1" %>>
+  Google Meet のリンクを発行する <span class="has-text-grey is-size-7">（任意・ビデオ会議用 URL とは併用できません）</span>
+</label>

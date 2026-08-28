@@ -94,41 +94,9 @@
           <input type="checkbox" name="private_event" value="1" <%= "checked" if book_restore["private_event"] == "1" %>>
           予定を非公開にする <span class="has-text-grey is-size-7">（任意・カレンダー上で他の人には「予定あり」とだけ表示されます）</span>
         </label>
-        <div class="field">
-          <label class="label">参加者メールアドレス <span class="has-text-grey is-size-7">（任意）</span></label>
-          <div class="control"><textarea class="textarea" name="attendees" rows="3" placeholder="複数可。改行・カンマ・スペース区切りで入力できます"><%= book_restore["attendees"] %></textarea></div>
-        </div>
-        <label class="checkbox mb-4">
-          <input type="checkbox" name="send_invites" value="1" <%= "checked" if book_restore["send_invites"] == "1" %>>
-          参加者に招待メールを送る <span class="has-text-grey is-size-7">（任意・上の参加者メールアドレスを入力した場合のみ）</span>
-        </label>
-        <div class="field">
-          <label class="label">ビデオ会議用URLのご指定があればご記入ください <span class="has-text-grey is-size-7">（任意）</span></label>
-          <div class="control"><input class="input" type="url" name="video_url" value="<%= book_restore["video_url"] %>" placeholder="例: https://zoom.us/j/..."></div>
-        </div>
-        <label class="checkbox mb-4">
-          <input type="checkbox" name="request_meet" value="1" <%= "checked" if book_restore["request_meet"] == "1" %>>
-          Google Meet のリンクを発行する <span class="has-text-grey is-size-7">（任意・ビデオ会議用 URL とは併用できません）</span>
-        </label>
+        <%== partial(:optional_event_fields, restore: book_restore, form: nil) %>
 
-        <% @results.each do |date, slots| %>
-          <% next if slots.empty? %>
-          <div class="day-group">
-            <h3 class="day-head"><%= format_date_label(date) %></h3>
-            <ul class="slots">
-              <% slots.each do |slot| %>
-                <% slot_value = "#{slot.starts_at.iso8601}/#{slot.ends_at.iso8601}" %>
-                <li class="<%= "lunch" if slot.lunch %>">
-                  <label>
-                    <input type="radio" name="slot" value="<%= slot_value %>" <%= "checked" if book_restore["slot"] == slot_value %> required>
-                    <%= format_time(slot.starts_at) %> 〜 <%= format_time(slot.ends_at) %>
-                    <% if slot.lunch %><span class="lunch-tag">（ランチタイム）</span><% end %>
-                  </label>
-                </li>
-              <% end %>
-            </ul>
-          </div>
-        <% end %>
+        <%== partial(:slot_list, days: @results, multiple: false, selected: Array(book_restore["slot"])) %>
         <button type="submit" class="button is-primary mt-4">スケジュール登録する</button>
       </form>
     </section>
@@ -155,24 +123,7 @@
           予定を非公開にする <span class="has-text-grey is-size-7">（任意・カレンダー上で他の人には「予定あり」とだけ表示されます）</span>
         </label>
 
-        <% @results.each do |date, slots| %>
-          <% next if slots.empty? %>
-          <div class="day-group">
-            <h3 class="day-head"><%= format_date_label(date) %></h3>
-            <ul class="slots">
-              <% slots.each do |slot| %>
-                <% slot_value = "#{slot.starts_at.iso8601}/#{slot.ends_at.iso8601}" %>
-                <li class="<%= "lunch" if slot.lunch %>">
-                  <label>
-                    <input type="checkbox" name="slots[]" value="<%= slot_value %>" <%= "checked" if hold_restore["slots"]&.include?(slot_value) %>>
-                    <%= format_time(slot.starts_at) %> 〜 <%= format_time(slot.ends_at) %>
-                    <% if slot.lunch %><span class="lunch-tag">（ランチタイム）</span><% end %>
-                  </label>
-                </li>
-              <% end %>
-            </ul>
-          </div>
-        <% end %>
+        <%== partial(:slot_list, days: @results, multiple: true, selected: Array(hold_restore["slots"])) %>
         <div class="mt-4">
           <span id="hold-count" class="is-size-7 has-text-grey mr-3"></span>
           <button type="submit" class="button is-primary">選択した日程を仮押さえする</button>
