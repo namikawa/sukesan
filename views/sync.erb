@@ -47,9 +47,9 @@
       </label>
       <input class="input is-small input-days" type="number" name="sync_window_days"
              value="<%= @settings["sync_window_days"] %>"
-             min="<%= SettingsParamsHelpers::SYNC_WINDOW_DAYS_RANGE.min %>"
-             max="<%= SettingsParamsHelpers::SYNC_WINDOW_DAYS_RANGE.max %>" step="1">
-      <span>日先まで（当日 0:00 起点・最大 <%= SyncHelpers::MAX_SYNC_RANGE_DAYS %>）</span>
+             min="<%= SyncHelpers::SYNC_WINDOW_DAYS_RANGE.min %>"
+             max="<%= SyncHelpers::SYNC_WINDOW_DAYS_RANGE.max %>" step="1">
+      <span>日先まで（当日 0:00 起点・最大 <%= SyncHelpers::SYNC_WINDOW_DAYS_RANGE.max %>）</span>
     </div>
 
     <div class="sync-line mb-3">
@@ -60,7 +60,7 @@
       <input class="input is-small input-auto" type="date" name="start_date">
       <span>〜</span>
       <input class="input is-small input-auto" type="date" name="end_date">
-      <span>（最大 <%= SyncHelpers::MAX_SYNC_RANGE_DAYS %> 日）</span>
+      <span>（最大 <%= SyncHelpers::SYNC_WINDOW_DAYS_RANGE.max %> 日）</span>
     </div>
 
     <label class="checkbox test-toggle mb-3">

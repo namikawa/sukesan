@@ -8,6 +8,14 @@ module FormatHelpers
     "held" => "仮押さえ中", "cancelled" => "キャンセル", "invalid" => "不正"
   }.freeze
 
+  # 同じ一覧のステータスに対応する Bulma のタグ色（上のラベルと対で持ち、片方だけ増減しないようにする）。
+  # cancelled は修飾なし（既定のグレー）: is-light はテーマによって背景と同化して読めないため。
+  # 未知の status（データ破損等）は "invalid"。未定義キーは既定のグレー（空文字）にフォールバック。
+  TICKET_STATUS_TAG_CLASSES = {
+    "active" => "is-success", "used" => "is-info", "expired" => "is-warning",
+    "revoked" => "is-danger", "held" => "is-link", "cancelled" => "", "invalid" => "is-danger"
+  }.freeze
+
   # 曜日の表示順とラベル（Ruby の wday: 0=日〜6=土）。月曜始まりで表示する。
   WEEKDAY_LABELS = { 0 => "日", 1 => "月", 2 => "火", 3 => "水", 4 => "木", 5 => "金", 6 => "土" }.freeze
   WEEKDAY_ORDER = [1, 2, 3, 4, 5, 6, 0].freeze
@@ -40,6 +48,10 @@ module FormatHelpers
 
   def ticket_status_label(ticket)
     TICKET_STATUS_LABELS.fetch(TicketStore.status(ticket), "不明")
+  end
+
+  def ticket_status_tag_class(status)
+    TICKET_STATUS_TAG_CLASSES.fetch(status, "")
   end
 
   # チケットの有効期限（active は発行時に選んだ期間、held は仮押さえ期限）。日時が不正なら空。

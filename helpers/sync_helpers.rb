@@ -1,26 +1,30 @@
 # frozen_string_literal: true
 
-require_relative "settings_params_helpers"
-
 # Outlook 同期（管理者専用）を支えるヘルパ。
 module SyncHelpers
-  # 日付範囲指定で許可する最大日数（開始〜終了の差）。日数指定の上限から導出し、二重定義を避ける。
-  MAX_SYNC_RANGE_DAYS = SettingsParamsHelpers::SYNC_WINDOW_DAYS_RANGE.max
+  # 同期で取得する範囲（Google/Outlook 共通）の許容日数。日数指定（当日 0:00 から N 日先）と
+  # 日付範囲指定（開始〜終了の差）の両方でこの範囲を使う。
+  SYNC_WINDOW_DAYS_RANGE = (1..180)
 
   # チェック時のパラメータから取得期間 [time_min, time_max] とエラーメッセージを返す。
   # 戻り値: [window(=[min,max]) または nil, エラーメッセージ または nil]
   # 日数モードでは入力日数を既定値として保存する（前回値を覚える）。
   def resolve_sync_window(params)
+    min_days, max_days = SYNC_WINDOW_DAYS_RANGE.minmax
     if params[:range_mode] == "range"
       window = range_window(params[:start_date], params[:end_date])
-      window ? [window, nil] : [nil, "日付範囲が正しくありません（開始 ≤ 終了・最大 #{MAX_SYNC_RANGE_DAYS} 日）。"]
+      window ? [window, nil] : [nil, "日付範囲が正しくありません（開始 ≤ 終了・最大 #{max_days} 日）。"]
     else
       days = params[:sync_window_days].to_i
-      return [nil, "取得日数は 1〜#{MAX_SYNC_RANGE_DAYS} 日で入力してください。"] unless sync_window_days_valid?(days)
+      return [nil, "取得日数は #{min_days}〜#{max_days} 日で入力してください。"] unless sync_window_days_valid?(days)
 
       SettingsStore.save(sync_window_days: days) # 日数モードのチェック時は既定値として保存
       [days_window(days), nil]
     end
+  end
+
+  def sync_window_days_valid?(days)
+    SYNC_WINDOW_DAYS_RANGE.cover?(days)
   end
 
   # 当日 0:00 から days 日先までの期間。
@@ -33,7 +37,7 @@ module SyncHelpers
   def range_window(start_str, end_str)
     start_date = Date.iso8601(start_str.to_s)
     end_date = Date.iso8601(end_str.to_s)
-    return nil if end_date < start_date || (end_date - start_date).to_i > MAX_SYNC_RANGE_DAYS
+    return nil if end_date < start_date || (end_date - start_date).to_i > SYNC_WINDOW_DAYS_RANGE.max
 
     [local_midnight(start_date), local_midnight(end_date) + 86_400]
   rescue ArgumentError

@@ -33,6 +33,9 @@ require "rack/test"
 require "webmock/rspec"
 require_relative "../app"
 
+# 複数のスペックで共有する shared_context（.rspec は spec_helper のみ require するためここで読み込む）。
+require_relative "support/api_request_context"
+
 # リクエストスペック用のヘルパ（Sinatra アプリを直接叩く）。
 module RequestHelpers
   include Rack::Test::Methods

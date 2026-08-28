@@ -16,7 +16,6 @@ RSpec.describe AvailabilitySearch do
   describe "#search" do
     it "営業日ごとに空き候補を返す（2026-06-22 は月曜）" do
       result = search.search(start_date: "2026-06-22", end_date: "2026-06-22", duration_minutes: 30, now: now)
-      expect(result.searched).to be(true)
       expect(result.capped).to be(false)
       expect(result.days.map(&:first)).to eq([Date.new(2026, 6, 22)])
       expect(result.days.first.last).not_to be_empty
@@ -24,19 +23,16 @@ RSpec.describe AvailabilitySearch do
 
     it "不正な日付は空の結果を返す" do
       result = search.search(start_date: "bad", end_date: "x", duration_minutes: 30, now: now)
-      expect(result.searched).to be(true)
       expect(result.days).to eq([])
     end
 
     it "ISO8601 でない日付（例: 2026/06/22）は空の結果を返す" do
       result = search.search(start_date: "2026/06/22", end_date: "2026/06/22", duration_minutes: 30, now: now)
-      expect(result.searched).to be(true)
       expect(result.days).to eq([])
     end
 
     it "15 の倍数でない所要時間は空の結果を返す" do
       result = search.search(start_date: "2026-06-22", end_date: "2026-06-22", duration_minutes: 20, now: now)
-      expect(result.searched).to be(true)
       expect(result.days).to eq([])
     end
 

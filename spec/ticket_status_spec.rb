@@ -68,6 +68,11 @@ RSpec.describe TicketStatus do
       expect(described_class.status(t, now: boundary)).to eq("held")
       expect(described_class.status(t, now: boundary + 1)).to eq("expired")
     end
+
+    # 発行画面の選択肢だけを増やすと、選べるのに fail-closed で 24 時間へ落とされる不整合になる。
+    it "発行画面の選択肢（FormatHelpers::TICKET_TTL_OPTIONS）と許可値のキーが一致する" do
+      expect(FormatHelpers::TICKET_TTL_OPTIONS.keys).to match_array(described_class::ALLOWED_TTL_HOURS)
+    end
   end
 
   describe ".normalize_ttl_hours（発行時の入力の正規化）" do

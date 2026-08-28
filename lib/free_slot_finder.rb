@@ -3,7 +3,7 @@
 require "time"
 
 # 指定日の営業時間内で、指定した所要時間ぶんの空き時間候補を算出する。
-# 既存の予定（busy_events）と重ならない開始時刻を step_minutes 刻みで列挙する。
+# 既存の予定（busy_events）と重ならない開始時刻を STEP_MINUTES 刻みで列挙する。
 #
 # あわせて、昼休憩（lunch_start〜lunch_end の間に連続 lunch_minutes 分）を確保するため、
 # 「その枠を入れると休憩用の連続空きが lunch_minutes 分未満になる」候補には lunch フラグを立てる。
@@ -14,6 +14,9 @@ require "time"
 class FreeSlotFinder
   Slot = Struct.new(:starts_at, :ends_at, :lunch, keyword_init: true)
 
+  # 候補の開始時刻の刻み（分）。営業開始からこの間隔で候補を並べる。
+  STEP_MINUTES = 30
+
   # カレンダー上の既存ランチ予定とみなす件名のパターン（lunch は大文字小文字を問わない）。
   LUNCH_TITLE_PATTERN = /ランチ|らんち|lunch/i
   # 既存ランチ予定を探す当日の時間レンジ。設定の昼休憩時間帯（lunch_start〜lunch_end）より広い
@@ -23,14 +26,13 @@ class FreeSlotFinder
   LUNCH_EVENT_SCAN_END = "16:00"
 
   def initialize(business_start:, business_end:, business_days: (0..6).to_a,
-                 lunch_start: "11:00", lunch_end: "14:00", lunch_minutes: 60, step_minutes: 30)
+                 lunch_start: "11:00", lunch_end: "14:00", lunch_minutes: 60)
     @business_start = business_start
     @business_end = business_end
     @business_days = business_days
     @lunch_start = lunch_start
     @lunch_end = lunch_end
     @lunch_minutes = lunch_minutes.to_i
-    @step_minutes = step_minutes
   end
 
   # date: Date、duration_minutes: Integer、busy_events: Array<Event>
@@ -49,7 +51,7 @@ class FreeSlotFinder
   def build_slots(date, duration, busy)
     window_start = at(date, @business_start)
     window_end = at(date, @business_end)
-    step = @step_minutes * 60
+    step = STEP_MINUTES * 60
 
     slots = []
     start = window_start
