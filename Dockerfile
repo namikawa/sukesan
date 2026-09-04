@@ -6,8 +6,12 @@
 # .ruby-version / Gemfile / Gemfile.lock との一致は bin/check_ruby_version（CI）で検証する。
 ARG RUBY_VERSION=3.4.10
 
+# ベース OS は codename まで明示する。codename 無しの `-slim` はタグ文字列が変わらないまま指す
+# Debian が入れ替わり（実際 3.4.10-slim は 2026-08-28 に bookworm から trixie へ切り替わった）、
+# バージョン文字列が同じなので Dependabot も検知しない。上げるときは両 FROM を揃えて変更する。
+
 # ---- builder: ネイティブ拡張（bcrypt 等）のビルドだけを行う ----
-FROM ruby:${RUBY_VERSION}-slim AS builder
+FROM ruby:${RUBY_VERSION}-slim-trixie AS builder
 
 # bcrypt のネイティブ拡張ビルドに必要（grpc 等は precompiled gem を利用）。
 RUN apt-get update -qq \
@@ -25,7 +29,7 @@ COPY Gemfile Gemfile.lock ./
 RUN bundle install && rm -rf /usr/local/bundle/cache
 
 # ---- runtime: compiler toolchain を含まない最終イメージ ----
-FROM ruby:${RUBY_VERSION}-slim
+FROM ruby:${RUBY_VERSION}-slim-trixie
 
 WORKDIR /app
 
