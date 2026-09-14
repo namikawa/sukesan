@@ -10,6 +10,11 @@
   var LOCKED_ATTR = "data-submit-locked"; // このスクリプトが無効化したボタンの目印
   var MESSAGE_CLASS = "submit-pending-message"; // 挿入した案内文の識別子（削除用）
 
+  // ページ内で送信が始まったら、フォームをまたいで以降の送信を止める。フォーム単位で
+  // 持つと、ボタン無効化までの隙間（次のタスクまで）に別フォームの送信が通ってしまう
+  // （決定画面は候補ごとに削除フォームが分かれており、別 slot への 2 件が両方成立する）。
+  var submitting = false;
+
   // e.submitter が取れないブラウザ向けのフォールバック。決定画面のボタンやラジオは
   // form 属性で別の form 要素に紐づいており子孫ではないため、querySelector でなく
   // form 属性による関連付けも含む form.elements から探す。
@@ -42,14 +47,14 @@
   }
 
   document.addEventListener("submit", function (e) {
-    var form = e.target;
-
     // 二重送信のガード。フラグは同期的に立てる（ボタン無効化前の再送信も止めるため）。
-    if (form.dataset.submitting) {
+    if (submitting) {
       e.preventDefault();
       return;
     }
-    form.dataset.submitting = "1";
+    submitting = true;
+
+    var form = e.target;
     form.setAttribute("aria-busy", "true");
 
     var button = e.submitter || fallbackSubmitter(form);
@@ -58,19 +63,20 @@
     setTimeout(function () { lock(form, button); }, 0);
   });
 
-  // 「戻る」で bfcache から復帰したページは無効化したままの状態が残るので元に戻す。
+  // 「戻る」で bfcache から復帰したページは送信中の状態が残るので元に戻す
+  // （フラグを戻し忘れると、復帰したページから二度と送信できなくなる）。
   window.addEventListener("pageshow", function (e) {
     if (!e.persisted) return;
 
+    submitting = false;
     document.querySelectorAll("[" + LOCKED_ATTR + "]").forEach(function (el) {
       el.removeAttribute(LOCKED_ATTR);
       el.disabled = false;
       el.classList.remove("is-loading");
     });
     document.querySelectorAll("." + MESSAGE_CLASS).forEach(function (el) { el.remove(); });
-    Array.prototype.slice.call(document.forms).forEach(function (form) {
-      delete form.dataset.submitting;
-      form.removeAttribute("aria-busy");
+    document.querySelectorAll("[aria-busy]").forEach(function (el) {
+      el.removeAttribute("aria-busy");
     });
   });
 })();
