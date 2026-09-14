@@ -1,6 +1,6 @@
 // 送信ボタンの二重押し防止と処理中表示。外部カレンダー API を叩く画面（スケジュール同期・
 // 空き時間チェック・予約・仮押さえ）は応答まで数秒〜数十秒かかるため、押されたボタンを
-// 無効化＋スピナー表示にし、同じページの他の送信ボタンも処理が終わるまで押せなくする。
+// 無効化して横にスピナーを出し、同じページの他の送信ボタンも処理が終わるまで押せなくする。
 // ページごとに書かず document の submit イベント委譲で一括して扱う。
 // CSP（script-src 'self'）維持のため外部ファイルとして読み込む（インライン不可）。
 (function () {
@@ -8,7 +8,7 @@
 
   var PENDING_MESSAGE = "処理中です。しばらくお待ちください。";
   var LOCKED_ATTR = "data-submit-locked"; // このスクリプトが無効化したボタンの目印
-  var MESSAGE_CLASS = "submit-pending-message"; // 挿入した案内文の識別子（削除用）
+  var INDICATOR_ATTR = "data-submit-indicator"; // 挿入した表示要素（スピナー・案内文）の目印
 
   // ページ内で送信が始まったら、フォームをまたいで以降の送信を止める。フォーム単位で
   // 持つと、ボタン無効化までの隙間（次のタスクまで）に別フォームの送信が通ってしまう
@@ -24,12 +24,25 @@
     })[0];
   }
 
-  function showPendingMessage(button) {
+  // 押されたボタンの直後にスピナーを挿す（ボタン内に描く Bulma の is-loading は
+  // ラベルを隠してしまうため使わない。何を押したのかを残す）。スピナーは装飾なので
+  // aria-hidden とし、状態は disabled と案内文で伝える。
+  function showIndicators(form, button) {
+    var spinner = document.createElement("span");
+    spinner.className = "loader submit-spinner";
+    spinner.setAttribute(INDICATOR_ATTR, "");
+    spinner.setAttribute("aria-hidden", "true");
+    button.insertAdjacentElement("afterend", spinner);
+
+    // 待ち時間が長い操作（data-pending）だけ、スピナーの後ろに案内文を出す。
+    if (!form.hasAttribute("data-pending")) return;
+
     var message = document.createElement("p");
-    message.className = MESSAGE_CLASS + " is-size-7 has-text-grey mt-2";
+    message.className = "is-size-7 has-text-grey mt-2";
+    message.setAttribute(INDICATOR_ATTR, "");
     message.setAttribute("aria-live", "polite");
     message.textContent = PENDING_MESSAGE;
-    button.insertAdjacentElement("afterend", message);
+    spinner.insertAdjacentElement("afterend", message);
   }
 
   function lock(form, button) {
@@ -39,11 +52,7 @@
         el.setAttribute(LOCKED_ATTR, "");
         el.disabled = true;
       });
-    if (!button) return;
-
-    button.classList.add("is-loading");
-    // 待ち時間が長い操作（data-pending）だけ、押したボタンの直後に案内文を出す。
-    if (form.hasAttribute("data-pending")) showPendingMessage(button);
+    if (button) showIndicators(form, button);
   }
 
   document.addEventListener("submit", function (e) {
@@ -72,9 +81,8 @@
     document.querySelectorAll("[" + LOCKED_ATTR + "]").forEach(function (el) {
       el.removeAttribute(LOCKED_ATTR);
       el.disabled = false;
-      el.classList.remove("is-loading");
     });
-    document.querySelectorAll("." + MESSAGE_CLASS).forEach(function (el) { el.remove(); });
+    document.querySelectorAll("[" + INDICATOR_ATTR + "]").forEach(function (el) { el.remove(); });
     document.querySelectorAll("[aria-busy]").forEach(function (el) {
       el.removeAttribute("aria-busy");
     });
