@@ -78,3 +78,11 @@ a.menu-card:hover { border: 1px solid var(--bulma-link, #485fc7); }
 .test-toggle input[type="checkbox"] { transform: scale(0.85); }
 .input-days { width: 6rem; }
 .input-auto { width: auto; }
+
+/* 送信中（form-submit.js）のボタンは disabled で背景がページ地色に戻るため、Bulma 既定の
+   スピナー色（ボタンの文字色。is-primary はほぼ黒）ではダークテーマで背景に沈む。
+   ライト・ダークとも追従する本文色に固定する。 */
+.button.is-loading[disabled]::after {
+  border-bottom-color: var(--bulma-text);
+  border-left-color: var(--bulma-text);
+}
