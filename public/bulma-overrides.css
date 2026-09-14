@@ -78,3 +78,17 @@ a.menu-card:hover { border: 1px solid var(--bulma-link, #485fc7); }
 .test-toggle input[type="checkbox"] { transform: scale(0.85); }
 .input-days { width: 6rem; }
 .input-auto { width: auto; }
+
+/* 送信中のスピナー（form-submit.js が押されたボタンの直後に挿入）。ボタン内に出す Bulma の
+   is-loading はラベルを隠し、disabled の opacity も掛かって薄くなるため、ボタンの横に並べる。
+   .loader 既定の色（--bulma-border）は背景に沈むので本文色にする。 */
+.submit-spinner {
+  display: inline-block;
+  vertical-align: middle;
+  margin-left: 0.5rem;
+  border-bottom-color: var(--bulma-text);
+  border-left-color: var(--bulma-text);
+}
+/* Bulma のボタンは vertical-align: top のため、スピナーだけを middle にすると上付きに見える。
+   隣り合う両方を middle にして互いの中心で揃える（ボタンの大きさに依らず中央になる）。 */
+.button:has(+ .submit-spinner) { vertical-align: middle; }

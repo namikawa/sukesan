@@ -35,7 +35,7 @@
 </div>
 
 <% if google_connected? && microsoft_connected? %>
-  <form method="post" action="/check" class="box">
+  <form method="post" action="/check" class="box" data-pending>
     <input type="hidden" name="authenticity_token" value="<%= csrf_token %>">
     <h2 class="title is-6">取得範囲（Google・Outlook 共通）</h2>
     <p class="block is-size-7 has-text-grey">Google・Outlook の両方から、指定した範囲の予定を取得して差分を照合します。</p>
@@ -94,7 +94,7 @@
     </tbody>
   </table>
 <% elsif @events.any? %>
-  <form method="post" action="/sync" id="sync-form">
+  <form method="post" action="/sync" id="sync-form" data-pending>
     <input type="hidden" name="authenticity_token" value="<%= csrf_token %>">
     <table class="table is-fullwidth is-hoverable">
       <thead>

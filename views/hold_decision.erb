@@ -8,7 +8,7 @@
   <p class="block is-size-7 has-text-grey">決定期限: <strong><%= format_dt(@deadline) %></strong>。期限内に 1 件へ決定するか、不要な日程を削除できます。期限を過ぎると仮押さえは無効になります。</p>
 
   <%# 決定フォーム本体。候補のラジオは form 属性でこのフォームに紐づける（削除フォームと入れ子にしないため）。 %>
-  <form method="post" action="/hold/confirm" id="confirm-form">
+  <form method="post" action="/hold/confirm" id="confirm-form" data-pending>
     <input type="hidden" name="authenticity_token" value="<%= csrf_token %>">
     <input type="hidden" name="token" value="<%= @token %>">
   </form>
@@ -48,7 +48,7 @@
     </div>
   </div>
 
-  <form method="post" action="/hold/cancel" class="mt-4 mb-4">
+  <form method="post" action="/hold/cancel" class="mt-4 mb-4" data-pending>
     <input type="hidden" name="authenticity_token" value="<%= csrf_token %>">
     <input type="hidden" name="token" value="<%= @token %>">
     <button type="submit" class="button is-small is-danger is-light">すべて削除して仮押さえスケジュールを解放する</button>

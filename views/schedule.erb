@@ -14,7 +14,7 @@
 <% end %>
 
 <% if google_connected? %>
-  <form method="get" action="/t/<%= @token %>" class="box">
+  <form method="get" action="/t/<%= @token %>" class="box" data-pending>
     <div class="columns is-mobile is-multiline">
       <div class="column is-narrow">
         <div class="field">
@@ -75,7 +75,7 @@
 
     <section id="tab-book">
       <p class="block">希望の時間帯を 1 つ選び、依頼者名と予定名を入力して「スケジュール登録する」を押してください。</p>
-      <form method="post" action="/schedule" class="box">
+      <form method="post" action="/schedule" class="box" data-pending>
         <input type="hidden" name="authenticity_token" value="<%= csrf_token %>">
         <input type="hidden" name="token" value="<%= @token %>">
         <%# 入力エラー時に候補一覧の表示状態へ戻れるよう、検索条件を引き回す（redirect_with_alert! が使用）。 %>
@@ -103,7 +103,7 @@
 
     <section id="tab-hold">
       <p class="block">複数の日程（最大 <%= HoldService::MAX_HOLDS %> 件）を「[仮ブロック]」としてカレンダーに仮押さえできます。仮押さえ後、この URL から 7 日以内に 1 件へ決定してください。参加者やビデオ会議は決定時に指定できます。</p>
-      <form method="post" action="/hold" class="box" id="hold-form" data-max-holds="<%= HoldService::MAX_HOLDS %>">
+      <form method="post" action="/hold" class="box" id="hold-form" data-max-holds="<%= HoldService::MAX_HOLDS %>" data-pending>
         <input type="hidden" name="authenticity_token" value="<%= csrf_token %>">
         <input type="hidden" name="token" value="<%= @token %>">
         <%# 入力エラー時に候補一覧の表示状態へ戻れるよう、検索条件を引き回す（redirect_with_alert! が使用）。 %>

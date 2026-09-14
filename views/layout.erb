@@ -13,5 +13,7 @@
   <main class="container">
     <section class="section"><%== yield %></section>
   </main>
+  <%# 送信ボタンの二重押し防止・処理中表示は全画面共通（詳細は public/form-submit.js）。 %>
+  <script src="/form-submit.js"></script>
 </body>
 </html>
