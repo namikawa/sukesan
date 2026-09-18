@@ -43,7 +43,7 @@ cp .env.example .env   # 各項目の説明は .env.example 内のコメント�
 
 - Google OAuth（必須）: Google Cloud Console で Calendar API を有効化し、OAuth クライアント ID（ウェブ）を作成。リダイレクト URI に `http://localhost:3000/auth/google/callback` を登録。スコープは `calendar.events` と `userinfo.email`。
 - Microsoft（Outlook 同期を使う場合のみ）: Azure でアプリ登録し、リダイレクト URI `http://localhost:3000/auth/microsoft/callback` を登録。委任アクセス許可 `Calendars.Read` と `offline_access` を付与。
-- 管理者パスワードは `bin/admin_password_digest` で bcrypt ダイジェストを生成し、`ADMIN_PASSWORD_DIGEST` に設定する。
+- 管理者パスワードは `bin/admin_password_digest` で bcrypt ダイジェストを生成し、`ADMIN_PASSWORD_DIGEST` に設定する（値は必ずシングルクォートで囲む）。ログインが通らないときは `bin/check_admin_password` で入力とダイジェストのどちらが食い違っているかを診断できる（平文は表示しない）。
 - `TOKEN_ENCRYPTION_KEY` は保存トークン・チケットの暗号鍵。変更・紛失すると既存の保存データは復号できない。
 
 ## 起動・運用
