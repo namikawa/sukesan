@@ -107,7 +107,7 @@ module OAuthHelpers
   end
 
   # プロバイダ別ロック内で再読込→再判定→refresh→save を行い、並行 refresh や保存競合を防ぐ
-  # （ダブルチェックロック）。保存は hash.merge(token.to_hash) で、トークン項目だけ更新し
+  # （ダブルチェックロック）。保存は文字列キーに揃えてマージし、トークン項目だけ更新して
   # 追加キー（admin_email 等）を保つ。
   def refresh_oauth_token(provider, client)
     TokenStore.with_lock(provider) do
@@ -117,7 +117,7 @@ module OAuthHelpers
       token = OAuth2::AccessToken.from_hash(client, hash)
       if token.expired? && token.refresh_token
         token = token.refresh!
-        TokenStore.save(hash.merge(token.to_hash), provider)
+        TokenStore.save(hash.merge(token.to_hash.transform_keys(&:to_s)), provider)
       end
       token
     end
