@@ -33,6 +33,7 @@ require_relative "lib/hold_service"
 require_relative "lib/masked_access_logger"
 require_relative "lib/audit_log"
 require_relative "lib/slack_notifier"
+require_relative "lib/server_log_rotation"
 
 require_relative "helpers/auth_helpers"
 require_relative "helpers/oauth_helpers"
@@ -52,6 +53,7 @@ require_relative "helpers/api_serializers"
 # 以降の Time.now / Time.local / getlocal はすべてこのタイムゾーンで解釈・表示される。
 APP_TIMEZONE = ENV.fetch("APP_TIMEZONE", "Asia/Tokyo")
 ENV["TZ"] = APP_TIMEZONE
+ServerLogRotation.start(ENV.fetch("LOG_FILE", nil))
 
 set :bind, "0.0.0.0"
 set :port, ENV.fetch("PORT", "3000").to_i

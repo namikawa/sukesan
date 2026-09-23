@@ -55,7 +55,7 @@ bin/server install|uninstall           # macOS: ログイン時の自動起動�
 
 - ブラウザで <http://localhost:3000>（ポートは `PORT` で変更可）。
 - macOS で常駐させるには `bin/server install`。`deploy/com.sukesan.server.plist` をパス置換して `~/Library/LaunchAgents/` に設置し、launchd に登録する（ログイン時に自動起動・落ちたら再起動）。以後 `start` / `stop` / `restart` / `status` は launchctl に委譲され、未設置なら従来どおり PID ファイルで管理する。解除は `bin/server uninstall`。
-- ログは `log/` 配下で週次ローテーション。アクセスログはトークン・OAuth code をマスクし、監査ログは操作を 1 行 JSON で記録する。`LOG_TO_STDOUT=true` で stdout へ切替（コンテナ向け）。
+- `log/` のアクセス・監査・サーバログは週次ローテーション。サーバログは stdout/stderr の両方が `LOG_FILE`（既定 `log/server.log`）を指す場合に切り替える。アクセスログはトークン・OAuth code をマスクし、監査ログは操作を 1 行 JSON で記録する。`LOG_TO_STDOUT=true` でアクセス・監査ログを stdout へ切替（コンテナ向け）。
 - OS サービス登録用テンプレートは `deploy/`（macOS は `com.sukesan.server.plist`＝`bin/server install` が使う、Linux は systemd の `sukesan.service`。どちらも `bin/server run` を起動コマンドにする）。
 - `APP_ENV=production` で本番ハードニング（HTTPS 必須リダイレクト・Secure Cookie・HSTS 等）が有効になる。HTTPS は前段プロキシで終端し、`APP_TRUST_PROXY=true` を設定する。
 
