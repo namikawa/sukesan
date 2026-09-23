@@ -59,10 +59,11 @@ set :port, ENV.fetch("PORT", "3000").to_i
 # ERB 出力を既定で HTML エスケープする（XSS 対策）。生 HTML を通す箇所は <%== %> を使う。
 set :erb, escape_html: true
 
-# 本番では詳細なエラー表示を抑止する（開発は Sinatra 既定の詳細表示のまま）。
+# 例外にはトークン等の秘密が含まれ得るため、全環境で Sinatra の詳細表示と例外ダンプを抑止する。
+set :show_exceptions, false
+set :dump_errors, false
+
 configure :production do
-  set :show_exceptions, false
-  set :dump_errors, false
   set :raise_errors, false
 end
 
