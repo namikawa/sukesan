@@ -24,7 +24,7 @@ cd "$ROOT"
 APP_NAME="sukesan"
 export PORT="${PORT:-3000}" # app.rb が ENV から読む（bind/port は app.rb で設定）
 PID_FILE="${PID_FILE:-$ROOT/tmp/pids/server.pid}"
-LOG_FILE="${LOG_FILE:-$ROOT/log/server.log}"
+export LOG_FILE="${LOG_FILE:-$ROOT/log/server.log}"
 # Sinatra クラシック起動（rackup 既定のミドルウェア＝stderr へのアクセスログを入れないため）。
 # アクセスログは app.rb 内の Rack::CommonLogger が週次ローテーションの log/access.log に出す。
 START_CMD=(bundle exec ruby app.rb)
