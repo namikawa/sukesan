@@ -84,6 +84,10 @@ bin/server install|uninstall           # macOS: ログイン時の自動起動�
 
 4. 独自ドメインはロードバランサを使わず Cloud Run のドメインマッピングで割り当て、`APP_BASE_URL` と OAuth の redirect_uri を本番ドメインに合わせる。`--max-instances 1` は同一枠の二重予約防止の前提。
 
+## バージョン・変更履歴
+
+リリースごとに `vX.Y.Z` のタグと [GitHub Releases](https://github.com/namikawa/sukesan/releases) を作ります。各版の変更は [CHANGELOG.md](CHANGELOG.md)、リリース手順は [docs/release.md](docs/release.md) を参照してください。
+
 ## 開発
 
 ```bash
