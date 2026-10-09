@@ -166,7 +166,7 @@ get "/sync" do
   if @events.nil?
     @checked = false
     @events = []
-    @flash_alert ||= "カレンダー連携の更新に失敗しました。お手数ですが、連携を解除して再度連携してください。"
+    @flash_alert = "カレンダー連携の更新に失敗しました。お手数ですが、連携を解除して再度連携してください。"
   end
   erb :sync
 end

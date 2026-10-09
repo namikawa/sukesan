@@ -52,18 +52,28 @@ RSpec.describe "OAuth トークン更新失敗時のフォールバック" do
 
     expect { get "/sync" }.to output(/\[oauth\]/).to_stderr
     expect(last_response.status).to eq(200)
-    expect(last_response.body).to include("連携の更新に失敗しました")
+    expect(last_response.body).to match(/notification is-warning">カレンダー連携の更新に失敗しました/)
     expect(last_response.body).not_to include("同期の必要はありません")
   end
 
   it "同期の反映（POST /sync）は反映せず再連携を促す" do
     login_admin!
     post "/check", authenticity_token: csrf_token, range_mode: "days", sync_window_days: "7"
+    expect { get "/sync" }.to output(/\[oauth\]/).to_stderr # 一覧表示（sync_show を消費し、最後の GET で差分を取り直させない）
     expect { post "/sync", authenticity_token: csrf_token, selected: ["x"] }
       .to output(/\[oauth\]/).to_stderr
     expect(last_response.status).to eq(302)
 
     get "/sync" # flash の表示先
-    expect(last_response.body).to include("連携の更新に失敗しました")
+    expect(last_response.body).to match(/notification is-warning">カレンダー連携の更新に失敗しました/)
+  end
+
+  it "未選択で同期した直後の再表示で更新に失敗したら、未選択の警告でなく再連携を促す" do
+    login_admin!
+    post "/check", authenticity_token: csrf_token, range_mode: "days", sync_window_days: "7"
+    post "/sync", authenticity_token: csrf_token # selected なし
+    expect { get "/sync" }.to output(/\[oauth\]/).to_stderr
+    expect(last_response.body).to match(/notification is-warning">カレンダー連携の更新に失敗しました/)
+    expect(last_response.body).not_to include("同期するイベントが選択されていません")
   end
 end

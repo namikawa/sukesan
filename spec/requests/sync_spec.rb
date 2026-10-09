@@ -41,6 +41,9 @@ RSpec.describe "Outlook 同期 /check・/sync" do
       expect(last_response.status).to eq(302)
       expect(SettingsStore).not_to have_received(:save)
       expect(a_request(:get, %r{googleapis\.com/calendar/v3/calendars/primary/events})).not_to have_been_made
+
+      follow_redirect!
+      expect(last_response.body).to match(/notification is-warning">取得日数は 1〜180 日で入力してください。/)
     end
 
     it "日付範囲指定でチェックできる（日数は保存しない）" do
@@ -100,6 +103,9 @@ RSpec.describe "Outlook 同期 /check・/sync" do
       post "/sync", authenticity_token: csrf_token, selected: [selection]
       expect(last_response.status).to eq(302)
       expect(create).not_to have_been_requested
+
+      follow_redirect!
+      expect(last_response.body).to match(/notification is-warning">テストモードのため反映しません。/)
     end
 
     it "チェック直後の GET /sync は結果を表示し、再表示（更新）では結果を残さない" do
