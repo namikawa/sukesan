@@ -118,6 +118,32 @@ RSpec.describe "Outlook 同期 /check・/sync" do
       expect(create).to have_been_requested.once
     end
 
+    it "全件成功すると、登録件数を添えた完了通知を成功（緑）で表示する" do
+      stub_request(:post, %r{googleapis\.com/calendar/v3/calendars/primary/events})
+        .to_return(status: 200, body: "{}", headers: { "Content-Type" => "application/json" })
+      post "/check", authenticity_token: csrf_token, range_mode: "days", sync_window_days: "30"
+      follow_redirect! # 一覧表示
+      post "/sync", authenticity_token: csrf_token, selected: [selection]
+      follow_redirect!
+
+      expect(last_response.body)
+        .to match(/notification is-success[^"]*">同期が完了しました（1 件を Google カレンダーに登録しました）。/)
+    end
+
+    it "未選択で同期すると Google へ作成せず、警告を出して一覧を再表示する" do
+      create = stub_request(:post, %r{googleapis\.com/calendar/v3/calendars/primary/events})
+               .to_return(status: 200, body: "{}", headers: { "Content-Type" => "application/json" })
+      post "/check", authenticity_token: csrf_token, range_mode: "days", sync_window_days: "30"
+      follow_redirect! # 一覧表示
+      post "/sync", authenticity_token: csrf_token # selected なし
+      expect(create).not_to have_been_requested
+
+      follow_redirect!
+      expect(last_response.body).to match(/notification is-warning">同期するイベントが選択されていません。/)
+      expect(last_response.body).to include("会議") # チェックし直さずに選び直せる
+      expect(last_response.body).to include("選択したイベントを Google に同期")
+    end
+
     it "一部の作成に失敗しても 500 にせず、成功・失敗の件数を通知する" do
       second = ms_event.merge("id" => "2", "subject" => "別の会議")
       stub_request(:get, %r{graph\.microsoft\.com/v1\.0/me/calendarView})
@@ -134,6 +160,8 @@ RSpec.describe "Outlook 同期 /check・/sync" do
 
       get "/sync"
       expect(last_response.body).to include("1 件を同期しました（1 件は失敗しました")
+      expect(last_response.body).to match(/notification is-warning">1 件を同期しました/) # 一部失敗は警告で出す
+      expect(last_response.body).not_to include("notification is-success")
     end
 
     it "Outlook 本文を Google イベントの説明（description）として作成する" do

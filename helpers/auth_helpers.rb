@@ -19,10 +19,11 @@ module AuthHelpers
     redirect "/admin" unless admin?
   end
 
-  # 管理ページ（GET）のゲート。flash を取り出し、未認証ならその URL のままログイン画面を
+  # 管理ページ（GET）のゲート。flash・flash_alert を取り出し、未認証ならその URL のままログイン画面を
   # 描画して中断する（ログイン後に元のページへ戻れる）。全管理ページで挙動を統一する。
   def require_admin_page!
     @flash = session.delete(:flash)
+    @flash_alert = session.delete(:flash_alert)
     halt erb(:login) unless admin?
   end
 

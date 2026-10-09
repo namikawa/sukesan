@@ -146,6 +146,7 @@ post "/settings/api_keys/delete" do
 end
 
 # --- Outlook 同期（管理者専用） ---
+# /sync の flash は成功通知専用（緑で表示）。エラー・状態異常・一部失敗は flash_alert（黄色の警告）で出す。
 get "/sync" do
   require_admin_page!
   @settings = SettingsStore.load
@@ -165,7 +166,7 @@ get "/sync" do
   if @events.nil?
     @checked = false
     @events = []
-    @flash ||= "カレンダー連携の更新に失敗しました。お手数ですが、連携を解除して再度連携してください。"
+    @flash_alert ||= "カレンダー連携の更新に失敗しました。お手数ですが、連携を解除して再度連携してください。"
   end
   erb :sync
 end
@@ -237,7 +238,7 @@ post "/check" do
 
   window, error = resolve_sync_window(params)
   if error
-    session[:flash] = error
+    session[:flash_alert] = error
     redirect "/sync"
   end
 
@@ -253,25 +254,32 @@ post "/sync" do
   halt 400, "Google と Outlook の両方の連携が必要です" unless google_connected? && microsoft_connected?
   # テストモードでチェックした直後は反映しない（誤適用防止）。
   if sync_test_mode?
-    session[:flash] = "テストモードのため反映しません。反映するにはテストモードを外して再チェックしてください。"
+    session[:flash_alert] = "テストモードのため反映しません。反映するにはテストモードを外して再チェックしてください。"
     redirect "/sync"
   end
 
   window = current_sync_window
   unless window
-    session[:flash] = "取得範囲が見つかりません。もう一度チェックしてください。"
+    session[:flash_alert] = "取得範囲が見つかりません。もう一度チェックしてください。"
+    redirect "/sync"
+  end
+
+  # 未選択なら差分を取り直さずに（API を呼ばずに）戻し、チェックし直さずに選び直せるよう一覧を再表示する。
+  selected = Array(params[:selected])
+  if selected.empty?
+    session[:flash_alert] = "同期するイベントが選択されていません。一覧から選択してから同期してください。"
+    session[:sync_show] = true
     redirect "/sync"
   end
 
   # 反映直前に差分を取り直し、選択のうち「今も Outlook 側にのみ存在する」ものだけ登録する。
   # 既に Google にあるもの（前回反映済み含む）は差分から外れるため、二重作成にならない。
   # 選択は一意な external_id で照合する（同一件名・同一時刻の重複イベントを取り違えないため）。
-  selected = Array(params[:selected])
   google_access = google_token
   events = google_access && compute_outlook_only(window)
   # nil はトークンが使えない（refresh 失敗など）。反映せず再連携を促す。
   if events.nil?
-    session[:flash] = "カレンダー連携の更新に失敗しました。お手数ですが、連携を解除して再度連携してください。"
+    session[:flash_alert] = "カレンダー連携の更新に失敗しました。お手数ですが、連携を解除して再度連携してください。"
     redirect "/sync"
   end
 
@@ -286,11 +294,11 @@ post "/sync" do
     warn "[sync] イベントの同期失敗: #{e.class}"
     true
   end
-  session[:flash] =
-    if failed.zero?
-      "選択したイベントを Google に同期しました。"
-    else
+  if failed.zero?
+    session[:flash] = "同期が完了しました（#{targets.size} 件を Google カレンダーに登録しました）。"
+  else
+    session[:flash_alert] =
       "#{targets.size - failed} 件を同期しました（#{failed} 件は失敗しました。もう一度チェックしてお試しください）。"
-    end
+  end
   redirect "/sync"
 end
