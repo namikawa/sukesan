@@ -30,6 +30,12 @@ class FileTicketStore
   # から逆引きされたチケット（確定済みの予約・期限切れの仮押さえ）のため、探索範囲も一覧と同じ KEEP_WEEKS に
   # する（一覧に出るのに取消・無効化だけできない、を防ぐ）。
   SEARCH_WEEKS = 3
+  # 正規の週ファイル名（キーは "%G-W%V"＝ゼロ埋め）。prune! はこれに一致するファイルだけを削除対象にする。
+  BUCKET_FILE_PATTERN = /\Atickets-(\d{4}-W\d{2})\.json\z/
+
+  # 当週のファイルが存在するのに復号・解析できないとき、create が書き込みを中止して送出する
+  # （空として扱って上書きすると元のチケットが戻らないため、ファイルはそのまま残す）。
+  class UnreadableBucket < StandardError; end
 
   def initialize(cipher:, dir: nil)
     @cipher = cipher
@@ -50,7 +56,7 @@ class FileTicketStore
     token = SecureRandom.urlsafe_base64(32)
     @lock.synchronize do
       key = bucket_key(now)
-      data = load_bucket(key)
+      data = load_bucket(key, strict: true) # 読めなければ UnreadableBucket（上書きしない）
       data[token] = { "token" => token, "created_at" => now.iso8601, "status" => "active",
                       "ttl_hours" => ttl_hours }
       write_bucket(key, data)
@@ -127,12 +133,14 @@ class FileTicketStore
 
   private
 
-  # 保持対象（直近 KEEP_WEEKS 週）以外の週ファイルを削除する（create 時に呼ぶ内部処理）。
+  # 保持する最も古い週（直近 KEEP_WEEKS 週の最古）より古い週ファイルを削除する（create 時に呼ぶ内部処理）。
+  # now より新しい週のファイル（週の変わり目に発行が重なった・時計が巻き戻った場合）と、正規の名前でない
+  # ファイルは削除しない。キーはゼロ埋めの "%G-W%V" なので、文字列比較で週の前後を判定できる（年をまたいでも可）。
   def prune!(now: Time.now)
-    keep = recent_bucket_keys(now, KEEP_WEEKS)
+    oldest_kept = recent_bucket_keys(now, KEEP_WEEKS).min
     Dir.glob(File.join(dir, "tickets-*.json")).each do |file|
-      key = File.basename(file, ".json").delete_prefix("tickets-")
-      File.delete(file) unless keep.include?(key)
+      key = File.basename(file)[BUCKET_FILE_PATTERN, 1]
+      File.delete(file) if key && key < oldest_kept
     end
   end
 
@@ -171,7 +179,9 @@ class FileTicketStore
     (0...weeks).map { |i| bucket_key(now - (i * 7 * 86_400)) }.uniq
   end
 
-  def load_bucket(key)
+  # strict: 書き込み前の読み込み（create）用。読めないファイルを空として返すと呼び出し側が上書きして
+  # しまうため、空にせず UnreadableBucket で中止する。
+  def load_bucket(key, strict: false)
     path = File.join(dir, "tickets-#{key}.json")
     return {} unless File.exist?(path)
 
@@ -179,6 +189,11 @@ class FileTicketStore
   rescue JSON::ParserError, OpenSSL::Cipher::CipherError, ArgumentError => e
     # 復号・パースできないデータ（破損・改ざん・鍵不一致）は空として扱う（fail-closed）。
     # 原因調査用に種別とパスだけ残す（内容・例外メッセージは秘密を含み得るため出さない）。
+    if strict
+      warn "[FileTicketStore] 読み込み失敗 #{path}: #{e.class}（書き込みを中止します）"
+      # 元の例外は cause に残さない（JSON::ParserError のメッセージは復号後の内容の一部を含むため）。
+      raise UnreadableBucket, "チケットの保存ファイルを読み込めないため、書き込みを中止しました", cause: nil
+    end
     warn "[FileTicketStore] 読み込み失敗 #{path}: #{e.class}（空として扱います）"
     {}
   end

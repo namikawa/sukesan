@@ -359,7 +359,6 @@ RSpec.describe "他システム向け API /api/v1/tickets" do
     end
 
     it "使用済み・無効化済み・未使用のまま期限切れは 409（invalid_state）" do
-      # 過去の now での発行は、その時点から数えた保持範囲で週ファイルを掃除する（週をまたぐと当週分が消える）ため先に作る。
       expired = TicketStore.create(now: Time.now - (25 * 3600))
       used = create_used_ticket
       revoked = TicketStore.create

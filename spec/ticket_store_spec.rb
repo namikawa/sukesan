@@ -58,6 +58,152 @@ RSpec.describe TicketStore do
       expect(described_class.find("anything", now: now)).to be_nil
       expect(described_class.all(now: now)).to eq([])
     end
+
+    # 読めないファイルを空として扱って発行すると、新しい 1 件だけの内容で上書きされ元のチケットが戻らない。
+    it "当週のファイルが読めないときは発行を中止し、ファイルを上書きしない" do
+      FileUtils.mkdir_p(ENV.fetch("TICKETS_DIR"))
+      path = File.join(ENV.fetch("TICKETS_DIR"), "tickets-#{now.strftime('%G-W%V')}.json")
+      File.write(path, "corrupted-not-json-not-encrypted")
+
+      expect do
+        expect { described_class.create(now: now) }.to raise_error(FileTicketStore::UnreadableBucket) { |e|
+          # メッセージは固定文で、ファイルの内容・元の例外を持たない。
+          expect(e.message).not_to include("corrupted")
+          expect(e.cause).to be_nil
+        }
+      end.to output(/読み込み失敗 .*tickets-.*\.json: .*（書き込みを中止します）/).to_stderr
+      expect(File.read(path)).to eq("corrupted-not-json-not-encrypted")
+
+      # 参照系は従来どおり空として扱う。
+      expect(described_class.find("anything", now: now)).to be_nil
+      expect(described_class.all(now: now)).to eq([])
+    end
+
+    # 上の例（Base64 として読めない＝ArgumentError）以外の原因でも中止すること。復号に使う鍵を固定するため、
+    # ファサードでなくアダプタを既知の鍵で直接作る（firestore_ticket_store_spec と同じ作り方）。
+    context "当週のファイルが読めない原因ごと" do
+      let(:cipher) { TokenCipher.new("0" * 32) }
+      let(:store) { FileTicketStore.new(cipher: cipher, dir: ENV.fetch("TICKETS_DIR")) }
+      let(:path) { File.join(ENV.fetch("TICKETS_DIR"), "tickets-#{now.strftime('%G-W%V')}.json") }
+
+      before { FileUtils.mkdir_p(ENV.fetch("TICKETS_DIR")) }
+
+      # content を当週のファイルに書き、発行が中止されて（warn は error_class の経路）バイト列が変わらないことを確かめる。
+      def expect_create_aborted(content, error_class)
+        File.binwrite(path, content)
+
+        expect do
+          expect { store.create(now: now) }.to raise_error(FileTicketStore::UnreadableBucket)
+        end.to output(/: #{error_class}（書き込みを中止します）/).to_stderr
+        expect(File.binread(path)).to eq(content)
+      end
+
+      it "暗号鍵の食い違い（別の鍵で暗号化した正しい JSON）では発行を中止し、ファイルを変えない" do
+        content = TokenCipher.new("1" * 32).encrypt(JSON.generate({ "t" => { "token" => "t" } }))
+        expect_create_aborted(content, OpenSSL::Cipher::CipherError)
+      end
+
+      it "復号後の JSON の破損（同じ鍵で JSON でない文字列を暗号化）では発行を中止し、ファイルを変えない" do
+        expect_create_aborted(cipher.encrypt("not-json"), JSON::ParserError)
+      end
+    end
+
+    it "発行を中止したときは古い週ファイルの掃除（prune!）も行わない" do
+      FileUtils.mkdir_p(ENV.fetch("TICKETS_DIR"))
+      old = now - (FileTicketStore::KEEP_WEEKS * 7 * 86_400) # 保持範囲の外（発行できていれば削除される週）
+      old_path = File.join(ENV.fetch("TICKETS_DIR"), "tickets-#{old.strftime('%G-W%V')}.json")
+      File.write(old_path, "old-bucket")
+      File.write(File.join(ENV.fetch("TICKETS_DIR"), "tickets-#{now.strftime('%G-W%V')}.json"), "corrupted")
+
+      expect do
+        expect { described_class.create(now: now) }.to raise_error(FileTicketStore::UnreadableBucket)
+      end.to output(/書き込みを中止します/).to_stderr
+      expect(File.read(old_path)).to eq("old-bucket")
+    end
+  end
+
+  # 状態遷移は token が見つかった（＝読めた）週ファイルにだけ書く。探索範囲に読めないファイルがあっても、
+  # それを空として上書きしないこと（発行の厳格化と合わせて、読めないファイルが書き換わる経路が無いことを固定する）。
+  describe "読めない週ファイルがあるときの状態遷移" do
+    it "別の週にあるチケットの遷移（use! / revoke）は成功し、読めないファイルは変わらない" do
+      last_week = now - (7 * 86_400)
+      used = described_class.create(now: last_week, ttl_hours: 168)
+      revoked = described_class.create(now: last_week, ttl_hours: 168)
+      unreadable = File.join(ENV.fetch("TICKETS_DIR"), "tickets-#{now.strftime('%G-W%V')}.json")
+      File.write(unreadable, "corrupted-not-json-not-encrypted")
+
+      expect do
+        expect(described_class.use!(used, attrs: { "requester" => "山田" }, now: now)).to be(true)
+        expect(described_class.revoke(revoked, now: now)).to include("status" => "active")
+      end.to output(/空として扱います/).to_stderr
+
+      expect(File.read(unreadable)).to eq("corrupted-not-json-not-encrypted")
+      statuses = described_class.all(now: now).to_h { |t| [t["token"], described_class.status(t, now: now)] }
+      expect(statuses).to include(used => "used", revoked => "revoked")
+    end
+  end
+
+  describe "週ファイルの掃除（発行時）" do
+    def bucket_path(time) = File.join(ENV.fetch("TICKETS_DIR"), "tickets-#{time.strftime('%G-W%V')}.json")
+
+    it "新しい週に発行した後で古い週の時刻で発行しても、新しい週のファイルとチケットは残る" do
+      monday = Time.iso8601("2026-06-22T00:00:00+09:00")
+      sunday = monday - 60 # 直前の日曜 23:59（週の変わり目で発行が重なった・時計が巻き戻った場合）
+      newer = described_class.create(now: monday)
+      older = described_class.create(now: sunday)
+
+      expect(File.exist?(bucket_path(monday))).to be(true)
+      expect(described_class.find(newer, now: monday)).not_to be_nil
+      expect(described_class.find(older, now: monday)).not_to be_nil
+    end
+
+    it "保持する最も古い週（KEEP_WEEKS）より古い週のファイルは削除する" do
+      outside = now - (FileTicketStore::KEEP_WEEKS * 7 * 86_400)
+      oldest_kept = now - ((FileTicketStore::KEEP_WEEKS - 1) * 7 * 86_400)
+      described_class.create(now: outside)
+      described_class.create(now: oldest_kept)
+      described_class.create(now: now)
+
+      expect(File.exist?(bucket_path(outside))).to be(false)
+      expect(File.exist?(bucket_path(oldest_kept))).to be(true)
+      expect(File.exist?(bucket_path(now))).to be(true)
+    end
+
+    # キーは "%G-W%V" の文字列比較で前後を判定するため、ISO 週の年またぎ（2026 年は W53 まである）で確かめる。
+    it "ISO 週の年またぎでも、保持する最も古い週より古い前年の週だけを削除する" do
+      jan = Time.iso8601("2027-01-07T10:00:00+09:00") # 2027-W01。保持範囲は 2026-W49〜2027-W01
+      kept = %w[2026-12-03 2026-12-24 2026-12-31].map { |d| Time.iso8601("#{d}T10:00:00+09:00") } # W49 / W52 / W53
+      outside = Time.iso8601("2026-11-26T10:00:00+09:00") # 2026-W48
+      expect(kept.map { |t| t.strftime("%G-W%V") }).to eq(%w[2026-W49 2026-W52 2026-W53])
+      expect(outside.strftime("%G-W%V")).to eq("2026-W48")
+
+      [outside, *kept].each { |t| described_class.create(now: t) }
+      described_class.create(now: jan)
+
+      expect(File.exist?(bucket_path(outside))).to be(false)
+      kept.each { |t| expect(File.exist?(bucket_path(t))).to be(true) }
+      expect(File.exist?(bucket_path(jan))).to be(true)
+    end
+
+    it "ISO 週の年またぎで新しい年の週に発行した後で前年の週の時刻で発行しても、新しい年の週のファイルは残る" do
+      new_year_monday = Time.iso8601("2027-01-04T00:00:00+09:00") # 2027-W01
+      last_sunday = new_year_monday - 60 # 2027-01-03 23:59＝2026-W53
+      expect(last_sunday.strftime("%G-W%V")).to eq("2026-W53")
+      newer = described_class.create(now: new_year_monday)
+      described_class.create(now: last_sunday)
+
+      expect(File.exist?(bucket_path(new_year_monday))).to be(true)
+      expect(described_class.find(newer, now: new_year_monday)).not_to be_nil
+    end
+
+    it "正規の名前でないファイル（tickets-backup.json など）は削除しない" do
+      FileUtils.mkdir_p(ENV.fetch("TICKETS_DIR"))
+      backup = File.join(ENV.fetch("TICKETS_DIR"), "tickets-backup.json")
+      File.write(backup, "manual backup")
+      described_class.create(now: now)
+
+      expect(File.read(backup)).to eq("manual backup")
+    end
   end
 
   describe ".use!" do
