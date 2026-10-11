@@ -29,9 +29,10 @@ RSpec.describe "他システム向け API /api/v1/tickets" do
   end
 
   # 候補は保存順（後の日程が先）で持たせ、レスポンスで開始時刻順に整うことを確認できるようにする。
-  def create_held_ticket
-    token = TicketStore.create
-    TicketStore.hold!(token, attrs: {
+  # at は発行・仮押さえの時刻（過去にすると held のまま期限切れのチケットを作れる）。
+  def create_held_ticket(at: Time.now)
+    token = TicketStore.create(now: at)
+    TicketStore.hold!(token, now: at, attrs: {
                         "requester" => "佐藤", "title" => "面談", "holder_key" => "holder-key-1",
                         "holds" => [
                           { "event_id" => "sukesan-evt-2", "slot_start" => "2026-08-06T14:00:00+09:00",
@@ -340,17 +341,37 @@ RSpec.describe "他システム向け API /api/v1/tickets" do
       expect(TicketStore.status(TicketStore.find(token))).to eq("revoked")
     end
 
-    it "使用済み・無効化済みは 409（invalid_state）" do
+    it "仮押さえ中のまま期限切れでも無効化でき、残った [仮ブロック] イベントを削除する" do
+      allow(TokenStore).to receive(:load).and_return({ "access_token" => "fake", "expires_at" => 4_102_444_800 })
+      stub_request(:delete, %r{googleapis\.com/calendar/v3/calendars/primary/events/}).to_return(status: 204, body: "")
+      token = create_held_ticket(at: Time.now - (8 * 86_400)) # held_at から 7 日超
+      expect(TicketStore.status(TicketStore.find(token))).to eq("expired")
+
+      post "/api/v1/tickets/#{api_id(token)}/revoke", {}, write_auth
+
+      expect(last_response.status).to eq(200)
+      expect(JSON.parse(last_response.body)).to eq(
+        "id" => api_id(token), "status" => "revoked", "failed_deletes" => 0
+      )
+      expect(a_request(:delete, %r{googleapis\.com/calendar/v3/calendars/primary/events/}))
+        .to have_been_made.times(2)
+      expect(TicketStore.status(TicketStore.find(token))).to eq("revoked")
+    end
+
+    it "使用済み・無効化済み・未使用のまま期限切れは 409（invalid_state）" do
+      # 過去の now での発行は、その時点から数えた保持範囲で週ファイルを掃除する（週をまたぐと当週分が消える）ため先に作る。
+      expired = TicketStore.create(now: Time.now - (25 * 3600))
       used = create_used_ticket
       revoked = TicketStore.create
       TicketStore.revoke(revoked)
 
-      [used, revoked].each do |token|
+      [used, revoked, expired].each do |token|
         post "/api/v1/tickets/#{api_id(token)}/revoke", {}, write_auth
         expect(last_response.status).to eq(409)
         expect(JSON.parse(last_response.body).dig("error", "code")).to eq("invalid_state")
       end
       expect(TicketStore.status(TicketStore.find(used))).to eq("used")
+      expect(TicketStore.status(TicketStore.find(expired))).to eq("expired")
     end
 
     it "該当が無い ID は 404（not_found）" do

@@ -126,6 +126,19 @@ RSpec.describe TicketStore do
       expect(previous["holds"].size).to eq(2)
       expect(described_class.status(described_class.find(token, now: now), now: now)).to eq("revoked")
     end
+
+    it "SEARCH_WEEKS より古い期限切れの仮押さえも、一覧に並ぶ範囲（KEEP_WEEKS）なら無効化できる" do
+      token = hold_ticket(at: now - (25 * 86_400)) # 25 日前に発行・仮押さえ＝期限切れ・既定の探索範囲（3 週）の外
+      expect(described_class.find(token, now: now)).to be_nil
+      listed = described_class.all(now: now).find { |t| t["token"] == token }
+      expect(described_class.status(listed, now: now)).to eq("expired")
+
+      previous = described_class.revoke(token, now: now)
+      expect(previous["holds"].size).to eq(2)
+      revoked = described_class.all(now: now).find { |t| t["token"] == token }
+      expect(described_class.status(revoked, now: now)).to eq("revoked")
+      expect(revoked).not_to have_key("holds")
+    end
   end
 
   describe ".cancel_booking!" do

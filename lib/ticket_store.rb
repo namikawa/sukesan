@@ -64,4 +64,5 @@ module TicketStore
   def status(ticket, now: Time.now) = TicketStatus.status(ticket, now: now)
   def active?(ticket, now: Time.now) = TicketStatus.active?(ticket, now: now)
   def held?(ticket, now: Time.now) = TicketStatus.held?(ticket, now: now)
+  def expired_hold?(ticket, now: Time.now) = TicketStatus.expired_hold?(ticket, now: now)
 end

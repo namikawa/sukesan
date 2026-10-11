@@ -217,20 +217,23 @@ RSpec.describe "ワンタイム URL" do
     end
   end
 
+  # 2 枠の仮押さえ済みチケットを作るヘルパ（at は発行・仮押さえの時刻）。
+  def create_held_ticket(at: Time.now)
+    token = TicketStore.create(now: at)
+    TicketStore.hold!(token, now: at, attrs: {
+                        "requester" => "山田", "title" => "打合せ", "holder_key" => "k",
+                        "holds" => [
+                          { "event_id" => "sukesanaaa", "slot_start" => "2026-07-10T10:00:00+09:00",
+                            "slot_end" => "2026-07-10T10:30:00+09:00" },
+                          { "event_id" => "sukesanbbb", "slot_start" => "2026-07-11T14:00:00+09:00",
+                            "slot_end" => "2026-07-11T14:30:00+09:00" }
+                        ]
+                      })
+    token
+  end
+
   describe "仮押さえ中チケットの管理" do
-    let(:held_token) do
-      token = TicketStore.create
-      TicketStore.hold!(token, attrs: {
-                          "requester" => "山田", "title" => "打合せ", "holder_key" => "k",
-                          "holds" => [
-                            { "event_id" => "sukesanaaa", "slot_start" => "2026-07-10T10:00:00+09:00",
-                              "slot_end" => "2026-07-10T10:30:00+09:00" },
-                            { "event_id" => "sukesanbbb", "slot_start" => "2026-07-11T14:00:00+09:00",
-                              "slot_end" => "2026-07-11T14:30:00+09:00" }
-                          ]
-                        })
-      token
-    end
+    let(:held_token) { create_held_ticket }
 
     before do
       allow(TokenStore).to receive(:load)
@@ -267,6 +270,47 @@ RSpec.describe "ワンタイム URL" do
       expect(TicketStore.status(TicketStore.find(held_token))).to eq("revoked")
       expect(a_request(:delete, %r{googleapis\.com/calendar/v3/calendars/primary/events/}))
         .to have_been_made.times(2)
+    end
+  end
+
+  # 期限切れの仮押さえは自動では掃除しないため、カレンダーに残った [仮ブロック] を一覧の無効化で消せるようにする。
+  describe "期限切れの仮押さえの掃除" do
+    let(:expired_held_token) { create_held_ticket(at: Time.now - (8 * 86_400)) } # held_at から 7 日超
+
+    before do
+      stub_request(:delete, %r{googleapis\.com/calendar/v3/calendars/primary/events/})
+        .to_return(status: 204, body: "")
+    end
+
+    it "一覧に残りの候補と無効化フォームを出す（コピーボタンは出さない）" do
+      expired_held_token
+      login_admin!
+      get "/tickets"
+
+      expect(last_response.body).to include("仮押さえ 残 2 件（期限切れ）")
+      expect(last_response.body).to include("2026-07-10 10:00")
+      expect(last_response.body).to include("2026-07-11 14:00")
+      expect(last_response.body).to include(%(<input type="hidden" name="token" value="#{expired_held_token}">))
+      expect(last_response.body).not_to include("copy-btn")
+    end
+
+    it "無効化すると revoked になり、残りの仮押さえイベントも削除する" do
+      login_admin!
+      post "/tickets/revoke", authenticity_token: csrf_token, token: expired_held_token
+
+      expect(TicketStore.status(TicketStore.find(expired_held_token))).to eq("revoked")
+      expect(a_request(:delete, %r{googleapis\.com/calendar/v3/calendars/primary/events/}))
+        .to have_been_made.times(2)
+    end
+
+    it "未使用のまま期限切れの行には無効化フォームを出さない" do
+      token = TicketStore.create(now: Time.now - (25 * 3600))
+      login_admin!
+      get "/tickets"
+
+      expect(TicketStore.status(TicketStore.find(token))).to eq("expired")
+      expect(last_response.body).not_to include(%(name="token" value="#{token}"))
+      expect(last_response.body).not_to include('action="/tickets/revoke"')
     end
   end
 end

@@ -70,4 +70,10 @@ module TicketStatus
   def held?(ticket, now: Time.now)
     !ticket.nil? && status(ticket, now: now) == "held"
   end
+
+  # 保存上の status が held のまま期限を過ぎたか（決定・削除はできないが、カレンダーに
+  # [仮ブロック] が残り得るため、管理者の無効化で掃除する対象になる）。
+  def expired_hold?(ticket, now: Time.now)
+    !ticket.nil? && ticket["status"] == "held" && status(ticket, now: now) == "expired"
+  end
 end

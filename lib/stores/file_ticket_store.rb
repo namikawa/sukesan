@@ -26,8 +26,9 @@ class FileTicketStore
   # 検索・更新で探す週ファイル数。チケットの寿命は最長「発行 TTL 7 日（168h）＋仮押さえ 7 日 = 14 日」。
   # 14 日間は ISO 週で最大 3 バケットにまたがり、now / now-7d / now-14d の週が連続してそれを全部
   # カバーするため 3 週分で足りる（TTL の許可値を延ばす場合はここも見直す）。
-  # 例外は used → cancelled（cancel_booking!）で、対象は寿命 14 日ではなく一覧（KEEP_WEEKS）から
-  # 逆引きされた予約のため、探索範囲も一覧と同じ KEEP_WEEKS にする（一覧に出るのに取消だけできない、を防ぐ）。
+  # 例外は used → cancelled（cancel_booking!）と無効化（revoke）で、対象は寿命 14 日ではなく一覧（KEEP_WEEKS）
+  # から逆引きされたチケット（確定済みの予約・期限切れの仮押さえ）のため、探索範囲も一覧と同じ KEEP_WEEKS に
+  # する（一覧に出るのに取消・無効化だけできない、を防ぐ）。
   SEARCH_WEEKS = 3
 
   def initialize(cipher:, dir: nil)
@@ -117,9 +118,11 @@ class FileTicketStore
     apply_transition(token, now: now) { |t| TicketTransitions.cancel_hold(t, now: now) }
   end
 
-  # 管理者による無効化（active/held → revoked）。成功時は遷移前のチケットを返す（失敗は false）。
+  # 管理者による無効化（active/held と期限切れの仮押さえ → revoked）。成功時は遷移前のチケットを返す（失敗は false）。
+  # 探索範囲は cancel_booking! と同じく一覧（KEEP_WEEKS）に合わせる。期限切れの仮押さえは SEARCH_WEEKS より
+  # 古くても一覧には並ぶため（残った [仮ブロック] が見えるのに無効化だけできない、という食い違いを作らない）。
   def revoke(token, now: Time.now)
-    apply_transition(token, now: now) { |t| TicketTransitions.revoke(t, now: now) } || false
+    apply_transition(token, now: now, weeks: KEEP_WEEKS) { |t| TicketTransitions.revoke(t, now: now) } || false
   end
 
   private

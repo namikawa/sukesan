@@ -87,10 +87,13 @@ module TicketTransitions
     [ticket.except("holds", "holder_key").merge("status" => "cancelled"), ticket["holds"]]
   end
 
-  # 管理者による無効化: active または held → revoked。仮押さえ中だった場合の残イベント掃除用に、
-  # 遷移前のチケットを返す。
+  # 管理者による無効化: active / held、または held のまま期限切れ → revoked。仮押さえ中だった場合の
+  # 残イベント掃除用に、遷移前のチケットを返す。期限切れの仮押さえは自動では掃除しないため、残った
+  # [仮ブロック] をここで掃除できるよう受け付ける。未使用のまま期限切れは掃除するものが無いため受け付けない。
   def revoke(ticket, now:)
-    return nil unless %w[active held].include?(TicketStatus.status(ticket, now: now))
+    revocable = %w[active held].include?(TicketStatus.status(ticket, now: now)) ||
+                TicketStatus.expired_hold?(ticket, now: now)
+    return nil unless revocable
 
     [ticket.except("holds", "holder_key").merge("status" => "revoked"), ticket]
   end

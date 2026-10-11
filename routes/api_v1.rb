@@ -144,7 +144,8 @@ post "/api/v1/tickets/:id/revoke" do
   halt 404 if ticket.nil? # body は not_found ハンドラが JSON エンベロープで組み立てる
 
   token = ticket["token"]
-  # 受理されるのは active / held のみ（既存の遷移）。終端・期限切れ・破損は状態不一致として 409。
+  # 受理されるのは active / held と、held のまま期限切れ（残った [仮ブロック] の掃除用）。
+  # 終端・未使用のまま期限切れ・破損は状態不一致として 409。
   previous = TicketStore.revoke(token)
   api_error!(409, "invalid_state", "このチケットは無効化できる状態ではありません。") unless previous.is_a?(Hash)
 

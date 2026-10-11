@@ -32,6 +32,32 @@ RSpec.describe TicketStatus do
     end
   end
 
+  describe ".expired_hold?（held のまま期限切れ＝無効化で [仮ブロック] を掃除する対象）" do
+    let(:eight_days_ago) { now - (8 * 86_400) }
+
+    it "held のまま期限（held_at + 7 日）を過ぎたチケットは true" do
+      t = ticket(status: "held", created_at: eight_days_ago, held_at: eight_days_ago)
+      expect(described_class.status(t, now: now)).to eq("expired")
+      expect(described_class.expired_hold?(t, now: now)).to be(true)
+    end
+
+    it "期限内の held は false" do
+      expect(described_class.expired_hold?(ticket(status: "held", held_at: now), now: now)).to be(false)
+    end
+
+    it "未使用のまま期限切れ（status が active・未設定）は false" do
+      created = now - (25 * 3600)
+      [ticket(status: "active", created_at: created), ticket(created_at: created)].each do |t|
+        expect(described_class.status(t, now: now)).to eq("expired")
+        expect(described_class.expired_hold?(t, now: now)).to be(false)
+      end
+    end
+
+    it "nil は false" do
+      expect(described_class.expired_hold?(nil, now: now)).to be(false)
+    end
+  end
+
   describe ".expired?（発行時に選んだ有効期限 ttl_hours で判定）" do
     def ticket_with_ttl(ttl_hours)
       t = { "created_at" => now.iso8601 }

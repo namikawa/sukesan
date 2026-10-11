@@ -95,7 +95,7 @@ class FirestoreTicketStore
     apply_transition(token) { |t| TicketTransitions.cancel_hold(t, now: now) }
   end
 
-  # 管理者による無効化（active/held → revoked）。成功時は遷移前のチケットを返す（失敗は false）。
+  # 管理者による無効化（active/held と期限切れの仮押さえ → revoked）。成功時は遷移前のチケットを返す（失敗は false）。
   def revoke(token, now: Time.now)
     apply_transition(token) { |t| TicketTransitions.revoke(t, now: now) } || false
   end

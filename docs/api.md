@@ -175,7 +175,7 @@ curl -X POST -H "$AUTH" -H "Content-Type: application/json" \
 （発行）        → active
 active + 予約   → used          POST /api/v1/bookings（内部で 1 枚発行して即消費）/ 依頼者の登録
 active + 仮押さえ → held         POST /api/v1/holds（同上）/ 依頼者の仮押さえ
-active/held + 無効化 → revoked   POST /api/v1/tickets/:id/revoke
+active/held + 無効化 → revoked   POST /api/v1/tickets/:id/revoke（held のまま期限を過ぎた expired も可）
 held + 決定     → used          POST /api/v1/holds/:id/confirm
 held + 全取りやめ → cancelled    POST /api/v1/holds/:id/cancel
 held + 最後の候補を削除 → cancelled  POST /api/v1/holds/:id/slots/delete
@@ -188,7 +188,7 @@ active/held + 時間経過 → expired
 | 操作 | 受け付ける状態 |
 |---|---|
 | `GET /api/v1/tickets/:id` | すべて（`url` を含めるのは `active` かつ `write` キーのときだけ） |
-| `POST /api/v1/tickets/:id/revoke` | `active` / `held` |
+| `POST /api/v1/tickets/:id/revoke` | `active` / `held`、および仮押さえ中に期限を過ぎた `expired` |
 | `POST /api/v1/bookings/:id/cancel` | `used` かつイベント ID を保存しているもの |
 | `POST /api/v1/holds/:id/confirm` | `held` |
 | `POST /api/v1/holds/:id/slots/delete` | `held` |
@@ -437,7 +437,7 @@ URL のホスト部は `APP_BASE_URL`（本番は必須。未設定の開発環�
 
 ### POST /api/v1/tickets/:id/revoke
 
-必要な権限: `write`。発行済みチケットを無効化します（URL の漏えい・放置時の kill switch）。仮押さえ中だった場合は残っている `[仮ブロック]` の予定も削除します。
+必要な権限: `write`。発行済みチケットを無効化します（URL の漏えい・放置時の kill switch）。仮押さえ中だった場合は残っている `[仮ブロック]` の予定も削除します。仮押さえ中に期限を過ぎたチケット（`status` は `expired`）も無効化でき、カレンダーに残っている `[仮ブロック]` の予定を削除します。
 
 | 名前 | 型 | 必須 | 制約・既定値 |
 |---|---|---|---|
@@ -453,14 +453,14 @@ URL のホスト部は `APP_BASE_URL`（本番は必須。未設定の開発環�
 
 | フィールド | 説明 |
 |---|---|
-| `failed_deletes` | 削除できなかった `[仮ブロック]` の件数。仮押さえ中でなければ 0。Google 未連携の場合は候補の全件が失敗として数えられる（無効化自体は成立する） |
+| `failed_deletes` | 削除できなかった `[仮ブロック]` の件数。仮押さえ中（期限を過ぎたものを含む）でなければ 0。Google 未連携の場合は候補の全件が失敗として数えられる（無効化自体は成立する） |
 
 エラー:
 
 | code | HTTP | 条件 |
 |---|---|---|
 | `not_found` | 404 | 該当する短縮 ID のチケットが無い |
-| `invalid_state` | 409 | 状態が `active` / `held` 以外（使用済み・取消済み・無効化済み・期限切れ・破損） |
+| `invalid_state` | 409 | 状態が `active` / `held` 以外（使用済み・取消済み・無効化済み・未使用のまま期限切れ・破損）。仮押さえ中に期限を過ぎた `expired` は受け付ける |
 | `insufficient_scope` | 403 | `read` キー |
 
 監査ログに `ticket_revoke` を記録します（Slack 通知はありません）。

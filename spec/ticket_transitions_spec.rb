@@ -78,6 +78,30 @@ RSpec.describe TicketTransitions do
     end
   end
 
+  describe ".revoke" do
+    let(:eight_days_ago) { (now - (8 * 86_400)).iso8601 }
+
+    it "held のまま期限切れでも revoked にし、holds・holder_key を除く（残った [仮ブロック] の掃除用）" do
+      expired_hold = { "token" => "t", "status" => "held", "created_at" => eight_days_ago,
+                       "held_at" => eight_days_ago, "holder_key" => "k",
+                       "holds" => [{ "event_id" => "ev1" }, { "event_id" => "ev2" }] }
+      updated, previous = described_class.revoke(expired_hold, now: now)
+
+      expect(updated["status"]).to eq("revoked")
+      expect(updated).not_to have_key("holds")
+      expect(updated).not_to have_key("holder_key")
+      # 呼び出し側が残イベントを削除できるよう、遷移前のチケット（holds を含む）を返す。
+      expect(previous["holds"].map { |h| h["event_id"] }).to eq(%w[ev1 ev2])
+    end
+
+    it "未使用のまま期限切れ（status が active・未設定）は無効化できない（nil）" do
+      created = (now - (25 * 3600)).iso8601
+      [{ "status" => "active", "created_at" => created }, { "created_at" => created }].each do |t|
+        expect(described_class.revoke(t, now: now)).to be_nil
+      end
+    end
+  end
+
   describe ".confirm_hold" do
     let(:held) do
       { "token" => "t", "status" => "held", "held_at" => now.iso8601, "created_at" => now.iso8601,

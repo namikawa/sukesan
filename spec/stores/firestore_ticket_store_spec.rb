@@ -99,10 +99,10 @@ RSpec.describe "FirestoreTicketStore", :firestore do
     expect(store.cancel_booking!(hold_ticket, now: now)).to be(false)
   end
 
-  # 2 枠の仮押さえ済みチケットを作るヘルパ。
-  def hold_ticket
-    token = store.create(now: now)
-    store.hold!(token, now: now, attrs: {
+  # 2 枠の仮押さえ済みチケットを作るヘルパ（at は発行・仮押さえの時刻）。
+  def hold_ticket(at: now)
+    token = store.create(now: at)
+    store.hold!(token, now: at, attrs: {
                   "requester" => "山田", "title" => "打合せ", "holder_key" => "holder-secret",
                   "holds" => [
                     { "event_id" => "ev1", "slot_start" => "2026-06-23T10:00:00+09:00",
@@ -156,6 +156,15 @@ RSpec.describe "FirestoreTicketStore", :firestore do
 
   it "仮押さえ中のチケットも revoke でき、holds を含む遷移前チケットを返す（kill switch 用）" do
     token = hold_ticket
+    previous = store.revoke(token, now: now)
+    expect(previous["holds"].size).to eq(2)
+    expect(TicketStatus.status(store.find(token), now: now)).to eq("revoked")
+  end
+
+  it "held のまま期限切れのチケットも revoke でき、holds を含む遷移前チケットを返す（残った [仮ブロック] の掃除用）" do
+    token = hold_ticket(at: now - (8 * 86_400)) # held_at から 7 日超
+    expect(TicketStatus.status(store.find(token), now: now)).to eq("expired")
+
     previous = store.revoke(token, now: now)
     expect(previous["holds"].size).to eq(2)
     expect(TicketStatus.status(store.find(token), now: now)).to eq("revoked")
