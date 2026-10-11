@@ -62,8 +62,8 @@ class BookingService
                                                     send_updates: send_invites ? "all" : "none",
                                                     private_event: private_event, id: id)
     ok_result(response, request_meet)
-  rescue GoogleCalendarClient::Conflict
-    conflict_result(token, id_from_caller)
+  rescue GoogleCalendarClient::Conflict => e
+    conflict_result(token, e, id_from_caller, id: id, event: event, request_meet: request_meet)
   rescue StandardError => e
     recover_or_fail(token, e, id: id, event: event, request_meet: request_meet)
   end
@@ -73,13 +73,14 @@ class BookingService
   end
 
   # 同じ event id が既に存在する（409）ときの扱い。
-  # token 由来の ID は同じチケットの再試行でしか衝突しないため、前回の試行で作成済みとみなして成功にする
-  # （HTTP タイムアウト等で「Google 側は成功・アプリ側は例外」になった後の再試行を冪等にする）。
+  # token 由来の ID は同じチケットの再試行でしか衝突しないが、既存の予定が今回と同じ枠とは限らない
+  # （失敗と表示された前回の試行で作られていて、ゲストが別の枠を選び直した場合など）。そのため
+  # recover_or_fail と同じ確認を通し、生きていて時間帯が今回と一致するときだけ成功にする。
   # 呼び出し側が指定した ID（Idempotency-Key 由来）は、取り消して削除済みの予定とも衝突する
   # （Google は削除したイベントの ID を再利用できない）。予定が無いのに成功を返さないよう、
   # token を有効へ戻したうえでキーの衝突として呼び出し側へ伝える。
-  def conflict_result(token, id_from_caller)
-    return Result.new(status: :ok, meet_link: nil) unless id_from_caller
+  def conflict_result(token, error, id_from_caller, id:, event:, request_meet:)
+    return recover_or_fail(token, error, id: id, event: event, request_meet: request_meet) unless id_from_caller
 
     TicketStore.reactivate!(token)
     Result.new(status: :idempotency_conflict)
@@ -87,8 +88,7 @@ class BookingService
 
   # 応答の受信に失敗しても Google 側では作成できていることがある（タイムアウト等）。存在を 1 回だけ
   # 確認し、今回の登録が成立していればチケットを used のまま成功として扱う（管理外の予定を残さない）。
-  # 確認できない・別の予定だった・確認自体が失敗した場合は曖昧なので、従来どおり token を有効へ戻して
-  # 失敗を返す（リトライすれば Google の 409 に収束するため、ここで衝突と区別はしない）。
+  # 確認できない・別の予定だった・確認自体が失敗した場合は曖昧なので、token を有効へ戻して失敗を返す。
   # 原因調査のため例外クラスのみ記録する（メッセージは API 応答＝秘密を含み得るため出さない）。
   def recover_or_fail(token, error, id:, event:, request_meet:)
     created = created_event(id, event)
@@ -99,9 +99,10 @@ class BookingService
     Result.new(status: :api_failure)
   end
 
-  # 今回の登録でできた予定を取得する（無い・削除済み・別の予定・確認自体が失敗した場合は nil）。
+  # ID の予定を取得し、今回の登録内容と一致すれば返す（無い・削除済み・別の予定・確認自体が失敗した場合は nil）。
   # 冪等キー由来の ID は、一覧の対象（30 日）より前に同じキーで登録した予定や、同じキーの並行実行が
-  # 作った予定とも一致し得る。別の予定を今回の成功と誤認しないよう、時間帯の一致まで確認する。
+  # 作った予定とも一致し得る。token 由来の ID も、前回の試行で別の枠に作られた予定と一致し得る。
+  # 別の予定を今回の成功と誤認しないよう、時間帯の一致まで確認する。
   def created_event(id, event)
     found = @calendar_client.get_event(id)
     return nil unless found.is_a?(Hash) && found["status"] != "cancelled"

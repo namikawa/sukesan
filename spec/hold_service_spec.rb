@@ -26,7 +26,7 @@ RSpec.describe HoldService do
   end
 
   describe "#hold" do
-    it "チケット遷移後に prefix 付きイベントをスロットごとの決定的 ID で作成する" do
+    it "チケット遷移後に prefix 付きイベントをスロットごとに異なる ID で作成し、試行ごとに ID が変わる" do
       created = []
       allow(TicketStore).to receive(:hold!).and_return(true)
       allow(calendar_client).to receive(:create_event) do |event, id:, **|
@@ -43,6 +43,12 @@ RSpec.describe HoldService do
       ids = created.map { |_, id| id }
       expect(ids).to all(match(/\Asukesan[0-9a-f]{40}\z/))
       expect(ids.uniq.size).to eq(2) # スロットごとに異なる ID
+
+      # 同じ token・同じ候補で再度仮押さえしても、前回と同じ ID は使わない
+      # （後始末で削除した ID は再利用できず、同じ ID では再試行が 409 になるため）。
+      created.clear
+      expect(hold.status).to eq(:ok)
+      expect(created.map { |_, id| id } & ids).to be_empty
     end
 
     it "既定は private_event=false、指定時は全イベントを private_event=true で作成する（非公開のオプトイン）" do
@@ -77,31 +83,53 @@ RSpec.describe HoldService do
       expect(calendar_client).not_to have_received(:create_event)
     end
 
-    it "作成途中で失敗したら作成済みイベントを削除し、チケットを有効へ戻す（:api_failure）" do
+    context "候補 3 件の 2 件目で作成に失敗したとき" do
+      let(:slots) do
+        [[Time.iso8601("2026-06-23T10:00:00+09:00"), Time.iso8601("2026-06-23T10:30:00+09:00")],
+         [Time.iso8601("2026-06-24T14:00:00+09:00"), Time.iso8601("2026-06-24T14:30:00+09:00")],
+         [Time.iso8601("2026-06-25T11:00:00+09:00"), Time.iso8601("2026-06-25T11:30:00+09:00")]]
+      end
+
+      it "作成を呼んだ候補（失敗した候補を含む）をすべて削除し、まだ呼んでいない候補は削除しない（:api_failure）" do
+        saved_ids = nil
+        allow(TicketStore).to receive(:hold!) do |_token, attrs:, **|
+          saved_ids = attrs["holds"].map { |h| h["event_id"] }
+          true
+        end
+        allow(TicketStore).to receive(:reactivate!)
+        requested = []
+        allow(calendar_client).to receive(:create_event) do |_event, id:, **|
+          requested << id
+          # 応答を受け取れなかった（Google 側では作成済みかもしれない）場合を想定する。
+          raise StandardError if requested.size == 2
+
+          {}
+        end
+        deleted = []
+        allow(calendar_client).to receive(:delete_event) { |id| deleted << id }
+
+        result = nil
+        expect { result = hold }.to output(/\[HoldService\] 仮押さえの作成失敗/).to_stderr
+        expect(result.status).to eq(:api_failure)
+        expect(requested).to eq(saved_ids.first(2))
+        expect(deleted).to eq(saved_ids.first(2))
+        expect(deleted).not_to include(saved_ids[2])
+        expect(TicketStore).to have_received(:reactivate!).with("tok")
+      end
+    end
+
+    it "409（同じ ID の予定が既にある）は失敗として巻き戻す（:api_failure・削除・reactivate）" do
       allow(TicketStore).to receive(:hold!).and_return(true)
       allow(TicketStore).to receive(:reactivate!)
-      calls = 0
-      allow(calendar_client).to receive(:create_event) do
-        calls += 1
-        raise StandardError if calls == 2
-
-        {}
-      end
+      allow(calendar_client).to receive(:create_event).and_raise(GoogleCalendarClient::Conflict)
       deleted = []
       allow(calendar_client).to receive(:delete_event) { |id| deleted << id }
 
       result = nil
-      expect { result = hold }.to output(/\[HoldService\] 仮押さえの作成失敗/).to_stderr
+      expect { result = hold }.to output(/仮押さえの作成失敗: GoogleCalendarClient::Conflict/).to_stderr
       expect(result.status).to eq(:api_failure)
-      expect(deleted.size).to eq(1) # 1 件目だけ作成済みだったので 1 件だけ削除
+      expect(deleted.size).to eq(1) # 1 件目の作成で失敗したので、呼んだ 1 件だけ削除
       expect(TicketStore).to have_received(:reactivate!).with("tok")
-    end
-
-    it "409（既存）は作成済みとして成功扱いにする（再試行の冪等性）" do
-      allow(TicketStore).to receive(:hold!).and_return(true)
-      allow(calendar_client).to receive(:create_event).and_raise(GoogleCalendarClient::Conflict)
-
-      expect(hold.status).to eq(:ok)
     end
   end
 

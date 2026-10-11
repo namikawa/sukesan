@@ -9,7 +9,7 @@ require_relative "event"
 # Google Calendar API (v3) を呼び出すクライアント。
 # OAuth2::AccessToken を受け取り、その認可で API を実行する。
 class GoogleCalendarClient
-  # 同じ event id が既に存在する（409）= 前回の試行で作成済み。呼び出し側が冪等に扱うための例外。
+  # 同じ event id が既に存在する（409）ことを呼び出し側へ伝える例外（扱いは呼び出し側が決める）。
   class Conflict < StandardError; end
 
   CALENDAR_ID = "primary"
@@ -47,7 +47,7 @@ class GoogleCalendarClient
   # private_event: true のときだけ visibility=private を付ける（カレンダー共有相手には「予定あり」とだけ
   #   表示される）。false ならフィールド自体を送らず Google の既定に委ねる。
   # 戻り値は作成された API レスポンス（JSON をパースしたハッシュ。Meet リンク取得に使う）。
-  # id: を渡すとクライアント指定のイベント ID で作成する（決定的 ID による冪等再試行に使う）。
+  # id: を渡すとクライアント指定のイベント ID で作成する。
   # 既に同じ ID が存在する場合（409）は Conflict を送出する。
   def create_event(event, attendees: [], request_meet: false, id: nil, send_updates: "none", private_event: false)
     response = @token.post(

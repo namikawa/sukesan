@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "openssl"
+require "securerandom"
 require "time"
 require_relative "ticket_store"
 require_relative "ticket_status"
@@ -11,7 +12,7 @@ require_relative "event_format"
 # 複数カレンダー仮押さえの中核トランザクション（作成・決定・個別削除・全取りやめ）を担うサービス。
 #
 # BookingService と同じく、整合性の核（ロックによる直列化・チケットの状態遷移の順序・
-# 失敗時のロールバック・決定的イベント ID による冪等化）を HTTP 層から分離する。
+# 失敗時のロールバック）を HTTP 層から分離する。
 # Web 関心（params 検証・holder 照合・HTTP ステータス・flash）はルート側に残す。
 #
 # セキュリティ上の設計制約: 操作対象のイベント ID はチケットに保存した値のみを使う。
@@ -40,7 +41,8 @@ class HoldService
     @lock.synchronize do
       return Result.new(status: :slot_taken) unless slots.all? { |s, e| @availability.slot_available?(s, e) }
 
-      holds = slots.map { |s, e| hold_entry(token, s, e) }
+      attempt = SecureRandom.hex(8)
+      holds = slots.map { |s, e| hold_entry(token, attempt, s, e) }
       attrs = { "requester" => requester, "title" => title, "holder_key" => holder_key, "holds" => holds }
       return Result.new(status: :ticket_used) unless TicketStore.hold!(token, attrs: attrs, now: now)
 
@@ -90,33 +92,34 @@ class HoldService
 
   private
 
-  # token とスロットから決定的に導くイベント ID を持つ hold エントリ。
-  # 再試行で同じ ID になり、Google 側の一意制約（409）で重複作成を防ぐ（BookingService と同じ手法）。
-  def hold_entry(token, starts_at, ends_at)
-    digest = OpenSSL::HMAC.hexdigest("SHA256", @event_id_key, "#{token}:hold:#{starts_at.iso8601}")
+  # token・試行ごとのランダム値（attempt）・スロットから導くイベント ID を持つ hold エントリ。
+  # 同じ token・同じ候補でも試行ごとに ID が変わる。失敗時の後始末で削除した ID は Google で再利用できず、
+  # 同じ ID のままだと同じ候補での再試行が 409 になるため。
+  def hold_entry(token, attempt, starts_at, ends_at)
+    digest = OpenSSL::HMAC.hexdigest("SHA256", @event_id_key, "#{token}:hold:#{attempt}:#{starts_at.iso8601}")
     { "event_id" => "sukesan#{digest[0, 40]}",
       "slot_start" => starts_at.iso8601, "slot_end" => ends_at.iso8601 }
   end
 
   def create_hold_events(token, requester, title, holds, now, private_event:)
-    created = []
+    attempted = []
     holds.each do |entry|
+      # 応答を受け取れなくても Google 側では作成されていることがあるため、呼ぶ前に後始末の対象へ積む。
+      attempted << entry
       create_hold_event(entry, requester, title, now, private_event: private_event)
-      created << entry
     end
     Result.new(status: :ok)
   rescue StandardError => e
-    # 途中で失敗したら、作成済みイベントを取り消してチケットを active へ戻す（再試行できるようにする）。
-    warn "[HoldService] 仮押さえの作成失敗: #{e.class}（作成済みイベントを取り消します）"
-    rollback_created(token, created)
+    # 途中で失敗したら（409 を含む）、作成を試みたイベントをすべて削除してチケットを active へ戻す
+    # （再試行できるようにする）。作られていない ID の削除は delete_event が成功として扱う。
+    warn "[HoldService] 仮押さえの作成失敗: #{e.class}（作成を試みたイベントを削除します）"
+    rollback_attempted(token, attempted)
     Result.new(status: :api_failure)
   end
 
   def create_hold_event(entry, requester, title, now, private_event:)
     @calendar_client.create_event(hold_event(entry, requester, title, now),
                                   id: entry["event_id"], private_event: private_event)
-  rescue GoogleCalendarClient::Conflict
-    # 決定的 ID が既に存在＝前回の試行で作成済み。成功として扱う（冪等な再試行）。
   end
 
   def hold_event(entry, requester, title, now)
@@ -160,8 +163,8 @@ class HoldService
     end
   end
 
-  def rollback_created(token, created)
-    delete_events(created)
+  def rollback_attempted(token, attempted)
+    delete_events(attempted)
     TicketStore.reactivate!(token)
   end
 end

@@ -91,11 +91,67 @@ RSpec.describe BookingService do
     expect(ids.uniq.size).to eq(1)
   end
 
-  it "Google が 409（既存）を返したら重複作成せず :ok（reactivate しない）" do
-    allow(calendar_client).to receive(:create_event).and_raise(GoogleCalendarClient::Conflict)
-    expect(TicketStore).not_to receive(:reactivate!)
+  describe "Google が 409（同じ ID の予定が既にある）を返したとき" do
+    # token 由来の ID は、失敗と表示された前回の試行（別の枠を選び直す前）で作られた予定とも衝突し得る。
+    # 成功にするのは、既存の予定が生きていて時間帯が今回の登録内容と一致するときだけ。
+    let(:existing) do
+      { "id" => "sukesanev1", "status" => "confirmed",
+        "start" => { "dateTime" => "2026-06-22T10:00:00+09:00" },
+        "end" => { "dateTime" => "2026-06-22T10:30:00+09:00" } }
+    end
 
-    expect(call.status).to eq(:ok)
+    before { allow(calendar_client).to receive(:create_event).and_raise(GoogleCalendarClient::Conflict) }
+
+    it "取得した予定が生きていて時間帯が一致すれば重複作成せず :ok（reactivate しない）" do
+      expect(calendar_client).to receive(:get_event)
+        .with(described_class.event_id("test-event-id-key", "tok")).and_return(existing)
+      expect(TicketStore).not_to receive(:reactivate!)
+
+      expect(call.status).to eq(:ok)
+    end
+
+    it "一致したとき request_meet なら取得した予定から Meet リンクを取り出す" do
+      allow(calendar_client).to receive(:get_event)
+        .and_return(existing.merge("hangoutLink" => "https://meet.google.com/abc-defg-hij"))
+
+      result = service.call(token: "tok", event: event, ticket_attrs: ticket_attrs, request_meet: true)
+      expect(result.status).to eq(:ok)
+      expect(result.meet_link).to eq("https://meet.google.com/abc-defg-hij")
+    end
+
+    it "時間帯が違う予定なら :api_failure（token を有効へ戻す）" do
+      allow(calendar_client).to receive(:get_event)
+        .and_return(existing.merge("start" => { "dateTime" => "2026-06-22T14:00:00+09:00" },
+                                   "end" => { "dateTime" => "2026-06-22T14:30:00+09:00" }))
+      expect(TicketStore).to receive(:reactivate!).with("tok")
+
+      result = nil
+      expect { result = call }.to output(/\[BookingService\] 登録失敗: GoogleCalendarClient::Conflict/).to_stderr
+      expect(result.status).to eq(:api_failure)
+    end
+
+    it "予定が無ければ（404）:api_failure" do
+      allow(calendar_client).to receive(:get_event).and_return(nil)
+      expect(TicketStore).to receive(:reactivate!).with("tok")
+
+      expect { expect(call.status).to eq(:api_failure) }.to output(/\[BookingService\] 登録失敗/).to_stderr
+    end
+
+    it "削除済み（status: cancelled）の予定なら :api_failure" do
+      allow(calendar_client).to receive(:get_event).and_return(existing.merge("status" => "cancelled"))
+      expect(TicketStore).to receive(:reactivate!).with("tok")
+
+      expect { expect(call.status).to eq(:api_failure) }.to output(/\[BookingService\] 登録失敗/).to_stderr
+    end
+
+    it "確認自体が失敗したら :api_failure（曖昧なら失敗側へ倒す）" do
+      allow(calendar_client).to receive(:get_event).and_raise(StandardError)
+      expect(TicketStore).to receive(:reactivate!).with("tok")
+
+      result = nil
+      expect { result = call }.to output(/登録結果の確認失敗: StandardError/).to_stderr
+      expect(result.status).to eq(:api_failure)
+    end
   end
 
   it "event_id を指定した登録で Google が 409 を返したら :idempotency_conflict（token を有効へ戻す）" do

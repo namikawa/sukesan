@@ -403,8 +403,9 @@ RSpec.describe "他システム向け API /api/v1/bookings" do
       expect(TicketStore.all.map { |ticket| TicketStore.status(ticket) }).to contain_exactly("used", "revoked")
     end
 
-    it "キー未指定なら Google の 409（同じ token での再試行＝作成済み）は既存扱いで成立する（201）" do
+    it "キー未指定なら Google の 409 は、既存の予定の時間帯が一致すれば既存扱いで成立する（201）" do
       stub_conflict
+      stub_get_event(status: 200, body: JSON.generate(found_event))
       post_booking
 
       expect(last_response.status).to eq(201)
