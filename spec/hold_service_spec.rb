@@ -140,11 +140,19 @@ RSpec.describe HoldService do
        { "event_id" => "ev2", "slot_start" => "2026-06-24T14:00:00+09:00",
          "slot_end" => "2026-06-24T14:30:00+09:00" }]
     end
-    let(:ticket) { { "requester" => "山田", "title" => "打合せ" } }
+    let(:ticket) do
+      { "status" => "held", "held_at" => now.iso8601, "requester" => "山田", "title" => "打合せ", "holds" => holds }
+    end
+    # 選んだ候補（ev1）の [仮ブロック] が同じ時間帯で残っている（オフセット表記は保存値と違えてある）。
+    let(:live_event) do
+      { "id" => "ev1", "status" => "confirmed",
+        "start" => { "dateTime" => "2026-06-23T01:00:00Z" }, "end" => { "dateTime" => "2026-06-23T01:30:00Z" } }
+    end
 
     before do
       allow(TicketStore).to receive(:confirm_hold!).and_return(holds)
       allow(TicketStore).to receive(:find).and_return(ticket)
+      allow(calendar_client).to receive(:get_event).with("ev1").and_return(live_event)
     end
 
     def confirm(**)
@@ -159,9 +167,72 @@ RSpec.describe HoldService do
       result = confirm
       expect(result.status).to eq(:ok)
       expect(result.failed_deletes).to eq(0)
+      expect(calendar_client).to have_received(:get_event).with("ev1")
       expect(calendar_client).to have_received(:patch_event)
         .with("ev1", hash_including(summary: "打合せ - 山田 (from 調整ツール)"))
       expect(deleted).to eq(["ev2"])
+    end
+
+    describe "決定前の [仮ブロック] の確認" do
+      before do
+        allow(calendar_client).to receive(:patch_event)
+        allow(calendar_client).to receive(:delete_event)
+      end
+
+      # 決定しない場合はチケットに触れず（held のまま）、決定イベントの更新も他候補の削除もしない。
+      def expect_nothing_changed
+        expect(TicketStore).not_to have_received(:confirm_hold!)
+        expect(calendar_client).not_to have_received(:patch_event)
+        expect(calendar_client).not_to have_received(:delete_event)
+      end
+
+      it "選んだ候補の予定が無ければ（404/410）:slot_taken" do
+        allow(calendar_client).to receive(:get_event).and_return(nil)
+
+        expect(confirm.status).to eq(:slot_taken)
+        expect_nothing_changed
+      end
+
+      it "削除済み（status: cancelled）なら :slot_taken" do
+        allow(calendar_client).to receive(:get_event).and_return(live_event.merge("status" => "cancelled"))
+
+        expect(confirm.status).to eq(:slot_taken)
+        expect_nothing_changed
+      end
+
+      it "別の時刻へ動かされていれば :slot_taken" do
+        allow(calendar_client).to receive(:get_event)
+          .and_return(live_event.merge("start" => { "dateTime" => "2026-06-23T15:00:00+09:00" },
+                                       "end" => { "dateTime" => "2026-06-23T15:30:00+09:00" }))
+
+        expect(confirm.status).to eq(:slot_taken)
+        expect_nothing_changed
+      end
+
+      it "確認自体が失敗したら :api_failure（例外クラスだけを記録する）" do
+        allow(calendar_client).to receive(:get_event).and_raise(StandardError)
+
+        result = nil
+        expect { result = confirm }.to output(/\[HoldService\] 決定前の仮押さえイベントの確認失敗: StandardError/)
+          .to_stderr
+        expect(result.status).to eq(:api_failure)
+        expect_nothing_changed
+      end
+
+      it "held でない・チケットが無い・候補に無い日時なら :not_held（Google には問い合わせない）" do
+        allow(TicketStore).to receive(:find).and_return(ticket.merge("status" => "used"))
+        expect(confirm.status).to eq(:not_held)
+
+        allow(TicketStore).to receive(:find).and_return(nil)
+        expect(confirm.status).to eq(:not_held)
+
+        allow(TicketStore).to receive(:find).and_return(ticket)
+        expect(service.confirm(token: "tok", slot_start: "2026-06-25T10:00:00+09:00", now: now).status)
+          .to eq(:not_held)
+
+        expect(calendar_client).not_to have_received(:get_event)
+        expect_nothing_changed
+      end
     end
 
     it "request_meet 時は更新レスポンスから Meet リンクを取り出す" do

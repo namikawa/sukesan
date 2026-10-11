@@ -619,7 +619,7 @@ URL のホスト部は `APP_BASE_URL`（本番は必須。未設定の開発環�
 | `request_meet` | boolean | | 既定 false |
 | `send_invites` | boolean | | 既定 false |
 
-`private_event` はここでは指定できません（仮押さえの作成時に指定した設定が維持されます）。決定時は仮押さえの予定が既に枠を専有しているため、空きの再検証は行いません。
+`private_event` はここでは指定できません（仮押さえの作成時に指定した設定が維持されます）。決定時は仮押さえの予定が既に枠を専有しているため、空きの再検証は行いません。ただし、決定の前に選んだ候補の `[仮ブロック]` がカレンダーから削除・移動されていないかは確かめます。
 
 成功（200）:
 
@@ -647,6 +647,8 @@ URL のホスト部は `APP_BASE_URL`（本番は必須。未設定の開発環�
 |---|---|---|
 | `not_found` | 404 | 短縮 ID が不明、または `slot_starts_at` がチケットの保存候補に無い |
 | `invalid_state` | 409 | 対象が `held` でない（未使用・決定済み・取りやめ済み・期限切れ）。決定の直前に他経路で状態が変わった場合も含む |
+| `slot_taken` | 409 | 選んだ候補の `[仮ブロック]` が見つからない、または時間帯が変わっている。チケットは `held` のまま |
+| `upstream_error` | 502 | その確認に失敗した。チケットは `held` のまま |
 | `invalid_params` | 400 | ボディの形式、`slot_starts_at` の欠落・型不正、任意項目の不正 |
 | `provider_not_connected` | 503 | Google カレンダーが未連携 |
 | `insufficient_scope` | 403 | `read` キー |
@@ -762,7 +764,7 @@ Idempotency-Key: yamada-20260805-1000
 | `forbidden` | 403 | 接続元が loopback でない | 全エンドポイント |
 | `insufficient_scope` | 403 | `write` 権限が必要 | すべての POST（監査ログ `api_scope_denied`） |
 | `not_found` | 404 | API キーが未発行、短縮 ID が不明、`slot_starts_at` が保存候補に無い、未定義のパス・メソッド | 全エンドポイント |
-| `slot_taken` | 409 | 空き再検証で枠が使えない | `POST /api/v1/bookings`、`POST /api/v1/holds` |
+| `slot_taken` | 409 | 空き再検証で枠が使えない | `POST /api/v1/bookings`、`POST /api/v1/holds`、`POST /api/v1/holds/:id/confirm` |
 | `invalid_state` | 409 | チケットの状態が操作と合わない | `revoke`、`bookings/:id/cancel`、`holds/:id/*` |
 | `idempotency_conflict` | 409 | 過去の予約で使った `Idempotency-Key` | `POST /api/v1/bookings` |
 | `rate_limited` | 429 | レート制限超過（60 回/分、POST は追加で 10 回/分） | 全エンドポイント |

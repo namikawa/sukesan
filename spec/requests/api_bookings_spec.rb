@@ -596,6 +596,10 @@ RSpec.describe "他システム向け API /api/v1/bookings" do
       post "/hold", authenticity_token: csrf_token, token: token, requester: "山田", title: "打合せ",
                     slots: ["#{slot_date}T09:00:00+09:00/#{slot_date}T09:30:00+09:00",
                             "#{slot_date}T10:00:00+09:00/#{slot_date}T10:30:00+09:00"]
+      # 決定前の確認（GET /events/<id>）で、決定する候補の [仮ブロック] が同じ時間帯で残っている応答。
+      live_hold = found_event.merge("start" => { "dateTime" => "#{slot_date}T10:00:00+09:00" },
+                                    "end" => { "dateTime" => "#{slot_date}T10:30:00+09:00" })
+      stub_get_event(status: 200, body: JSON.generate(live_hold))
       post "/hold/confirm", authenticity_token: csrf_token, token: token, slot: "#{slot_date}T10:00:00+09:00"
 
       ticket = TicketStore.find(token)

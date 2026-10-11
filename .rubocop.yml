@@ -31,8 +31,9 @@ Metrics/MethodLength:
 Metrics/ModuleLength:
   Max: 130
 
+# 外部 API クライアント（GoogleCalendarClient）は応答の読み取り補助を含むためやや長くなる。
 Metrics/ClassLength:
-  Max: 130
+  Max: 140
 
 # キーワード引数は順序依存が無く自己記述的なため、パラメータ数のカウント対象外にする。
 Metrics/ParameterLists:

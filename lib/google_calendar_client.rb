@@ -109,6 +109,18 @@ class GoogleCalendarClient
               &.find { |entry| entry["entryPointType"] == "video" }&.dig("uri")
   end
 
+  # get_event の応答が生きていて（削除済みでない）、時間帯が starts_at〜ends_at（Time）と一致するか。
+  # オフセット表記の違いを吸収するため Time に変換し、エポック秒（to_i）で比較する。
+  # 存在しない（nil）・dateTime を持たない＝終日予定・パースできない値は不一致として扱う。
+  def self.live_at?(event, starts_at, ends_at)
+    return false unless event.is_a?(Hash) && event["status"] != "cancelled"
+
+    Time.iso8601(event.dig("start", "dateTime").to_s).to_i == starts_at.to_i &&
+      Time.iso8601(event.dig("end", "dateTime").to_s).to_i == ends_at.to_i
+  rescue ArgumentError
+    false
+  end
+
   private
 
   def fetch_events_page(time_min, time_max, page_token)

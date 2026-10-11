@@ -52,6 +52,14 @@ RSpec.describe "他システム向け API /api/v1/holds" do
     ticket["holds"].find { |hold| hold["slot_start"] == slot["starts_at"] }.fetch("event_id")
   end
 
+  # 決定前の確認（GET /events/<id>。一覧のスタブより後に定義して優先させる）で、決定する候補の
+  # [仮ブロック] が同じ時間帯で残っている応答を返す。
+  def stub_live_hold_event(slot)
+    body = { "status" => "confirmed", "start" => { "dateTime" => slot["starts_at"] },
+             "end" => { "dateTime" => slot["ends_at"] } }
+    stub_request(:get, event_url).to_return(status: 200, body: JSON.generate(body), headers: json_headers)
+  end
+
   def error_code
     JSON.parse(last_response.body).dig("error", "code")
   end
@@ -268,6 +276,8 @@ RSpec.describe "他システム向け API /api/v1/holds" do
   end
 
   describe "決定 POST /api/v1/holds/:id/confirm" do
+    before { stub_live_hold_event(slot2) }
+
     def post_confirm(id, body = { "slot_starts_at" => slot2["starts_at"] }, headers = write_auth)
       post_json("/api/v1/holds/#{id}/confirm", body, headers)
     end
@@ -383,6 +393,30 @@ RSpec.describe "他システム向け API /api/v1/holds" do
       expect { post_confirm(id) }.to output(/\[HoldService\] 仮押さえイベントの削除失敗/).to_stderr
       expect(last_response.status).to eq(200)
       expect(JSON.parse(last_response.body)["failed_deletes"]).to eq(1)
+    end
+
+    it "決定する候補の [仮ブロック] がカレンダーに無ければ 409（slot_taken）で、仮押さえは held のまま" do
+      id = create_hold!
+      stub_request(:get, event_url).to_return(status: 404, body: "")
+      post_confirm(id)
+
+      expect(last_response.status).to eq(409)
+      expect(error_code).to eq("slot_taken")
+      expect(TicketStore.status(stored_ticket)).to eq("held")
+      expect(a_request(:patch, event_url)).not_to have_been_made
+      expect(a_request(:delete, event_url)).not_to have_been_made
+    end
+
+    it "その確認に失敗したら 502（upstream_error）で、仮押さえは held のまま" do
+      id = create_hold!
+      stub_request(:get, event_url).to_return(status: 500, body: "boom")
+
+      expect { post_confirm(id) }.to output(/\[HoldService\] 決定前の仮押さえイベントの確認失敗/).to_stderr
+      expect(last_response.status).to eq(502)
+      expect(error_code).to eq("upstream_error")
+      expect(TicketStore.status(stored_ticket)).to eq("held")
+      expect(a_request(:patch, event_url)).not_to have_been_made
+      expect(a_request(:delete, event_url)).not_to have_been_made
     end
 
     it "未連携なら 503 で、仮押さえは held のまま" do
@@ -578,6 +612,7 @@ RSpec.describe "他システム向け API /api/v1/holds" do
   # 決定した予約でも event_id が保存されるため、API だけで仮押さえ → 決定 → 取消まで完結する。
   it "API で仮押さえ → 決定した予約は POST /api/v1/bookings/:id/cancel で取り消せる" do
     id = create_hold!
+    stub_live_hold_event(slot2)
     post_json("/api/v1/holds/#{id}/confirm", { "slot_starts_at" => slot2["starts_at"] })
     expect(last_response.status).to eq(200)
     event_id = stored_ticket["event_id"]

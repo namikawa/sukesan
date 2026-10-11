@@ -321,6 +321,9 @@ post "/api/v1/holds/:id/confirm" do
                                                request_meet: request_meet, send_invites: send_invites)
   # 状態確認からロック取得までの間に他経路（ゲスト画面・別の API 呼び出し）で決定・取りやめが起きた場合。
   api_error!(409, "invalid_state", "この仮押さえは決定できる状態ではありません。") if result.status == :not_held
+  # 選んだ候補の [仮ブロック] がカレンダー上で削除・移動されていた／その確認に失敗した（決定していない）。
+  api_error!(409, "slot_taken", "指定した候補の仮押さえがカレンダーから削除・変更されているため決定できません。") if result.status == :slot_taken
+  api_error!(502, "upstream_error", "仮押さえの決定に失敗しました。") if result.status == :api_failure
 
   AuditLog.record(:hold_confirmed, ip: remote_addr, target: "#{audit_ticket_id(token)} via=api:#{@api_label}")
   confirmed = TicketStore.find(token)

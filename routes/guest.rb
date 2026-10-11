@@ -251,7 +251,16 @@ post "/hold/confirm" do
   result = hold_service(google_access).confirm(token: token, slot_start: slot_start,
                                                attendees: event_attendees, video_url: video_url,
                                                request_meet: request_meet, send_invites: send_invites)
-  redirect_with_alert!(token, "この操作は完了済みか、期限切れです。画面を再読み込みしてください。") if result.status == :not_held
+  # いずれも決定は行われていないため、監査・通知・完了表示はしない（:slot_taken / :api_failure は held のまま）。
+  case result.status
+  when :not_held
+    redirect_with_alert!(token, "この操作は完了済みか、期限切れです。画面を再読み込みしてください。")
+  when :slot_taken
+    redirect_with_alert!(token, "選択した日程の仮押さえがカレンダーから削除・変更されているため決定できません。" \
+                                "別の日程を選ぶか、この日程を削除してください。")
+  when :api_failure
+    redirect_with_alert!(token, "決定に失敗しました。お手数ですが、もう一度お試しください。")
+  end
 
   forget_holder!(token)
   AuditLog.record(:hold_confirmed, ip: client_ip, target: audit_ticket_id(token))

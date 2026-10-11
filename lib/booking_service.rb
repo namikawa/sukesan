@@ -102,29 +102,14 @@ class BookingService
   # ID の予定を取得し、今回の登録内容と一致すれば返す（無い・削除済み・別の予定・確認自体が失敗した場合は nil）。
   # 冪等キー由来の ID は、一覧の対象（30 日）より前に同じキーで登録した予定や、同じキーの並行実行が
   # 作った予定とも一致し得る。token 由来の ID も、前回の試行で別の枠に作られた予定と一致し得る。
-  # 別の予定を今回の成功と誤認しないよう、時間帯の一致まで確認する。
+  # 別の予定を今回の成功と誤認しないよう、時間帯の一致まで確認する（GoogleCalendarClient.live_at?）。
+  # 比較はエポック秒で行う（Google への送信・チケット保存は iso8601 の秒精度で、候補照合 matches_candidate? も
+  # 同じ to_i 比較。サブ秒付きの入力でも送信した予定を回収できる）。
   def created_event(id, event)
     found = @calendar_client.get_event(id)
-    return nil unless found.is_a?(Hash) && found["status"] != "cancelled"
-
-    found if same_period?(found, event)
+    found if GoogleCalendarClient.live_at?(found, event.starts_at, event.ends_at)
   rescue StandardError => e
     warn "[BookingService] 登録結果の確認失敗: #{e.class}"
-    nil
-  end
-
-  # 取得した予定の時間帯が、今回登録しようとした枠と同じか。オフセット表記の違いを吸収するため
-  # Time に変換し、エポック秒（to_i）で比較する（Google への送信・チケット保存は iso8601 の秒精度で、
-  # 候補照合 matches_candidate? も同じ to_i 比較。サブ秒付きの入力でも送信した予定を回収できる）。
-  # dateTime を持たない＝終日予定・パースできない値は不一致として扱う。
-  def same_period?(found, event)
-    parse_time(found.dig("start", "dateTime"))&.to_i == event.starts_at.to_i &&
-      parse_time(found.dig("end", "dateTime"))&.to_i == event.ends_at.to_i
-  end
-
-  def parse_time(value)
-    Time.iso8601(value.to_s)
-  rescue ArgumentError
     nil
   end
 end

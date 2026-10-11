@@ -5,6 +5,7 @@ require "securerandom"
 require "time"
 require_relative "ticket_store"
 require_relative "ticket_status"
+require_relative "ticket_transitions"
 require_relative "google_calendar_client"
 require_relative "event"
 require_relative "event_format"
@@ -22,6 +23,8 @@ class HoldService
   TITLE_PREFIX = "[仮ブロック] "
 
   # status: :ok / :slot_taken / :ticket_used / :not_held / :api_failure
+  #   confirm の :slot_taken は選んだ候補の [仮ブロック] が削除・移動されていた、:api_failure はその確認に
+  #   失敗した（いずれも決定していない）。
   # failed_deletes: 削除に失敗した仮押さえイベント数（[仮ブロック] のままカレンダーに残る）
   # patch_failed: 決定イベントの件名更新に失敗した（決定自体は成立している）
   Result = Struct.new(:status, :meet_link, :failed_deletes, :patch_failed, keyword_init: true)
@@ -51,11 +54,16 @@ class HoldService
   end
 
   # 仮押さえから 1 件を決定する（held → used）。決定イベントを確定形へ更新し、他の候補を削除する。
-  # 仮押さえイベント自体が枠を専有しているため、空きの再検証は不要（他チケットと競合しない）。
+  # 仮押さえイベント自体が枠を専有しているため、空きの再検証は行わない（他チケットと競合しない）。
+  # ただしカレンダー上で削除・移動されていることがあるため、決定の前に選んだ候補の [仮ブロック] が
+  # 同じ時間帯で残っているかを確かめ、残っていない・確かめられない場合はチケットに触れずに返す。
   # send_invites: true ならゲストのオプトインとして参加者へ Google の標準招待メールを送る（既定は送らない）。
   def confirm(token:, slot_start:, attendees: [], video_url: "", request_meet: false, send_invites: false,
               now: Time.now)
     @lock.synchronize do
+      rejected = precheck_confirm(token, slot_start, now)
+      return rejected if rejected
+
       attrs = attendees.empty? ? {} : { "attendees" => attendees }
       holds = TicketStore.confirm_hold!(token, slot_start: slot_start, attrs: attrs, now: now)
       return Result.new(status: :not_held) if holds.nil?
@@ -133,6 +141,28 @@ class HoldService
       description: "#{EventFormat.description(requester: requester)}\n" \
                    "調整ツールの仮押さえです。#{deadline} までに 1 件に決定されます。"
     )
+  end
+
+  # 決定の前に、チケットを変えずに決定できるかを確かめる。決定できなければその Result（:not_held /
+  # :slot_taken / :api_failure）、できれば nil を返す。held でない・候補が無ければ Google には問い合わせない。
+  def precheck_confirm(token, slot_start, now)
+    entry = TicketTransitions.find_hold(TicketStore.find(token, now: now), slot_start, now: now)
+    return Result.new(status: :not_held) if entry.nil?
+
+    status = check_hold_event(entry)
+    Result.new(status: status) unless status == :ok
+  end
+
+  # 決定する候補の [仮ブロック] が Google 上に同じ時間帯で残っているか。戻り値は :ok / :slot_taken
+  # （無い・削除済み・時間帯が違う）/ :api_failure（確認自体が失敗した。曖昧なら決定しない側へ倒す）。
+  # 原因調査のため例外クラスのみ記録する（メッセージは API 応答＝秘密を含み得るため出さない）。
+  def check_hold_event(entry)
+    found = @calendar_client.get_event(entry["event_id"])
+    live = GoogleCalendarClient.live_at?(found, Time.iso8601(entry["slot_start"]), Time.iso8601(entry["slot_end"]))
+    live ? :ok : :slot_taken
+  rescue StandardError => e
+    warn "[HoldService] 決定前の仮押さえイベントの確認失敗: #{e.class}（決定しません）"
+    :api_failure
   end
 
   # 決定イベントを確定形（prefix 無しの件名・任意項目）へ更新する。戻り値は [meet_link, patch_failed]。

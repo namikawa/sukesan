@@ -122,6 +122,34 @@ RSpec.describe GoogleCalendarClient do
     end
   end
 
+  describe ".live_at?" do
+    let(:starts_at) { Time.iso8601("2026-06-22T10:00:00+09:00") }
+    let(:ends_at) { Time.iso8601("2026-06-22T10:30:00+09:00") }
+    # オフセット表記は starts_at / ends_at と違えてある（同じ時刻）。
+    let(:event) do
+      { "status" => "confirmed",
+        "start" => { "dateTime" => "2026-06-22T01:00:00Z" }, "end" => { "dateTime" => "2026-06-22T01:30:00Z" } }
+    end
+
+    it "生きていて時間帯が一致すれば true（オフセット表記の違いは問わない）" do
+      expect(described_class.live_at?(event, starts_at, ends_at)).to be(true)
+    end
+
+    it "時間帯が違えば false" do
+      expect(described_class.live_at?(event, starts_at, ends_at + 1800)).to be(false)
+    end
+
+    it "削除済み（status: cancelled）・存在しない（nil）は false" do
+      expect(described_class.live_at?(event.merge("status" => "cancelled"), starts_at, ends_at)).to be(false)
+      expect(described_class.live_at?(nil, starts_at, ends_at)).to be(false)
+    end
+
+    it "dateTime を持たない（終日予定）は false" do
+      all_day = { "status" => "confirmed", "start" => { "date" => "2026-06-22" }, "end" => { "date" => "2026-06-23" } }
+      expect(described_class.live_at?(all_day, starts_at, ends_at)).to be(false)
+    end
+  end
+
   describe "#delete_event" do
     it "削除に成功したら true を返す（sendUpdates=none 指定）" do
       token = double

@@ -26,6 +26,16 @@ RSpec.describe "複数カレンダー仮押さえ /hold" do
       .to_return(status: 200, body: "{}", headers: { "Content-Type" => "application/json" })
     stub_request(:delete, %r{googleapis\.com/calendar/v3/calendars/primary/events/})
       .to_return(status: 204, body: "")
+    stub_live_hold_event
+  end
+
+  # 決定前の確認（GET /events/<id>。一覧のスタブより後に定義して優先させる）で、決定する候補（slot1）の
+  # [仮ブロック] が同じ時間帯で残っている応答を返す。
+  def stub_live_hold_event
+    body = { "status" => "confirmed", "start" => { "dateTime" => "#{date}T09:00:00+09:00" },
+             "end" => { "dateTime" => "#{date}T09:30:00+09:00" } }
+    stub_request(:get, %r{googleapis\.com/calendar/v3/calendars/primary/events/})
+      .to_return(status: 200, body: body.to_json, headers: { "Content-Type" => "application/json" })
   end
 
   def create_holds(slots: [slot1, slot2], **extra)
@@ -105,6 +115,44 @@ RSpec.describe "複数カレンダー仮押さえ /hold" do
     follow_redirect!
     expect(last_response.status).to eq(410) # used の案内ページ
     expect(last_response.body).to include("決定しました")
+  end
+
+  it "決定する日程の [仮ブロック] がカレンダーから削除されていれば決定せず（held のまま）警告を表示する" do
+    create_holds
+    allow(AuditLog).to receive(:record)
+    stub_request(:get, %r{googleapis\.com/calendar/v3/calendars/primary/events/}).to_return(status: 404, body: "")
+    post "/hold/confirm", authenticity_token: csrf_token, token: ticket,
+                          slot: "#{date}T09:00:00+09:00"
+    expect(last_response.status).to eq(302)
+
+    expect(TicketStore.status(TicketStore.find(ticket))).to eq("held")
+    expect(a_request(:patch, %r{googleapis\.com/calendar/v3/calendars/primary/events/})).not_to have_been_made
+    expect(a_request(:delete, %r{googleapis\.com/calendar/v3/calendars/primary/events/})).not_to have_been_made
+    expect(AuditLog).not_to have_received(:record).with(:hold_confirmed, any_args)
+
+    follow_redirect!
+    expect(last_response.body).to include("カレンダーから削除・変更されているため決定できません")
+    expect(last_response.body).to include("この日程で決定する") # ホルダーのまま再操作できる
+  end
+
+  it "決定する日程の [仮ブロック] を確認できなければ（Google が 500）決定せず（held のまま）警告を表示する" do
+    create_holds
+    allow(AuditLog).to receive(:record)
+    stub_request(:get, %r{googleapis\.com/calendar/v3/calendars/primary/events/}).to_return(status: 500, body: "boom")
+    expect do
+      post "/hold/confirm", authenticity_token: csrf_token, token: ticket,
+                            slot: "#{date}T09:00:00+09:00"
+    end.to output(/\[HoldService\] 決定前の仮押さえイベントの確認失敗/).to_stderr
+    expect(last_response.status).to eq(302)
+
+    expect(TicketStore.status(TicketStore.find(ticket))).to eq("held")
+    expect(a_request(:patch, %r{googleapis\.com/calendar/v3/calendars/primary/events/})).not_to have_been_made
+    expect(a_request(:delete, %r{googleapis\.com/calendar/v3/calendars/primary/events/})).not_to have_been_made
+    expect(AuditLog).not_to have_received(:record).with(:hold_confirmed, any_args)
+
+    follow_redirect!
+    expect(last_response.body).to include("決定に失敗しました")
+    expect(last_response.body).to include("この日程で決定する") # ホルダーのまま再操作できる
   end
 
   it "決定時に「参加者に招待メールを送る」をチェックすると sendUpdates=all で更新する" do
