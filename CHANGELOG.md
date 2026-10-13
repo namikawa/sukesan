@@ -1,6 +1,6 @@
 # 変更履歴
 
-## [未リリース]
+## [1.0.1] - 2026-10-14
 
 ### 変更
 
@@ -23,6 +23,8 @@
   発行した 1 件だけの内容で上書きされていた問題。読めないときは発行をエラーにして、ファイルを残す。
 - ファイル保存で、週の変わり目に発行が重なったときなどに新しい週のチケットのファイルが削除されることがあった
   問題。保持期間より古い週のファイルだけを削除する。
+- API 文書（`docs/api.md`）で、同じ `Idempotency-Key` の同時実行と 502 の後の再試行の結果を
+  409 `idempotency_conflict` と書いていた誤り。実際の応答の 409 `slot_taken` に直す（API の挙動は変わらない）。
 
 ## [1.0.0] - 2026-09-28
 
@@ -83,4 +85,5 @@
 - Google カレンダー（必須）。Outlook 同期を使う場合は Microsoft のアプリ登録
 - macOS（launchd）/ Linux（systemd）/ Cloud Run（`max-instances 1`）
 
+[1.0.1]: https://github.com/namikawa/sukesan/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/namikawa/sukesan/releases/tag/v1.0.0
