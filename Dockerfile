@@ -4,7 +4,7 @@
 
 # Ruby 版数は 1 箇所（ここ）で定義し、builder / runtime の両 FROM で共有する。
 # .ruby-version / Gemfile / Gemfile.lock との一致は bin/check_ruby_version（CI）で検証する。
-ARG RUBY_VERSION=3.4.10
+ARG RUBY_VERSION=3.4.11
 
 # ベース OS は codename まで明示する。codename 無しの `-slim` はタグ文字列が変わらないまま指す
 # Debian が入れ替わり（実際 3.4.10-slim は 2026-08-28 に bookworm から trixie へ切り替わった）、
