@@ -42,6 +42,7 @@ bundle install
 cp .env.example .env   # 各項目の説明は .env.example 内のコメント参照
 ```
 
+- Ruby: `.ruby-version` に書かれた版を入れてから `bundle install` する（rbenv なら `rbenv install`）。`Gemfile` が版を完全一致で指定しているため、違う版では `bundle install` が通らない。
 - Google OAuth（必須）: Google Cloud Console で Calendar API を有効化し、OAuth クライアント ID（ウェブ）を作成。リダイレクト URI に `http://localhost:3000/auth/google/callback` を登録。スコープは `calendar.events` と `userinfo.email`。
 - Microsoft（Outlook 同期を使う場合のみ）: Azure でアプリ登録し、リダイレクト URI `http://localhost:3000/auth/microsoft/callback` を登録。委任アクセス許可 `Calendars.Read` と `offline_access` を付与。
 - 管理者パスワードは `bin/admin_password_digest` で bcrypt ダイジェストを生成し、`ADMIN_PASSWORD_DIGEST` に設定する（値は必ずシングルクォートで囲む）。ログインが通らないときは `bin/check_admin_password` で入力とダイジェストのどちらが食い違っているかを診断できる（平文は表示しない）。
