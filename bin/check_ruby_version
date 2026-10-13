@@ -7,7 +7,7 @@
 #   - .ruby-version                  … host / ローカルの Ruby 選択
 #   - Gemfile の ruby "..."          … Bundler の完全一致固定
 #   - Gemfile.lock の RUBY VERSION   … bundle install で解決された版
-#   - Dockerfile の ARG RUBY_VERSION … コンテナのベースイメージ（builder / runtime 共有）
+#   - Dockerfile の FROM ruby:...    … コンテナのベースイメージ（builder / runtime の 2 行）
 #
 # Dependabot が Dockerfile だけを更新すると CI が緑のまま不整合が入る事故を防ぐため、
 # CI（.github/workflows/ci.yml）で本スクリプトを実行する。ローカルでも `ruby bin/check_ruby_version` で確認可。
@@ -25,9 +25,17 @@ lock = read(File.join(root, "Gemfile.lock"))
 sources = {
   ".ruby-version" => read(File.join(root, ".ruby-version"))[/\d+\.\d+\.\d+/],
   'Gemfile (ruby "...")' => read(File.join(root, "Gemfile"))[/^\s*ruby\s+["'](\d+\.\d+\.\d+)["']/, 1],
-  "Gemfile.lock (RUBY VERSION)" => lock[/RUBY VERSION\s*\n\s*ruby\s+(\d+\.\d+\.\d+)/, 1],
-  "Dockerfile (ARG RUBY_VERSION)" => read(File.join(root, "Dockerfile"))[/^ARG\s+RUBY_VERSION=(\d+\.\d+\.\d+)/, 1]
+  "Gemfile.lock (RUBY VERSION)" => lock[/RUBY VERSION\s*\n\s*ruby\s+(\d+\.\d+\.\d+)/, 1]
 }
+
+# Dockerfile は FROM ruby:... の行（builder / runtime）ごとに照合する。タグに変数（${...}）を含む行は
+# 版数を読み取れずに落ちる（Dependabot も読めない書き方のため）。
+dockerfile_lines = read(File.join(root, "Dockerfile")).lines
+from_lines = dockerfile_lines.each_with_index.select { |line, _| line.start_with?("FROM ruby:") }
+sources["Dockerfile (FROM ruby:...)"] = nil if from_lines.empty?
+from_lines.each do |line, index|
+  sources["Dockerfile (#{index + 1} 行目の FROM)"] = line[/\AFROM ruby:(\d+\.\d+\.\d+)[\w.-]*(?:\s|\z)/, 1]
+end
 
 missing = sources.select { |_, version| version.nil? }.keys
 unless missing.empty?
@@ -43,5 +51,5 @@ end
 
 warn "Ruby 版数が一致していません:"
 sources.each { |name, version| warn "  #{name}: #{version}" }
-warn "4 箇所（.ruby-version / Gemfile / Gemfile.lock / Dockerfile の ARG）を揃えてください。"
+warn ".ruby-version / Gemfile / Gemfile.lock / Dockerfile の各 FROM の版数を揃えてください。"
 exit 1
