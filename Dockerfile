@@ -13,9 +13,9 @@
 # ---- builder: ネイティブ拡張（bcrypt 等）のビルドだけを行う ----
 FROM ruby:3.4.11-slim-trixie AS builder
 
-# bcrypt のネイティブ拡張ビルドに必要（grpc 等は precompiled gem を利用）。
+# bcrypt・fiddle のネイティブ拡張ビルドに必要（libffi-dev は fiddle 用。grpc 等は precompiled gem を利用）。
 RUN apt-get update -qq \
-  && apt-get install -y --no-install-recommends build-essential \
+  && apt-get install -y --no-install-recommends build-essential libffi-dev \
   && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
