@@ -1,6 +1,6 @@
 # 変更履歴
 
-## [未リリース]
+## [1.0.2] - 2026-10-14
 
 ### 変更
 
@@ -95,5 +95,6 @@
 - Google カレンダー（必須）。Outlook 同期を使う場合は Microsoft のアプリ登録
 - macOS（launchd）/ Linux（systemd）/ Cloud Run（`max-instances 1`）
 
+[1.0.2]: https://github.com/namikawa/sukesan/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/namikawa/sukesan/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/namikawa/sukesan/releases/tag/v1.0.0
