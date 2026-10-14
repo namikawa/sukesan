@@ -35,6 +35,7 @@ module TokenStore
     @backend || raise("TokenStore.configure が未実行です")
   end
 
+  # refresh・再連携・解除を同じプロバイダ別ロックで直列化する。save / clear 自体はロックしない。
   def with_lock(provider, &) = backend.with_lock(provider, &)
   def load(provider = :google) = backend.load(provider)
   def save(token_hash, provider = :google) = backend.save(token_hash, provider)

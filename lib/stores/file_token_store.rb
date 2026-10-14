@@ -22,7 +22,7 @@ class FileTokenStore
     @locks = PATHS.transform_values { |path| CrossProcessLock.new("#{path}.lock") }
   end
 
-  # 指定プロバイダのトークン更新を直列化する（呼び出し側で load→refresh→save を包む）。
+  # 指定プロバイダの refresh・再連携・解除を直列化する（呼び出し側で保存・削除まで包む）。
   def with_lock(provider, &) = @locks.fetch(provider).synchronize(&)
 
   def load(provider = :google)
