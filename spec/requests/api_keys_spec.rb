@@ -1,15 +1,13 @@
 # frozen_string_literal: true
 
 RSpec.describe "API キーの発行・削除 /settings/api_keys" do
-  # SettingsStore をメモリ上のハッシュで代替し、実ファイル（data/settings.json）を汚さない
-  # （load→merge→save の意味論を保ったモック）。
-  let(:settings_data) { {} }
+  let(:store) { FileSettingsStore.new(defaults: SettingsStore::DEFAULT) }
+
+  def settings_data = store.load
 
   before do
-    allow(SettingsStore).to receive(:load) { SettingsStore::DEFAULT.merge(settings_data) }
-    allow(SettingsStore).to receive(:save) do |attrs|
-      settings_data.merge!(attrs.transform_keys(&:to_s))
-    end
+    allow(SettingsStore).to receive(:backend).and_return(store)
+    allow(SettingsStore).to receive(:update).and_call_original
   end
 
   # scope を渡さない呼び出しは、フォームで権限を選ばなかった場合（＝read に落ちる）に相当する。
@@ -28,11 +26,11 @@ RSpec.describe "API キーの発行・削除 /settings/api_keys" do
     post "/settings/api_keys", authenticity_token: csrf_token, label: "sysA"
     expect(last_response.status).to eq(302)
     expect(last_response.headers["Location"]).to end_with("/admin")
-    expect(SettingsStore).not_to have_received(:save)
+    expect(SettingsStore).not_to have_received(:update)
 
     post "/settings/api_keys/delete", authenticity_token: csrf_token, label: "sysA"
     expect(last_response.headers["Location"]).to end_with("/admin")
-    expect(SettingsStore).not_to have_received(:save)
+    expect(SettingsStore).not_to have_received(:update)
   end
 
   describe "ログイン済み" do
@@ -99,7 +97,7 @@ RSpec.describe "API キーの発行・削除 /settings/api_keys" do
     end
 
     it "scope 未保存の既存キーは read として表示する（後方互換）" do
-      settings_data["api_keys"] = { "legacy" => { "digest" => "d", "created_at" => "2026-07-01T09:00:00+09:00" } }
+      store.save("api_keys" => { "legacy" => { "digest" => "d", "created_at" => "2026-07-01T09:00:00+09:00" } })
       get "/settings"
       expect(last_response.body).to match(%r{<td>legacy</td>\s*<td><span class="tag[^"]*">read</span></td>})
     end
@@ -121,9 +119,10 @@ RSpec.describe "API キーの発行・削除 /settings/api_keys" do
       expect(last_response.body).to include("既に発行されています")
       expect(settings_data["api_keys"].size).to eq(1)
 
-      settings_data["api_keys"] = (1..20).to_h do |i|
+      keys = (1..20).to_h do |i|
         ["sys#{i}", { "digest" => "d", "created_at" => "2026-07-01T09:00:00+09:00" }]
       end
+      store.save("api_keys" => keys)
       issue_key("sys21")
       follow_redirect!
       expect(last_response.body).to include("上限")

@@ -23,20 +23,32 @@ class FirestoreSettingsStore
 
   # 指定した項目だけを既存設定にマージして保存する（未指定の項目は保持する）。
   def save(attrs)
-    merged = nil
+    update do |current|
+      merged = current.merge(attrs.transform_keys(&:to_s))
+      [merged, merged]
+    end
+  end
+
+  # 再試行されるブロック内では判定と設定の更新だけを行い、通知などの副作用を含めない。
+  def update
+    result = nil
     @firestore.transaction do |tx|
       snapshot = tx.get(@doc)
       current = snapshot.exists? ? stringify(snapshot.data) : {}
-      merged = @defaults.merge(current).merge(attrs.transform_keys(&:to_s))
-      tx.set(@doc, merged)
+      data, result = yield @defaults.merge(current)
+      tx.set(@doc, data) unless data.nil?
     end
-    merged
+    result
   end
 
   private
 
   # Firestore はキーをシンボルで返すため、アプリ内表現（文字列キー）へ揃える。
   def stringify(data)
-    data.transform_keys(&:to_s)
+    case data
+    when Hash then data.to_h { |key, value| [key.to_s, stringify(value)] }
+    when Array then data.map { |value| stringify(value) }
+    else data
+    end
   end
 end

@@ -29,15 +29,29 @@ class FileSettingsStore
 
   # 指定した項目だけを既存設定にマージして保存する（未指定の項目は保持する）。
   def save(attrs)
-    @lock.synchronize do
-      data = load.merge(attrs.transform_keys(&:to_s))
-      dir = File.dirname(@path)
-      FileUtils.mkdir_p(dir, mode: 0o700)
-      tmp = File.join(dir, ".settings.#{SecureRandom.hex(8)}.tmp")
-      File.write(tmp, JSON.generate(data))
-      File.chmod(0o600, tmp)
-      File.rename(tmp, @path) # 同一ファイルシステム内での rename は Atomic
-      data
+    update do |current|
+      merged = current.merge(attrs.transform_keys(&:to_s))
+      [merged, merged]
     end
+  end
+
+  # 最新設定をロック内で読み、判定と更新をまとめる。nil の更新は保存しない。
+  def update
+    @lock.synchronize do
+      data, result = yield load
+      write_settings(data) unless data.nil?
+      result
+    end
+  end
+
+  private
+
+  def write_settings(data)
+    dir = File.dirname(@path)
+    FileUtils.mkdir_p(dir, mode: 0o700)
+    tmp = File.join(dir, ".settings.#{SecureRandom.hex(8)}.tmp")
+    File.write(tmp, JSON.generate(data))
+    File.chmod(0o600, tmp)
+    File.rename(tmp, @path) # 同一ファイルシステム内での rename は Atomic
   end
 end

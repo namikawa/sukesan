@@ -18,7 +18,7 @@ get "/t/:token" do
   ticket = TicketStore.find(@token)
 
   # 仮押さえ中は決定画面（候補一覧・決定・削除）。破壊的操作はホルダー（仮押さえを行った
-  # ブラウザ）のみ可能で、URL だけを知る第三者には閲覧のみ許す。
+  # ブラウザ）のみ可能で、URL だけを知る第三者には仮押さえの内容を表示しない。
   if TicketStore.held?(ticket)
     @ticket = ticket
     @holder = holder_of?(ticket)

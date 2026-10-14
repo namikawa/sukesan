@@ -21,7 +21,7 @@ module ApiWriteParams
     [api_time_param!(slot, "starts_at"), api_time_param!(slot, "ends_at")]
   end
 
-  # slot の日時（ISO8601・オフセット付き）。欠落・不正形式は 400。
+  # slot の日時（ISO8601）。オフセット省略時は APP_TIMEZONE のローカル時刻。欠落・不正形式は 400。
   # prefix はエラー文言で項目を指す名前（単一の slot / 配列の slots[] を区別する）。
   def api_time_param!(slot, name, prefix: "slot")
     Time.iso8601(slot[name].to_s)

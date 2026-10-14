@@ -18,7 +18,7 @@ module HoldHelpers
 
   # 仮押さえを実行したブラウザ（ホルダー）か。セッションの holder_key とチケットの保存値を
   # 定数時間比較で照合する。破壊的操作（決定・個別削除・全取りやめ）はホルダーのみに許可し、
-  # URL だけを知る第三者は候補の閲覧のみ可能とする（設計上の第二要素。Cookie は URL と別経路）。
+  # 内容の閲覧もホルダーのみに許可する（設計上の第二要素。Cookie は URL と別経路）。
   def holder_of?(ticket)
     key = session[:holder_keys]&.[](ticket["token"])
     !key.nil? && !ticket["holder_key"].nil? && Rack::Utils.secure_compare(key, ticket["holder_key"])
@@ -116,6 +116,15 @@ module HoldHelpers
     notes << " ※カレンダーの件名更新に失敗しました（[仮ブロック] のままになっています）。" if result.patch_failed
     notes << " ※#{result.failed_deletes} 件の仮押さえイベントを削除できませんでした。" if result.failed_deletes.to_i.positive?
     notes
+  end
+
+  # 作成・決定と同じロック内で無効化と削除を行い、無効化後に仮押さえが作られるのを防ぐ。
+  def revoke_ticket_and_holds(token)
+    BOOKING_LOCK.synchronize do
+      previous = TicketStore.revoke(token)
+      failed = previous.is_a?(Hash) ? delete_hold_events(Array(previous["holds"])) : 0
+      [previous, failed]
+    end
   end
 
   # チケットに残っていた仮押さえイベントを削除する（管理者の無効化＝kill switch 用）。

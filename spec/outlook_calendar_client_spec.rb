@@ -12,6 +12,20 @@ RSpec.describe OutlookCalendarClient do
 
   let(:t) { Time.iso8601("2026-06-22T00:00:00+09:00") }
 
+  it "一覧のクエリを UTC にしても入力した期間のオフセットを変えない" do
+    token = double
+    allow(token).to receive(:get).and_return(double(body: '{"value":[]}'))
+    finish = t + 86_400
+
+    described_class.new(token).list_events(time_min: t, time_max: finish)
+
+    expect(token).to have_received(:get).with(anything, hash_including(params: hash_including(
+      startDateTime: "2026-06-21T15:00:00Z", endDateTime: "2026-06-22T15:00:00Z"
+    )))
+    expect(t.iso8601).to eq("2026-06-22T00:00:00+09:00")
+    expect(finish.iso8601).to eq("2026-06-23T00:00:00+09:00")
+  end
+
   it "@odata.nextLink を辿って全ページのイベントを返す" do
     page1 = double(body: {
       "value" => [item("a")],

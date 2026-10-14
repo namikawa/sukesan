@@ -43,4 +43,8 @@ module SettingsStore
 
   def load = backend.load
   def save(attrs) = backend.save(attrs)
+
+  # ブロックは最新の全設定を受け、[保存する全設定（nil なら保存しない）, 呼出元へ返す結果] を返す。
+  # Firestore では再試行されるため、ブロックに通知などの副作用を含めない。
+  def update(&) = backend.update(&)
 end
