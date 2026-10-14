@@ -8,7 +8,7 @@ require "google/cloud/firestore"
 # ドキュメント tokens/{provider} に、トークン全体を TokenCipher で暗号化した文字列（enc）として保存する
 # （クエリ不要なため丸ごと暗号化）。復号できない場合は「未連携」として扱う（fail-closed）。
 #
-# with_lock はプロセス内 Mutex（best-effort）。同一インスタンス内の並行 refresh は防げるが、複数インスタンス間
+# with_lock はプロセス内 Mutex（best-effort）。同一インスタンス内の refresh・再連携・解除は直列化するが、複数インスタンス間
 # では直列化されない（refresh token ローテーション時の取りこぼしは稀に起こり得る点を許容する）。
 class FirestoreTokenStore
   COLLECTION = "tokens"

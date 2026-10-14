@@ -98,8 +98,11 @@ end
 
 post "/settings/google/disconnect" do
   require_admin!
-  revoke_google_token
-  TokenStore.clear
+  # refresh・再連携と直列化し、最新トークンの revoke とローカル削除をまとめる。
+  TokenStore.with_lock(:google) do
+    revoke_google_token
+    TokenStore.clear
+  end
   AuditLog.record(:oauth_disconnect, ip: client_ip, target: "google")
   session[:flash] = "Google 連携を解除しました。"
   redirect "/settings"
@@ -193,11 +196,14 @@ get "/auth/google/callback" do
   verifier = oauth_verifier!
   halt 400, "連携がキャンセルされました。" if params[:code].to_s.empty?
 
-  token = OAuthClients.google.auth_code.get_token(
-    params[:code], redirect_uri: google_redirect_uri, code_verifier: verifier
-  )
-  # 連携時に主催者（管理者）のメールを取得し、トークンと一緒に保存する。
-  TokenStore.save(token.to_hash.merge("admin_email" => fetch_google_email(token)))
+  # code 交換から保存まで解除と直列化する。交換中に revoke されると新トークンも失効し得る。
+  TokenStore.with_lock(:google) do
+    token = OAuthClients.google.auth_code.get_token(
+      params[:code], redirect_uri: google_redirect_uri, code_verifier: verifier
+    )
+    # 連携時に主催者（管理者）のメールを取得し、トークンと一緒に保存する。
+    TokenStore.save(token.to_hash.merge("admin_email" => fetch_google_email(token)))
+  end
   AuditLog.record(:oauth_connect, ip: client_ip, target: "google")
   session[:flash] = "Google と連携しました。"
   redirect "/settings"
@@ -218,17 +224,19 @@ get "/auth/microsoft/callback" do
   verifier = oauth_verifier!
   halt 400, "連携がキャンセルされました。" if params[:code].to_s.empty?
 
-  token = OAuthClients.microsoft.auth_code.get_token(
-    params[:code], redirect_uri: microsoft_redirect_uri, code_verifier: verifier
-  )
-  TokenStore.save(token.to_hash, :microsoft)
+  TokenStore.with_lock(:microsoft) do
+    token = OAuthClients.microsoft.auth_code.get_token(
+      params[:code], redirect_uri: microsoft_redirect_uri, code_verifier: verifier
+    )
+    TokenStore.save(token.to_hash, :microsoft)
+  end
   AuditLog.record(:oauth_connect, ip: client_ip, target: "microsoft")
   redirect "/sync"
 end
 
 post "/disconnect" do
   require_admin!
-  TokenStore.clear(:microsoft)
+  TokenStore.with_lock(:microsoft) { TokenStore.clear(:microsoft) }
   clear_sync_window
   AuditLog.record(:oauth_disconnect, ip: client_ip, target: "microsoft")
   redirect "/sync"

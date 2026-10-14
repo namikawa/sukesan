@@ -85,7 +85,7 @@ bin/server install|uninstall           # macOS: ログイン時の自動起動�
      --set-secrets SESSION_SECRET=SESSION_SECRET:latest,TOKEN_ENCRYPTION_KEY=TOKEN_ENCRYPTION_KEY:latest,ADMIN_PASSWORD_DIGEST=ADMIN_PASSWORD_DIGEST:latest,GOOGLE_CLIENT_ID=GOOGLE_CLIENT_ID:latest,GOOGLE_CLIENT_SECRET=GOOGLE_CLIENT_SECRET:latest
    ```
 
-4. 独自ドメインはロードバランサを使わず Cloud Run のドメインマッピングで割り当て、`APP_BASE_URL` と OAuth の redirect_uri を本番ドメインに合わせる。`--max-instances 1` は同一枠の二重予約防止の前提。
+4. 独自ドメインはロードバランサを使わず Cloud Run のドメインマッピングで割り当て、`APP_BASE_URL` と OAuth の redirect_uri を本番ドメインに合わせる。Firestore では同一枠の二重予約防止と OAuth の更新・解除・再連携の排他が同一インスタンス内で行われるため、`--max-instances 1` が前提。
 
 ## バージョン・変更履歴
 
