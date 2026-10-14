@@ -32,7 +32,7 @@ end
 
 ENV.update(
   "APP_ENV" => "test", "STORE_BACKEND" => "file", "APP_TIMEZONE" => "Asia/Tokyo", "TZ" => "Asia/Tokyo",
-  "ADMIN_PASSWORD" => "test-admin-password", "SESSION_SECRET" => "0123456789abcdef" * 4,
+  "ADMIN_PASSWORD" => "test-admin-password", "SESSION_SECRET" => "test-session-key" * 4,
   "TOKEN_ENCRYPTION_KEY" => "test-token-encryption-key",
   "GOOGLE_CLIENT_ID" => "test-google-client-id", "GOOGLE_CLIENT_SECRET" => "test-google-client-secret",
   "MS_CLIENT_ID" => "test-ms-client-id", "MS_CLIENT_SECRET" => "test-ms-client-secret",

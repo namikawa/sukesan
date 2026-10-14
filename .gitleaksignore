@@ -2,3 +2,8 @@
 # docker-compose.yml の開発用ダミー SESSION_SECRET（本物のシークレットではない）。
 # 現行コミットでは低エントロピーのプレースホルダ＋ gitleaks:allow に変更済み。
 86cf2f2935b99d529f4ba9ee15a1023fbbc83ee4:docker-compose.yml:generic-api-key:28
+
+# テスト環境隔離用のダミー SESSION_SECRET（本物のシークレットではない）。
+# 現行値は低エントロピーの64文字プレースホルダへ変更済み。
+7d06ea6a7ecfd1f7fc4f446e1d0e595a1515aa23:spec/test_environment_spec.rb:generic-api-key:12
+7d06ea6a7ecfd1f7fc4f446e1d0e595a1515aa23:spec/support/test_environment.rb:generic-api-key:35

@@ -9,7 +9,7 @@ RSpec.describe "テスト環境の隔離" do
       require ENV.fetch("SUKESAN_SPEC_HELPER")
       raise "環境の隔離に失敗" unless Sinatra::Application.test? && ENV.fetch("STORE_BACKEND") == "file"
       raise "タイムゾーンの隔離に失敗" unless APP_TIMEZONE == "Asia/Tokyo"
-      raise "親の秘密が残った" unless SESSION_SECRET == "0123456789abcdef" * 4 &&
+      raise "親の秘密が残った" unless SESSION_SECRET == "test-session-key" * 4 &&
         ENV.fetch("TOKEN_ENCRYPTION_KEY") == "test-token-encryption-key" &&
         ENV.fetch("GOOGLE_CLIENT_ID") == "test-google-client-id" && !ENV.key?("SLACK_WEBHOOK_URL")
       raise "エミュレータ設定が消えた" unless ENV.fetch("FIRESTORE_EMULATOR_HOST") == "localhost:9999"
