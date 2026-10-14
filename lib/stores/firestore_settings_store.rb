@@ -32,12 +32,19 @@ class FirestoreSettingsStore
   # 再試行されるブロック内では判定と設定の更新だけを行い、通知などの副作用を含めない。
   def update
     result = nil
-    @firestore.transaction do |tx|
+    completion_marker = Object.new
+    transaction_result = @firestore.transaction do |tx|
       snapshot = tx.get(@doc)
       current = snapshot.exists? ? stringify(snapshot.data) : {}
       data, result = yield @defaults.merge(current)
       tx.set(@doc, data) unless data.nil?
+      completion_marker
     end
+    # SDKが再試行後にnilを返した場合は完了未確認。業務結果のnil / falseとは区別する。
+    unless transaction_result.equal?(completion_marker)
+      raise "Firestore settings transaction completion could not be confirmed"
+    end
+
     result
   end
 
