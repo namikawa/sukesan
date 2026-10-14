@@ -125,8 +125,8 @@ class GoogleCalendarClient
 
   def fetch_events_page(time_min, time_max, page_token)
     params = {
-      timeMin: time_min.utc.iso8601,
-      timeMax: time_max.utc.iso8601,
+      timeMin: time_min.getutc.iso8601,
+      timeMax: time_max.getutc.iso8601,
       singleEvents: true,
       orderBy: "startTime",
       maxResults: PAGE_SIZE
@@ -204,7 +204,7 @@ class GoogleCalendarClient
     ends_at = event.ends_at || event.starts_at
 
     if event.all_day
-      { start: { date: event.starts_at.utc.strftime("%F") }, end: { date: ends_at.utc.strftime("%F") } }
+      { start: { date: event.starts_at.getutc.strftime("%F") }, end: { date: ends_at.getutc.strftime("%F") } }
     else
       { start: { dateTime: event.starts_at.iso8601 }, end: { dateTime: ends_at.iso8601 } }
     end

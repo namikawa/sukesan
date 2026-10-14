@@ -33,6 +33,6 @@ Event = Struct.new(
   end
 
   def time_key(time)
-    time&.utc&.iso8601
+    time&.getutc&.iso8601
   end
 end

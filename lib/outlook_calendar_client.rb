@@ -59,8 +59,8 @@ class OutlookCalendarClient
       # Prefer ヘッダで日時を UTC、本文をプレーンテキストで返すよう指定する（HTML 混入を避ける）。
       headers: { "Prefer" => 'outlook.timezone="UTC", outlook.body-content-type="text"' },
       params: {
-        startDateTime: time_min.utc.iso8601,
-        endDateTime: time_max.utc.iso8601,
+        startDateTime: time_min.getutc.iso8601,
+        endDateTime: time_max.getutc.iso8601,
         "$top" => PAGE_SIZE,
         "$orderby" => "start/dateTime"
       }

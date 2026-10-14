@@ -19,6 +19,7 @@ SUKESAN（スケジュール管理ツール）は、Google カレンダーと連
 - 調整画面のタブから最大 5 件の日程を「[仮ブロック]」として仮押さえできる。仮押さえ後は同じ URL に 7 日間アクセスでき、1 件に決定すると残りは自動削除される（参加者・招待メール・会議 URL・Meet は決定時に指定）。
 - 決定・削除と内容の閲覧は、仮押さえを行ったブラウザのみ可能。Cookie を失った場合は管理者が無効化して再発行する（無効化で残りの仮押さえイベントも削除される）。
 - 期限（7 日）を過ぎた仮押さえの `[仮ブロック]` は自動では削除されない。`/tickets` の一覧から無効化すると削除される。
+- 仮押さえの作成中に無効化した場合は、作成の完了を待ってからチケットを無効化し、作られた予定を削除する。
 
 ## 設定（`/settings`）
 
@@ -97,9 +98,10 @@ bundle exec rspec          # テスト
 bundle exec rubocop        # Lint（-a で自動修正）
 ```
 
-- Firestore アダプタの spec はエミュレータ（`FIRESTORE_EMULATOR_HOST`）がある場合のみ実行される。`docker compose up --build` でアプリ＋エミュレータの本番相当も起動できる。
+- テストは `.env` を読み込まず、ダミーの環境変数と一時保存先を使う。
+- `firestore` タグ付きの spec（ストアと HTTP リクエスト）はエミュレータ（`FIRESTORE_EMULATOR_HOST`）がある場合のみ実行される。CI と同じ対象は `bundle exec rspec --tag firestore` で実行する。`docker compose up --build` でアプリ＋エミュレータの本番相当も起動できる。
 - CSP 維持のため、ERB に inline `<script>` や inline イベントハンドラは書かず、JavaScript は `public/*.js` に分離して読み込む。
-- 構成: ルートと起動設定は `app.rb`、Web ヘルパは `helpers/`、ドメインロジックは `lib/`、ビューは `views/`、テストは `spec/`。
+- 構成: 起動設定と共通フィルタは `app.rb`、ルートは `routes/`、Web ヘルパは `helpers/`、ドメインロジックは `lib/`、ビューは `views/`、テストは `spec/`。
 
 ## 注意・制約
 

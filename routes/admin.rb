@@ -76,8 +76,7 @@ end
 post "/tickets/revoke" do
   require_admin!
   token = params[:token].to_s
-  previous = TicketStore.revoke(token)
-  failed = previous.is_a?(Hash) ? delete_hold_events(Array(previous["holds"])) : 0
+  _previous, failed = revoke_ticket_and_holds(token)
   AuditLog.record(:ticket_revoke, ip: client_ip, target: audit_ticket_id(token))
   session[:flash] = "ワンタイム URL を無効化しました。"
   session[:flash] += " ※#{failed} 件の仮押さえイベントを削除できませんでした。" if failed.positive?
@@ -112,17 +111,20 @@ end
 post "/settings/api_keys" do
   require_admin!
   label = params[:label].to_s.strip
-  keys = stored_api_keys
-  if (error = api_key_label_error(label, keys))
-    session[:flash] = error
-    redirect "/settings"
-  end
-
   # 権限は許可値（read/write）のみ受け付け、許可外・欠落は read に落とす（fail-closed）。
   scope = normalize_api_key_scope(params[:scope])
   key = SecureRandom.hex(32)
   entry = { "digest" => Digest::SHA256.hexdigest(key), "created_at" => Time.now.iso8601, "scope" => scope }
-  SettingsStore.save("api_keys" => keys.merge(label => entry))
+  error = SettingsStore.update do |current|
+    keys = stored_api_keys(current)
+    invalid = api_key_label_error(label, keys)
+    invalid ? [nil, invalid] : [current.merge("api_keys" => keys.merge(label => entry)), nil]
+  end
+  if error
+    session[:flash] = error
+    redirect "/settings"
+  end
+
   AuditLog.record(:api_key_issued, ip: client_ip, target: "#{label} scope=#{scope}")
   session[:new_api_key] = { "label" => label, "key" => key }
   session[:flash] = "API キーを発行しました。キーはこの画面でのみ表示されます。"
@@ -134,9 +136,11 @@ end
 post "/settings/api_keys/delete" do
   require_admin!
   label = params[:label].to_s
-  keys = stored_api_keys
-  if keys.key?(label)
-    SettingsStore.save("api_keys" => keys.except(label))
+  removed = SettingsStore.update do |current|
+    keys = stored_api_keys(current)
+    keys.key?(label) ? [current.merge("api_keys" => keys.except(label)), true] : [nil, false]
+  end
+  if removed
     AuditLog.record(:api_key_revoked, ip: client_ip, target: label)
     session[:flash] = "API キーを削除しました。"
   else

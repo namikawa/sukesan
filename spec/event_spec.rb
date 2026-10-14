@@ -13,6 +13,14 @@ RSpec.describe Event do
   end
 
   describe "#match_key" do
+    it "UTC のキーを返しても予定の開始・終了のオフセットを変えない" do
+      meeting = event
+
+      expect(meeting.match_key).to eq("定例mtg|2026-06-20T01:00:00Z|2026-06-20T02:00:00Z")
+      expect(meeting.starts_at.iso8601).to eq("2026-06-20T10:00:00+09:00")
+      expect(meeting.ends_at.iso8601).to eq("2026-06-20T11:00:00+09:00")
+    end
+
     it "件名の前後空白と大文字小文字を無視する" do
       a = event(title: " Review ")
       b = event(title: "review")

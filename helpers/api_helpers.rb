@@ -41,8 +41,8 @@ module ApiHelpers
   end
 
   # 保存済みの発行キー一覧（{ ラベル => { "digest" =>…, "created_at" =>…, "scope" =>… } }）。未発行なら空ハッシュ。
-  def stored_api_keys
-    keys = SettingsStore.load["api_keys"]
+  def stored_api_keys(settings = SettingsStore.load)
+    keys = settings["api_keys"]
     keys.is_a?(Hash) ? keys : {}
   end
 

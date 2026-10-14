@@ -31,6 +31,8 @@ RSpec.describe "エラーハンドリング" do
   it "development 起動時も例外の秘密を応答と診断出力に出さない" do
     script = <<~'RUBY'
       require "stringio"
+      require ENV.fetch("SUKESAN_TEST_ENVIRONMENT")
+      ENV["APP_ENV"] = "development"
       require ENV.fetch("SUKESAN_APP_PATH")
 
       TicketStore.define_singleton_method(:find) { |_token| raise "dummy-development-secret" }
@@ -38,7 +40,8 @@ RSpec.describe "エラーハンドリング" do
       response = Rack::MockRequest.new(Sinatra::Application).get("/t/dummy", "rack.errors" => errors)
       puts "RESULT:#{JSON.generate(status: response.status, body: response.body, rack_errors: errors.string)}"
     RUBY
-    env = { "APP_ENV" => "development", "LOG_TO_STDOUT" => "true",
+    env = { "LOG_TO_STDOUT" => "true",
+            "SUKESAN_TEST_ENVIRONMENT" => File.expand_path("../support/test_environment", __dir__),
             "SUKESAN_APP_PATH" => File.expand_path("../../app", __dir__) }
 
     Dir.mktmpdir do |dir|

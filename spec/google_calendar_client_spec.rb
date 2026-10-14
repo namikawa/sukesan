@@ -12,6 +12,35 @@ RSpec.describe GoogleCalendarClient do
 
   let(:t) { Time.iso8601("2026-06-22T00:00:00+09:00") }
 
+  it "一覧のクエリを UTC にしても入力した期間のオフセットを変えない" do
+    token = double
+    allow(token).to receive(:get).and_return(double(body: '{"items":[]}'))
+    finish = t + 86_400
+
+    described_class.new(token).list_events(time_min: t, time_max: finish)
+
+    expect(token).to have_received(:get).with(anything, params: hash_including(
+      timeMin: "2026-06-21T15:00:00Z", timeMax: "2026-06-22T15:00:00Z"
+    ))
+    expect(t.iso8601).to eq("2026-06-22T00:00:00+09:00")
+    expect(finish.iso8601).to eq("2026-06-23T00:00:00+09:00")
+  end
+
+  it "終日予定の送信日は既存の UTC 日付で、予定自体のオフセットを変えない" do
+    event = Event.new(title: "終日", starts_at: t, ends_at: t + 86_400, all_day: true)
+    token = double
+    allow(token).to receive(:post).and_return(double(body: "{}"))
+
+    described_class.new(token).create_event(event)
+
+    expect(token).to have_received(:post).with(anything, hash_including(body: satisfy do |body|
+      JSON.parse(body).slice("start", "end") ==
+        { "start" => { "date" => "2026-06-21" }, "end" => { "date" => "2026-06-22" } }
+    end))
+    expect(event.starts_at.iso8601).to eq("2026-06-22T00:00:00+09:00")
+    expect(event.ends_at.iso8601).to eq("2026-06-23T00:00:00+09:00")
+  end
+
   it "nextPageToken を辿って全ページのイベントを返す" do
     page1 = double(body: { "items" => [item("a"), item("b")], "nextPageToken" => "TOKEN2" }.to_json)
     page2 = double(body: { "items" => [item("c")] }.to_json)

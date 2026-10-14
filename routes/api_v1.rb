@@ -146,10 +146,9 @@ post "/api/v1/tickets/:id/revoke" do
   token = ticket["token"]
   # 受理されるのは active / held と、held のまま期限切れ（残った [仮ブロック] の掃除用）。
   # 終端・未使用のまま期限切れ・破損は状態不一致として 409。
-  previous = TicketStore.revoke(token)
+  previous, failed = revoke_ticket_and_holds(token)
   api_error!(409, "invalid_state", "このチケットは無効化できる状態ではありません。") unless previous.is_a?(Hash)
 
-  failed = delete_hold_events(Array(previous["holds"]))
   AuditLog.record(:ticket_revoke, ip: remote_addr, target: "#{audit_ticket_id(token)} via=api:#{@api_label}")
   api_json("id" => audit_ticket_id(token), "status" => "revoked", "failed_deletes" => failed)
 end
