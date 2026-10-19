@@ -12,6 +12,9 @@ require "time"
 module ApiWriteParams
   # Idempotency-Key ヘッダの最大長（DoS・誤入力対策）。
   MAX_IDEMPOTENCY_KEY_LENGTH = 128
+  # Idempotency-Key に使える値（ASCII の印字可能文字で最大長まで）。Puma はヘッダ値を BINARY 文字列で渡し、
+  # 日本語などを含む BINARY 文字列はチケット保存時の JSON 化で失敗するため、ASCII に限る。
+  IDEMPOTENCY_KEY_FORMAT = /\A[\x20-\x7E]{1,#{MAX_IDEMPOTENCY_KEY_LENGTH}}\z/
 
   # 予約する時間帯（{"starts_at": …, "ends_at": …}）を [Time, Time] に変換する。
   def api_slot_param!(body)
@@ -102,15 +105,16 @@ module ApiWriteParams
     api_error!(400, "invalid_params", "attendees はメールアドレス（文字列）の配列で指定してください。")
   end
 
-  # 冪等キー（任意ヘッダ Idempotency-Key）。未指定・空は nil、上限超過は 400。
+  # 冪等キー（任意ヘッダ Idempotency-Key）。未指定・空は nil、上限超過・ASCII の印字可能文字以外は 400。
   # 返す値は認証済み API キーのラベルでスコープする（"<ラベル>:<キー>"）。別システムが偶然同じ
   # キー文字列を使っても他システムの予約のリプレイ応答を受け取らないよう、保存・照合・event id の
   # 導出はすべてこのスコープ済みの値で行う。
   def api_idempotency_key!
     key = request.env["HTTP_IDEMPOTENCY_KEY"].to_s.strip
     return nil if key.empty?
-    return "#{@api_label}:#{key}" if key.length <= MAX_IDEMPOTENCY_KEY_LENGTH
+    return "#{@api_label}:#{key}" if key.match?(IDEMPOTENCY_KEY_FORMAT)
 
-    api_error!(400, "invalid_params", "Idempotency-Key は #{MAX_IDEMPOTENCY_KEY_LENGTH} 文字以内で指定してください。")
+    api_error!(400, "invalid_params",
+               "Idempotency-Key は ASCII の英数字・記号で #{MAX_IDEMPOTENCY_KEY_LENGTH} 文字以内で指定してください。")
   end
 end

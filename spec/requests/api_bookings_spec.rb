@@ -444,6 +444,19 @@ RSpec.describe "他システム向け API /api/v1/bookings" do
       expect(create).not_to have_been_requested
       expect(TicketStore.all).to be_empty
     end
+
+    # Puma はヘッダ値を BINARY 文字列で渡すため、その形（.b）でも確かめる。
+    ["予約-1", "予約-1".b].each do |key|
+      it "ASCII の印字可能文字以外を含むキー（#{key.encoding}）は 400 で、チケットを発行しない" do
+        create = stub_create
+        post_with_key(key)
+
+        expect(last_response.status).to eq(400)
+        expect(JSON.parse(last_response.body).dig("error", "code")).to eq("invalid_params")
+        expect(create).not_to have_been_requested
+        expect(TicketStore.all).to be_empty
+      end
+    end
   end
 
   describe "監査ログ" do
