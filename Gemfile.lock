@@ -202,7 +202,7 @@ GEM
     unicode-emoji (4.2.0)
     uri (1.1.1)
     version_gem (1.1.15)
-    webmock (3.26.4)
+    webmock (3.33.0)
       addressable (>= 2.8.0)
       crack (>= 0.3.2)
       hashdiff (>= 0.4.0, < 2.0.0)
@@ -316,7 +316,7 @@ CHECKSUMS
   unicode-emoji (4.2.0) sha256=519e69150f75652e40bf736106cfbc8f0f73aa3fb6a65afe62fefa7f80b0f80f
   uri (1.1.1) sha256=379fa58d27ffb1387eaada68c749d1426738bd0f654d812fcc07e7568f5c57c6
   version_gem (1.1.15) sha256=a73241587b29252e3567e0c818ded80730eb754d43b508f6ce4db22ca9ba27d0
-  webmock (3.26.4) sha256=8d8da206d217ebe6968cfb09c77f4533c23074e1432bad865f3994eacbaad50d
+  webmock (3.33.0) sha256=c19faebb12fcf4fcc52f3488321a74349bb6c15b5c26a124a6ec6e09f99e38e4
 
 RUBY VERSION
   ruby 3.4.11
