@@ -11,7 +11,7 @@
 # バージョン文字列が同じなので Dependabot も検知しない。上げるときは両 FROM を揃えて変更する。
 
 # ---- builder: ネイティブ拡張（bcrypt 等）のビルドだけを行う ----
-FROM ruby:3.4.11-slim-trixie AS builder
+FROM ruby:3.4.12-slim-trixie AS builder
 
 # bcrypt・fiddle のネイティブ拡張ビルドに必要（libffi-dev は fiddle 用。grpc 等は precompiled gem を利用）。
 RUN apt-get update -qq \
@@ -29,7 +29,7 @@ COPY Gemfile Gemfile.lock ./
 RUN bundle install && rm -rf /usr/local/bundle/cache
 
 # ---- runtime: compiler toolchain を含まない最終イメージ ----
-FROM ruby:3.4.11-slim-trixie
+FROM ruby:3.4.12-slim-trixie
 
 WORKDIR /app
 
