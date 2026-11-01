@@ -6,6 +6,7 @@
 
 - API の `Idempotency-Key` に使える文字を ASCII の英数字・記号に限る。日本語などを含むキーは
   400（`invalid_params`）を返す。
+- 動作環境の Ruby を 3.4.12 に上げる。更新時は Ruby 3.4.12 を入れてから `bundle install` を実行する。
 
 ### 修正
 

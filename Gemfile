@@ -2,7 +2,7 @@
 
 source "https://rubygems.org"
 
-ruby "3.4.11"
+ruby "3.4.12"
 
 gem "bcrypt"     # 管理者パスワードのハッシュ化（ダイジェスト照合）
 gem "dotenv"     # .env からの環境変数読み込み
