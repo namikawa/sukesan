@@ -1,5 +1,13 @@
 # 変更履歴
 
+## [未リリース]
+
+### 修正
+
+- Firestore（`STORE_BACKEND=firestore`）との通信で、秘密鍵が漏えいした認証局の証明書を信頼していた問題
+  （grpc の GHSA-p3vr-xp4c-r8fh）。grpc を 1.85.0 に上げる。
+- addressable を 2.9.2 に上げる（URI の正規化とテンプレート照合の DoS など、2.9.1 で修正された 7 件の advisory）。
+
 ## [1.0.3] - 2026-11-01
 
 ### 変更
