@@ -1,11 +1,12 @@
 # 変更履歴
 
-## [未リリース]
+## [1.0.5] - 2026-11-22
 
 ### 修正
 
 - puma を 8.1.2 に上げる（応答を読み取らないクライアントでほかの接続やワーカーが止まる DoS など、8.0.3 で修正された 7 件の advisory）。
 - rack を 3.2.9 に上げる（細工した multipart の文字コード指定やクエリ文字列で、ログインしていなくてもサーバの CPU やメモリを大量に使わされる DoS など、3.2.9 で修正された 5 件の advisory）。
+- sinatra と rack-protection を 4.2.2 に上げる（rack-protection で修正された 3 件の advisory）。
 
 ## [1.0.4] - 2026-11-08
 
@@ -134,6 +135,7 @@
 - Google カレンダー（必須）。Outlook 同期を使う場合は Microsoft のアプリ登録
 - macOS（launchd）/ Linux（systemd）/ Cloud Run（`max-instances 1`）
 
+[1.0.5]: https://github.com/namikawa/sukesan/compare/v1.0.4...v1.0.5
 [1.0.4]: https://github.com/namikawa/sukesan/compare/v1.0.3...v1.0.4
 [1.0.3]: https://github.com/namikawa/sukesan/compare/v1.0.2...v1.0.3
 [1.0.2]: https://github.com/namikawa/sukesan/compare/v1.0.1...v1.0.2
