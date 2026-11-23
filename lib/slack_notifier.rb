@@ -26,6 +26,10 @@ module SlackNotifier
   # Slack 記法として素通しさせないため、この形式だけをメンションとして受け付ける。
   MEMBER_ID_PATTERN = /\A[UW][A-Z0-9]+\z/i
 
+  # Slack が記法の目印として扱う 3 文字と、その文字参照。通知の本文には依頼者名・件名などの外部入力が入るため、
+  # 本文はすべて置き換えて書かれたとおりに表示させ、`<!channel>` やリンクなどの記法として解釈させない。
+  SLACK_ESCAPES = { "&" => "&amp;", "<" => "&lt;", ">" => "&gt;" }.freeze
+
   # 起動時に Incoming Webhook の URL とメンション指定を設定する。nil/空なら configure せず
   # 通知無効のまま。テスト環境では呼ばない（AuditLog と同じく既定 no-op）。
   def configure(webhook_url, mention: nil)
@@ -55,7 +59,8 @@ module SlackNotifier
   def notify(text)
     return if @uri.nil?
 
-    body = @mention ? "#{@mention} #{text}" : text.to_s
+    escaped = text.to_s.gsub(/[&<>]/, SLACK_ESCAPES)
+    body = @mention ? "#{@mention} #{escaped}" : escaped
     request = Net::HTTP::Post.new(@uri.request_uri, "Content-Type" => "application/json")
     request.body = JSON.generate("text" => body)
     http_client.request(request)

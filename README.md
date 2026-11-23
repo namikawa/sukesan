@@ -66,14 +66,15 @@ bin/server install|uninstall           # macOS: ログイン時の自動起動�
 
 `STORE_BACKEND` で永続化の実装を切り替える。どちらもトークン・チケットは `TOKEN_ENCRYPTION_KEY` で暗号化して保存する。
 
-- `file`（既定）: `data/` 配下のローカルファイル（0600・Atomic 書き込み）。単一ホスト前提で、開発・VM 運用向け。チケットは約 30 日で自動削除。保存先は `TICKETS_DIR` で変更できる（既定 `data/tickets`）。
-- `firestore`: Cloud Run など向け。チケットの状態遷移はトランザクションで処理し、物理削除は `purge_at` の TTL ポリシーに委ねる。単一インスタンス運用（`max-instances=1`）が前提。プロジェクト ID は `FIRESTORE_PROJECT_ID` → `GOOGLE_CLOUD_PROJECT` → `GCLOUD_PROJECT` の順に解決する。
+- `file`（既定）: `data/` 配下のローカルファイル（0600・Atomic 書き込み）。単一ホスト前提で、開発・VM 運用向け。チケットは約 6 週で削除（発行のたびに古い週を消す）。保存先は `TICKETS_DIR` で変更できる（既定 `data/tickets`）。
+- `firestore`: Cloud Run など向け。チケットの状態遷移はトランザクションで処理し、物理削除は `purge_at` の TTL ポリシーに委ねる（設定しないと期限切れのチケットが残る）。単一インスタンス運用（`max-instances=1`）が前提。プロジェクト ID は `FIRESTORE_PROJECT_ID` → `GOOGLE_CLOUD_PROJECT` → `GCLOUD_PROJECT` の順に解決する。
 
 ## Cloud Run デプロイ
 
 1. Firestore（Native モード）を有効化し、`tickets` コレクションの `purge_at` に TTL ポリシーを設定する。
-2. 秘密情報（`SESSION_SECRET` / `TOKEN_ENCRYPTION_KEY` / `ADMIN_PASSWORD_DIGEST` / Google・MS のクレデンシャル）を Secret Manager に登録する。`TOKEN_ENCRYPTION_KEY` はデプロイをまたいで固定し、別途バックアップする。
-3. デプロイ:
+2. 秘密情報（`SESSION_SECRET` / `TOKEN_ENCRYPTION_KEY` / `ADMIN_PASSWORD_DIGEST` / `GOOGLE_CLIENT_SECRET` / `MS_CLIENT_SECRET`）を Secret Manager に登録する（クライアント ID は秘密でないので環境変数で渡す）。`TOKEN_ENCRYPTION_KEY` はデプロイをまたいで固定し、別途バックアップする。
+3. sukesan 専用のサービスアカウント（例: `sukesan-runtime`）を作り、Firestore（`roles/datastore.user`）と登録したシークレット（`roles/secretmanager.secretAccessor`）の権限だけを付ける。既定の Compute サービスアカウントは使わない。
+4. デプロイ:
 
    ```bash
    gcloud run deploy sukesan \
@@ -81,11 +82,12 @@ bin/server install|uninstall           # macOS: ログイン時の自動起動�
      --region asia-northeast1 \
      --allow-unauthenticated \
      --max-instances 1 \
-     --set-env-vars APP_ENV=production,STORE_BACKEND=firestore,APP_TRUST_PROXY=true,GOOGLE_CLOUD_PROJECT=YOUR_PROJECT_ID,APP_BASE_URL=https://YOUR_DOMAIN,APP_TIMEZONE=Asia/Tokyo,LOG_TO_STDOUT=true \
-     --set-secrets SESSION_SECRET=SESSION_SECRET:latest,TOKEN_ENCRYPTION_KEY=TOKEN_ENCRYPTION_KEY:latest,ADMIN_PASSWORD_DIGEST=ADMIN_PASSWORD_DIGEST:latest,GOOGLE_CLIENT_ID=GOOGLE_CLIENT_ID:latest,GOOGLE_CLIENT_SECRET=GOOGLE_CLIENT_SECRET:latest
+     --service-account sukesan-runtime@YOUR_PROJECT_ID.iam.gserviceaccount.com \
+     --set-env-vars APP_ENV=production,STORE_BACKEND=firestore,APP_TRUST_PROXY=true,GOOGLE_CLOUD_PROJECT=YOUR_PROJECT_ID,APP_BASE_URL=https://YOUR_DOMAIN,APP_TIMEZONE=Asia/Tokyo,LOG_TO_STDOUT=true,GOOGLE_CLIENT_ID=YOUR_GOOGLE_CLIENT_ID,MS_CLIENT_ID=YOUR_MS_CLIENT_ID,MS_TENANT_ID=common \
+     --set-secrets SESSION_SECRET=SESSION_SECRET:latest,TOKEN_ENCRYPTION_KEY=TOKEN_ENCRYPTION_KEY:latest,ADMIN_PASSWORD_DIGEST=ADMIN_PASSWORD_DIGEST:latest,GOOGLE_CLIENT_SECRET=GOOGLE_CLIENT_SECRET:latest,MS_CLIENT_SECRET=MS_CLIENT_SECRET:latest
    ```
 
-4. 独自ドメインはロードバランサを使わず Cloud Run のドメインマッピングで割り当て、`APP_BASE_URL` と OAuth の redirect_uri を本番ドメインに合わせる。Firestore では同一枠の二重予約防止と OAuth の更新・解除・再連携の排他が同一インスタンス内で行われるため、`--max-instances 1` が前提。
+5. 独自ドメインはロードバランサを使わず Cloud Run のドメインマッピングで割り当て、`APP_BASE_URL` と OAuth の redirect_uri を本番ドメインに合わせる。Firestore では同一枠の二重予約防止と OAuth の更新・解除・再連携の排他が同一インスタンス内で行われるため、`--max-instances 1` が前提。
 
 ## バージョン・変更履歴
 

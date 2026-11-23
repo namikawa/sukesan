@@ -18,6 +18,7 @@ sukesan を Google Cloud Run（+ Firestore）へデプロイするための手�
 export PROJECT_ID=sukesan-trial      # 任意の GCP プロジェクト ID
 export REGION=asia-northeast1         # 東京リージョン
 export SERVICE=sukesan                # Cloud Run サービス名
+export RUNTIME_SA=sukesan-runtime@${PROJECT_ID}.iam.gserviceaccount.com   # 実行用のサービスアカウント（手順 1 で作る）
 ```
 
 前提ツール:
@@ -35,6 +36,16 @@ gcloud services enable \
   secretmanager.googleapis.com \
   cloudbuild.googleapis.com \
   artifactregistry.googleapis.com
+```
+
+sukesan を動かす専用のサービスアカウントを作る。既定の Compute サービスアカウントは同じプロジェクトの
+ほかのサービスと共有されるため使わない。権限は Firestore（ここで付ける）と sukesan のシークレット（手順 6 で付ける）の分だけにする。
+
+```bash
+gcloud iam service-accounts create sukesan-runtime --display-name="sukesan runtime"
+
+gcloud projects add-iam-policy-binding $PROJECT_ID \
+  --member="serviceAccount:${RUNTIME_SA}" --role="roles/datastore.user" --condition=None
 ```
 
 ## 2. Firestore（Native モード）を作成
@@ -88,6 +99,7 @@ gcloud run deploy $SERVICE \
   --region $REGION \
   --max-instances 1 \
   --allow-unauthenticated \
+  --service-account $RUNTIME_SA \
   --set-env-vars APP_ENV=development,STORE_BACKEND=firestore,APP_TRUST_PROXY=true,GOOGLE_CLOUD_PROJECT=$PROJECT_ID,LOG_TO_STDOUT=true
 
 export APP_URL=$(gcloud run services describe $SERVICE --region $REGION --format='value(status.url)')
@@ -122,15 +134,9 @@ echo $APP_URL
 
 ## 6. 本番設定で再デプロイ
 
-ランタイムのサービスアカウントに Firestore とシークレットへのアクセス権を付与する。
+手順 1 で作ったサービスアカウントに、シークレットの読み取り権限を付与する。
 
 ```bash
-PROJECT_NUMBER=$(gcloud projects describe $PROJECT_ID --format='value(projectNumber)')
-RUNTIME_SA=${PROJECT_NUMBER}-compute@developer.gserviceaccount.com
-
-gcloud projects add-iam-policy-binding $PROJECT_ID \
-  --member="serviceAccount:${RUNTIME_SA}" --role="roles/datastore.user" --condition=None
-
 for S in SESSION_SECRET TOKEN_ENCRYPTION_KEY ADMIN_PASSWORD_DIGEST GOOGLE_CLIENT_SECRET MS_CLIENT_SECRET; do
   gcloud secrets add-iam-policy-binding $S \
     --member="serviceAccount:${RUNTIME_SA}" --role="roles/secretmanager.secretAccessor"
@@ -145,6 +151,7 @@ gcloud run deploy $SERVICE \
   --region $REGION \
   --max-instances 1 \
   --allow-unauthenticated \
+  --service-account $RUNTIME_SA \
   --set-env-vars APP_ENV=production,STORE_BACKEND=firestore,APP_TRUST_PROXY=true,GOOGLE_CLOUD_PROJECT=$PROJECT_ID,LOG_TO_STDOUT=true,APP_BASE_URL=${APP_URL},APP_TIMEZONE=Asia/Tokyo,GOOGLE_CLIENT_ID=xxxx,MS_CLIENT_ID=xxxx,MS_TENANT_ID=common \
   --set-secrets SESSION_SECRET=SESSION_SECRET:latest,TOKEN_ENCRYPTION_KEY=TOKEN_ENCRYPTION_KEY:latest,ADMIN_PASSWORD_DIGEST=ADMIN_PASSWORD_DIGEST:latest,GOOGLE_CLIENT_SECRET=GOOGLE_CLIENT_SECRET:latest,MS_CLIENT_SECRET=MS_CLIENT_SECRET:latest
 ```
@@ -156,6 +163,13 @@ firestore バックエンドは物理削除を `purge_at` の TTL に委譲す�
 ```bash
 gcloud firestore fields ttls update purge_at \
   --collection-group=tickets --enable-ttl
+```
+
+TTL ポリシーを設定しないと、期限切れのチケットは消えずに残る（アプリは削除しない）。
+設定できたかは次で確かめる。`purge_at` の state が `ACTIVE` なら有効（`CREATING` は適用中）。
+
+```bash
+gcloud firestore fields ttls list --collection-group=tickets
 ```
 
 ## 8. 動作確認
