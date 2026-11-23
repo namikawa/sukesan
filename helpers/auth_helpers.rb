@@ -51,12 +51,15 @@ module AuthHelpers
     false
   end
 
-  # レート制限のキーに使うクライアント IP。既定は TCP ピア（REMOTE_ADDR、偽装不可）。
-  # 前段プロキシ利用時のみ APP_TRUST_PROXY=true で X-Forwarded-For を信頼する。
+  # レート制限・監査ログに使うクライアント IP。既定は TCP ピア（REMOTE_ADDR、偽装不可）。
+  # 前段プロキシ（1 段）の背後では APP_TRUST_PROXY=true とし、X-Forwarded-For の最後の値＝前段が付け足した
+  # 接続元を使う。それより前の値と Forwarded ヘッダはクライアントが自由に書けるため使わない。
   def client_ip
-    return request.ip if ENV["APP_TRUST_PROXY"] == "true"
+    remote_addr = request.env["REMOTE_ADDR"].to_s
+    return remote_addr unless ENV["APP_TRUST_PROXY"] == "true"
 
-    request.env["REMOTE_ADDR"].to_s
+    forwarded_for = request.get_header("HTTP_X_FORWARDED_FOR").to_s.split(",", -1).last.to_s.strip
+    forwarded_for.empty? ? remote_addr : forwarded_for
   end
 
   # HTTPS で受けているか。前段プロキシ（Cloud Run 等）で TLS 終端しコンテナへは HTTP で届く構成では、
