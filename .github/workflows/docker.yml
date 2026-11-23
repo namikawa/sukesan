@@ -1,0 +1,59 @@
+name: Docker Image
+
+# Cloud Run 向けイメージがビルドでき、本番モードで起動することを確かめる。
+# イメージの中身に効くファイル（Dockerfile・依存・Ruby の版）を変えたときだけ走らせる。
+on:
+  push:
+    branches: [main]
+    paths:
+      - Dockerfile
+      - .dockerignore
+      - Gemfile
+      - Gemfile.lock
+      - .ruby-version
+      - .github/workflows/docker.yml
+  pull_request:
+    paths:
+      - Dockerfile
+      - .dockerignore
+      - Gemfile
+      - Gemfile.lock
+      - .ruby-version
+      - .github/workflows/docker.yml
+
+# サプライチェーン対策: 既定の GITHUB_TOKEN 権限を最小（読み取りのみ）にする。
+permissions:
+  contents: read
+
+jobs:
+  docker:
+    name: Docker Image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Build
+        run: docker build -t sukesan-ci .
+      - name: Firestore libraries load
+        # 起動確認は file 保存で動かすため、Cloud Run（STORE_BACKEND=firestore）で使う gem の読み込みを別に確かめる。
+        run: docker run --rm --network none sukesan-ci bundle exec ruby -rgoogle/cloud/firestore -e ''
+      - name: Boot check
+        run: |
+          docker run -d --name app -p 8080:8080 \
+            -e SESSION_SECRET="$(openssl rand -hex 64)" \
+            -e TOKEN_ENCRYPTION_KEY="$(openssl rand -hex 32)" \
+            -e APP_BASE_URL=https://example.invalid \
+            -e GOOGLE_CLIENT_ID=dummy -e GOOGLE_CLIENT_SECRET=dummy \
+            -e APP_TRUST_PROXY=true -e LOG_TO_STDOUT=true \
+            sukesan-ci
+          code=""
+          for i in $(seq 1 30); do
+            code=$(curl -s --max-time 2 -o /dev/null -w '%{http_code}' -H 'X-Forwarded-Proto: https' localhost:8080/ || true)
+            [ "$code" = "200" ] && break
+            sleep 1
+          done
+          plain=$(curl -s --max-time 2 -o /dev/null -w '%{http_code} %{redirect_url}' localhost:8080/ || true)
+          echo "GET / (https): $code / GET / (http): $plain"
+          if [ "$code" != "200" ] || [ "$plain" != "308 https://example.invalid/" ]; then
+            docker logs app || true
+            exit 1
+          fi
