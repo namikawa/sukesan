@@ -16,6 +16,14 @@ RSpec.describe "CSRF 保護" do
     expect(last_response.status).not_to eq(403)
   end
 
+  it "_method や X-HTTP-Method-Override で GET に読み替えず、CSRF 検証の対象のままにする" do
+    post "/", _method: "GET"
+    expect(last_response.status).to eq(403)
+
+    post "/", {}, "HTTP_X_HTTP_METHOD_OVERRIDE" => "GET"
+    expect(last_response.status).to eq(403)
+  end
+
   it "/api/ 配下の POST は CSRF 検証の対象外（Bearer 認証のみでセッション Cookie を使わないため）" do
     # 発行済みキーが無い＝API 自体が存在しない扱いの 404（JSON）まで到達する。
     # CSRF ミドルウェアで弾かれていれば、その手前で 403（text/plain の Forbidden）になる。

@@ -65,6 +65,10 @@ set :erb, escape_html: true
 set :show_exceptions, false
 set :dump_errors, false
 
+# POST の `_method` などで HTTP メソッドを読み替える機能（Sinatra クラシックの既定で有効）は使わないので切る。
+# この機能はログインや CSRF の判定より前に、送り手が文字コードを指定できる値を加工するため、入口を残さない。
+set :method_override, false
+
 configure :production do
   set :raise_errors, false
 end
