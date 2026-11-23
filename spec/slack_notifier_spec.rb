@@ -53,6 +53,16 @@ RSpec.describe SlackNotifier do
     expect { described_class.notify("x") }.to output(/\A(?!.*hooks\.slack\.com).*\z/m).to_stderr
   end
 
+  it "本文の & < > を文字参照に置き換え、Slack の記法（全員への通知・リンク）として解釈させない" do
+    stub = stub_request(:post, webhook)
+           .with(body: { "text" => "依頼者: &lt;!channel&gt; R&amp;D\n件名: &lt;https://example.com|確認&gt;" }.to_json)
+           .to_return(status: 200)
+    described_class.configure(webhook)
+    described_class.notify("依頼者: <!channel> R&D\n件名: <https://example.com|確認>")
+
+    expect(stub).to have_been_requested
+  end
+
   describe "メンション（SLACK_MENTION）" do
     it "channel 指定なら text 先頭に <!channel> が付く（大文字小文字不問）" do
       stub = stub_request(:post, webhook)
@@ -70,6 +80,16 @@ RSpec.describe SlackNotifier do
              .to_return(status: 200)
       described_class.configure(webhook, mention: "here")
       described_class.notify("予約が入りました")
+
+      expect(stub).to have_been_requested
+    end
+
+    it "先頭に付けるメンションは記法のまま残し、本文の記法だけを置き換える" do
+      stub = stub_request(:post, webhook)
+             .with(body: { "text" => "<!here> 件名: &lt;!channel&gt;" }.to_json)
+             .to_return(status: 200)
+      described_class.configure(webhook, mention: "here")
+      described_class.notify("件名: <!channel>")
 
       expect(stub).to have_been_requested
     end
